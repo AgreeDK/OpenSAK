@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.16.0-beta.13] — 2026-07-26
+
+> **Beta release** — a new Default Column View system (named, saveable
+> column configurations with a toolbar quick-switch, replacing #606's
+> implicit "last used" fallback), plus three small UI fixes: centered
+> text columns, dark-theme placeholder text, and a readable Where-filter
+> error box in dark mode.
+
 ### Fixed
 
 - **Country/Region/County columns left-aligned instead of centered (#603)**
