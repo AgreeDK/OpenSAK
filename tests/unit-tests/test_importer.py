@@ -1031,3 +1031,68 @@ def test_reimport_dnf_date_survives_partial_reimport(tmp_db, tmp_path):
         import_gpx(f2, s)
         cache = s.query(Cache).filter_by(gc_code="GCACCUM4").one()
         assert cache.dnf_date is not None
+
+
+# ── Issue #591: CCE caches imported/displayed as "Event Cache" ──────────────
+
+def test_import_gpx_real_gc8t83e_fixture_recognized_as_cce(tmp_db, tmp_path):
+    # Real-world repro from issue #591: geocaching.com's own <groundspeak:type>
+    # for this cache is plain "Event Cache" — only the free-text name says
+    # "Community Celebration Event". Uses the actual GPX the reporter/Allan
+    # supplied (GC8T83E), trimmed to keep the fixture small but with the
+    # exact <groundspeak:type> / <groundspeak:name> fields from the original.
+    gpx = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<gpx version="1.0" creator="Groundspeak, Inc." '
+        'xmlns="http://www.topografix.com/GPX/1/0">'
+        '<wpt lat="50.0908" lon="14.444983">'
+        '<time>2020-07-24T17:00:00</time>'
+        '<n>GC8T83E</n>'
+        '<urlname>Karlínská kasárna - Community Celebration Event</urlname>'
+        '<sym>Geocache</sym>'
+        '<type>Geocache|Event Cache</type>'
+        '<groundspeak:cache id="7729618" archived="True" available="False" '
+        'xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">'
+        '<groundspeak:name>Karlínská kasárna - Community Celebration Event</groundspeak:name>'
+        '<groundspeak:placed_by>bumbik</groundspeak:placed_by>'
+        '<groundspeak:type>Event Cache</groundspeak:type>'
+        '<groundspeak:container>Other</groundspeak:container>'
+        '<groundspeak:attributes/>'
+        '<groundspeak:difficulty>1</groundspeak:difficulty>'
+        '<groundspeak:terrain>1.5</groundspeak:terrain>'
+        '<groundspeak:logs/>'
+        '</groundspeak:cache></wpt></gpx>'
+    )
+    f = write_gpx(tmp_path, "gc8t83e.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GC8T83E").one()
+        assert cache.cache_type == "Community Celebration Event"
+
+
+def test_import_gpx_plain_event_cache_not_reclassified(tmp_db, tmp_path):
+    # A normal Event Cache whose name has nothing to do with CCE must keep
+    # showing as a plain Event Cache — the #591 fix must not misfire here.
+    gpx = build_gpx(cache_wpt(
+        "GCEVENT2", name="Saturday Coffee Meetup", cache_type="Event Cache", gs_id=60201,
+    ))
+    f = write_gpx(tmp_path, "plainevent.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCEVENT2").one()
+        assert cache.cache_type == "Event Cache"
+
+
+def test_import_gpx_cce_name_on_non_event_type_not_reclassified(tmp_db, tmp_path):
+    # The fallback only applies when groundspeak:type is genuinely "Event
+    # Cache" — a cache of some other type happening to mention the phrase
+    # (e.g. a puzzle cache commemorating one) must not be reclassified.
+    gpx = build_gpx(cache_wpt(
+        "GCEVENT3", name="Puzzle honouring the Community Celebration Event",
+        cache_type="Unknown Cache", gs_id=60202,
+    ))
+    f = write_gpx(tmp_path, "cceword.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCEVENT3").one()
+        assert cache.cache_type == "Unknown Cache"

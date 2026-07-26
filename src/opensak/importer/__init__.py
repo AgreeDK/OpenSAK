@@ -262,6 +262,16 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
     cache_type   = _text(gs_cache, "gs:type",              active_ns) or cache_type_full
     if cache_type.lower() in ("gps adventures maze exhibit", "gps adventures exhibit"):
         cache_type = "GPS Adventures Maze"
+    # Issue #591: Community Celebration Events (a limited-run program,
+    # May 2020 - Dec 2021) never got their own value in Groundspeak's
+    # machine-readable <groundspeak:type> field — geocaching.com's GPX
+    # always exports these as plain "Event Cache", with "Community
+    # Celebration Event" appearing only in the free-text cache name
+    # (e.g. "Karlínská kasárna - Community Celebration Event"). Without
+    # this fallback such caches show the generic Event icon/type instead
+    # of their actual, more specific one.
+    elif cache_type == "Event Cache" and "community celebration event" in name.lower():
+        cache_type = "Community Celebration Event"
     container    = _text(gs_cache, "gs:container",         active_ns)
     difficulty   = _float(gs_cache, "gs:difficulty",       active_ns)
     terrain      = _float(gs_cache, "gs:terrain",          active_ns)
