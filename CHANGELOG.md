@@ -6,15 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed
+---
 
-- **Toolbar Column View dropdown always showed "(None)" (#607 follow-up)**
-  — columns switched correctly per database, but the quick-switch
-  dropdown reset to "(None)" on every use and every database switch
-  regardless of what was actually applied, reported by a beta tester.
-  It now compares the active database's current column configuration
-  against all saved views and selects the matching one, if any — still
-  a fresh comparison each time, not a stored "follow this view" link.
+## [1.16.0-beta.14] — 2026-07-26
+
+> **Beta release** — vertical gridlines in the database grid (#463).
+
+### Added
+
+- **Vertical gridlines in the cache table** (#463) — columns in the main
+  cache grid now have a thin vertical separator line at each column
+  boundary, in addition to the existing alternating row colours. The
+  line colour follows the active theme's palette (light/dark), so no
+  additional theme handling is needed. User-configurable colours,
+  independent show/hide toggles for horizontal vs. vertical lines, and
+  the proposed new Appearance settings tab remain out of scope for now —
+  basic functionality comes first, per the discussion on the issue.
 
 ---
 
