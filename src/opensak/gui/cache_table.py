@@ -11,7 +11,7 @@ from datetime import datetime
 from PySide6.QtCore import (
     Qt, QAbstractTableModel, QModelIndex, QPersistentModelIndex, Signal, QPoint, QLocale, QDate
 )
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication,
     QStyle, QStyleOptionHeader,
@@ -1276,6 +1276,45 @@ class CacheTableView(QTableView):
                 selection-color: white;
             }
         """)
+
+    def paintEvent(self, event) -> None:
+        """
+        Issue #463: vertikale gridlines mellem kolonner.
+
+        Rækkerne bruger allerede alternating row colours til at adskille dem
+        horisontalt, så setShowGrid() forbliver False (det ville også tegne
+        vandrette linjer). Her tegnes kun en lodret linje ved højre kant af
+        hver synlig kolonne (undtagen den sidste), oven på den normale
+        rendering.
+
+        Bemærk: en tidligere version af denne metode overrode drawRow() i
+        stedet, men PySide6 eksponerer ikke drawRow som en overridable
+        virtual (bekræftet med et instrumenteret render-tjek: metoden blev
+        aldrig kaldt), så linjerne blev aldrig tegnet. paintEvent() er
+        standardmetoden til den slags custom item-view-dekoration i
+        PySide6/PyQt og bliver pålideligt kaldt.
+        """
+        super().paintEvent(event)
+        row_count = self._model.rowCount()
+        if row_count == 0:
+            return
+        viewport = self.viewport()
+        bottom = min(
+            self.rowViewportPosition(row_count - 1) + self.rowHeight(row_count - 1),
+            viewport.height(),
+        )
+        if bottom <= 0:
+            return
+        painter = QPainter(viewport)
+        painter.setPen(self.palette().color(QPalette.ColorRole.Mid))
+        column_count = self._model.columnCount()
+        for col in range(column_count - 1):
+            if self.isColumnHidden(col):
+                continue
+            x = self.columnViewportPosition(col) + self.columnWidth(col)
+            if 0 <= x <= viewport.width():
+                painter.drawLine(x, 0, x, bottom)
+        painter.end()
 
     def mousePressEvent(self, event) -> None:
         """Klik på user_flag-, first_to_find- eller locked-kolonnen toggler feltet direkte."""
