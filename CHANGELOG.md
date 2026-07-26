@@ -8,6 +8,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.0-beta.12] — 2026-07-26
+
+> **Beta release** — a cluster of GPX-import fixes reported by the
+> community: a lost hidden date from Project-GC exports, logs being wiped
+> on every re-import instead of accumulating, Community Celebration Event
+> caches showing the wrong type, and column settings not carrying over to
+> a new database.
+
+### Fixed
+
+- **Hidden date lost when importing a GPX file from Project-GC** (#617) —
+  `_parse_datetime()` only handled a bare or `Z`-suffixed ISO 8601
+  timestamp (geocaching.com's own format). Project-GC instead exports an
+  explicit UTC offset (`2026-03-16T00:00:00+00:00`), which matched none
+  of the old `strptime` patterns and silently came back as `None`,
+  dropping the hidden date entirely. Now tries `datetime.fromisoformat()`
+  first and converts properly to UTC (a `+02:00` offset is converted to
+  the correct UTC instant, not just relabelled), falling back to the
+  previous patterns for anything else. The same function also parses log
+  dates, so this fixes any log-date loss from Project-GC-style exports
+  too, not just hidden dates.
+
+- **Logs removed from one GPX import to another** (#618) — every
+  re-import (e.g. loading a new Pocket Query) deleted *all* of a cache's
+  existing logs and rebuilt them from that file alone. Since a single
+  GPX/PQ typically only carries a cache's most recent handful of logs,
+  this meant older logs not present in that particular file were
+  permanently lost on the next import — unlike GSAK, which lets logs
+  accumulate over time. Logs are now merged instead: a matching log ID is
+  updated in place (e.g. an edited log text), a new one is added, and any
+  existing log absent from the current file is left untouched.
+  `log_count`, `last_log_date`, and `dnf_date` are now derived from the
+  full merged set rather than just the current file's logs, so a partial
+  re-import can no longer move them backwards or silently clear them.
+
+- **Community Celebration Event caches imported as generic "Event
+  Cache"** (#591) — geocaching.com's own machine-readable
+  `<groundspeak:type>` field has no distinct value for Community
+  Celebration Events (a limited-run program, May 2020 – Dec 2021) — it's
+  always exported as plain "Event Cache". The actual event type only
+  survives in the free-text cache name (e.g. "Karlínská kasárna -
+  Community Celebration Event"). Added a narrow fallback: when
+  `groundspeak:type` is exactly "Event Cache" and the cache name contains
+  the literal phrase "Community Celebration Event", the cache is now
+  classified as such — using the dedicated type/icon that already existed
+  but was never being reached. Verified against a real-world GPX export
+  for the reported cache (GC8T83E); a plain Event Cache, or another type
+  merely mentioning the phrase in its name, is correctly left unchanged.
+
+- **Displayed field when importing .gpx not consistent with previous
+  settings** (#606) — column visibility and widths are saved per database
+  name, so a brand-new database had no saved key yet and fell straight
+  back to the hard-coded defaults, silently reverting any customisation
+  (e.g. an added Country/State/County column) already made in another
+  database. Added a global "last used" fallback key, updated on every
+  save, that a database with no settings of its own now falls back to
+  before the hard-coded defaults — so a new database inherits whatever
+  was last configured, anywhere.
+
+---
+
 ## [1.16.0-beta.11] — 2026-07-22
 
 > **Beta release** — a setting to disable the map panel entirely (and a
