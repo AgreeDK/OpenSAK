@@ -1,11 +1,12 @@
 # tests/unit-tests/test_importer.py — GPX/ZIP importer tests.
 
 import pytest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from opensak.db.database import get_session, init_db
-from opensak.db.models import Cache
-from opensak.importer import import_gpx, import_zip, ImportResult, _count_wpts, _is_companion_gpx
+from opensak.db.models import Cache, Log
+from opensak.importer import import_gpx, import_zip, ImportResult, _count_wpts, _is_companion_gpx, _parse_datetime
 
 from tests.data import (
     SAMPLE_GPX, SAMPLE_WPTS_GPX, EMPTY_GPX,
@@ -836,3 +837,197 @@ def test_import_found_log_count_zero_without_username_configured(tmp_db, tmp_pat
         cache = s.query(Cache).filter_by(gc_code="GCNOUSER").one()
         assert cache.found is True
         assert cache.found_log_count == 0
+
+
+# ── Issue #617: hidden date lost from Project-GC-style GPX ───────────────────
+
+class TestParseDatetimeOffsets:
+    """Unit tests for _parse_datetime() covering the Project-GC offset bug."""
+
+    def test_bare_geocaching_com_format(self):
+        dt = _parse_datetime("2026-03-16T00:00:00")
+        assert dt == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_z_suffixed_format(self):
+        dt = _parse_datetime("2026-03-16T00:00:00Z")
+        assert dt == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_explicit_utc_offset_project_gc_format(self):
+        # This is exactly the string from issue #617's Project-GC GPX export.
+        dt = _parse_datetime("2026-03-16T00:00:00+00:00")
+        assert dt == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_non_utc_offset_is_converted_not_just_relabelled(self):
+        # +02:00 must be converted to the equivalent UTC instant, not
+        # naively relabelled as if it were already UTC.
+        dt = _parse_datetime("2026-03-16T02:00:00+02:00")
+        assert dt == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_date_only_format(self):
+        dt = _parse_datetime("2026-03-16")
+        assert dt == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_microseconds_format(self):
+        dt = _parse_datetime("2026-03-16T00:00:00.123456")
+        assert dt is not None
+        assert dt.microsecond == 123456
+
+    def test_empty_and_none_return_none(self):
+        assert _parse_datetime(None) is None
+        assert _parse_datetime("") is None
+
+    def test_garbage_returns_none(self):
+        assert _parse_datetime("not a date") is None
+
+
+def test_import_gpx_hidden_date_project_gc_offset_format(tmp_db, tmp_path):
+    # Integration-level repro of issue #617: a GPX with an explicit +00:00
+    # offset on the wpt <time> element must not lose the hidden date.
+    gpx = build_gpx(cache_wpt(
+        "GCPGC001", cache_type="Traditional Cache", gs_id=60001,
+        hidden_date="2026-03-16T00:00:00+00:00",
+    ))
+    f = write_gpx(tmp_path, "projectgc.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCPGC001").one()
+        assert cache.hidden_date is not None
+        assert cache.hidden_date.year == 2026
+        assert cache.hidden_date.month == 3
+        assert cache.hidden_date.day == 16
+
+
+def test_import_gpx_hidden_date_geocaching_com_format_still_works(tmp_db, tmp_path):
+    # Make sure the fix didn't regress the plain/Z-suffixed geocaching.com format.
+    gpx = build_gpx(cache_wpt(
+        "GCGCCOM1", cache_type="Traditional Cache", gs_id=60002,
+        hidden_date="2026-03-16T00:00:00Z",
+    ))
+    f = write_gpx(tmp_path, "gccom.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCGCCOM1").one()
+        assert cache.hidden_date is not None
+        assert cache.hidden_date.year == 2026
+        assert cache.hidden_date.month == 3
+        assert cache.hidden_date.day == 16
+
+
+# ── Issue #618: logs should accumulate across GPX imports, not be wiped ──────
+
+def test_reimport_keeps_logs_not_present_in_new_file(tmp_db, tmp_path):
+    gpx1 = build_gpx(cache_wpt(
+        "GCACCUM1", cache_type="Traditional Cache", gs_id=60101,
+        logs=[
+            {"id": "60101001", "type": "Found it", "date": "2020-01-01T00:00:00Z",
+             "finder": "Alice", "finder_id": "1"},
+        ],
+    ))
+    f1 = write_gpx(tmp_path, "accum1.gpx", gpx1)
+    with get_session() as s:
+        import_gpx(f1, s)
+
+    # Second file for the same cache doesn't include Alice's log at all.
+    gpx2 = build_gpx(cache_wpt(
+        "GCACCUM1", cache_type="Traditional Cache", gs_id=60101,
+        logs=[
+            {"id": "60101002", "type": "Note", "date": "2021-01-01T00:00:00Z",
+             "finder": "Bob", "finder_id": "2"},
+        ],
+    ))
+    f2 = write_gpx(tmp_path, "accum2.gpx", gpx2)
+    with get_session() as s:
+        import_gpx(f2, s)
+        cache = s.query(Cache).filter_by(gc_code="GCACCUM1").one()
+        log_ids = {lg.log_id for lg in cache.logs}
+        assert "60101001" in log_ids   # Alice's log from file 1 survived
+        assert "60101002" in log_ids   # Bob's log from file 2 was added
+        assert cache.log_count == 2
+
+
+def test_reimport_updates_matching_log_id_in_place(tmp_db, tmp_path):
+    gpx1 = build_gpx(cache_wpt(
+        "GCACCUM2", cache_type="Traditional Cache", gs_id=60102,
+        logs=[
+            {"id": "60102001", "type": "Found it", "date": "2020-01-01T00:00:00Z",
+             "finder": "Alice", "finder_id": "1", "text": "Original text"},
+        ],
+    ))
+    f1 = write_gpx(tmp_path, "accum3.gpx", gpx1)
+    with get_session() as s:
+        import_gpx(f1, s)
+
+    # Re-import the SAME log id with an edited text (e.g. finder edited their log).
+    gpx2 = build_gpx(cache_wpt(
+        "GCACCUM2", cache_type="Traditional Cache", gs_id=60102,
+        logs=[
+            {"id": "60102001", "type": "Found it", "date": "2020-01-01T00:00:00Z",
+             "finder": "Alice", "finder_id": "1", "text": "Edited text"},
+        ],
+    ))
+    f2 = write_gpx(tmp_path, "accum4.gpx", gpx2)
+    with get_session() as s:
+        import_gpx(f2, s)
+        cache = s.query(Cache).filter_by(gc_code="GCACCUM2").one()
+        assert cache.log_count == 1  # updated in place, not duplicated
+        logs = s.query(Log).filter_by(cache_id=cache.id).all()
+        assert len(logs) == 1
+        assert logs[0].text == "Edited text"
+
+
+def test_reimport_last_log_date_reflects_merged_set(tmp_db, tmp_path):
+    # A newer log already in the DB must not be shadowed by an older-only
+    # re-import file when computing last_log_date.
+    gpx1 = build_gpx(cache_wpt(
+        "GCACCUM3", cache_type="Traditional Cache", gs_id=60103,
+        logs=[
+            {"id": "60103001", "type": "Found it", "date": "2026-06-01T00:00:00Z",
+             "finder": "Alice", "finder_id": "1"},
+        ],
+    ))
+    f1 = write_gpx(tmp_path, "accum5.gpx", gpx1)
+    with get_session() as s:
+        import_gpx(f1, s)
+
+    gpx2 = build_gpx(cache_wpt(
+        "GCACCUM3", cache_type="Traditional Cache", gs_id=60103,
+        logs=[
+            {"id": "60103002", "type": "Note", "date": "2020-01-01T00:00:00Z",
+             "finder": "Bob", "finder_id": "2"},
+        ],
+    ))
+    f2 = write_gpx(tmp_path, "accum6.gpx", gpx2)
+    with get_session() as s:
+        import_gpx(f2, s)
+        cache = s.query(Cache).filter_by(gc_code="GCACCUM3").one()
+        assert cache.last_log_date.year == 2026
+
+
+def test_reimport_dnf_date_survives_partial_reimport(tmp_db, tmp_path):
+    # A DNF log already stored must keep dnf_date set even when a later
+    # re-import file happens not to include any DNF-type log.
+    gpx1 = build_gpx(cache_wpt(
+        "GCACCUM4", cache_type="Traditional Cache", gs_id=60104,
+        logs=[
+            {"id": "60104001", "type": "Didn't find it", "date": "2025-05-01T00:00:00Z",
+             "finder": "Alice", "finder_id": "1"},
+        ],
+    ))
+    f1 = write_gpx(tmp_path, "accum7.gpx", gpx1)
+    with get_session() as s:
+        import_gpx(f1, s)
+        cache = s.query(Cache).filter_by(gc_code="GCACCUM4").one()
+        assert cache.dnf_date is not None
+
+    gpx2 = build_gpx(cache_wpt(
+        "GCACCUM4", cache_type="Traditional Cache", gs_id=60104,
+        logs=[
+            {"id": "60104002", "type": "Found it", "date": "2026-01-01T00:00:00Z",
+             "finder": "Bob", "finder_id": "2"},
+        ],
+    ))
+    f2 = write_gpx(tmp_path, "accum8.gpx", gpx2)
+    with get_session() as s:
+        import_gpx(f2, s)
+        cache = s.query(Cache).filter_by(gc_code="GCACCUM4").one()
+        assert cache.dnf_date is not None

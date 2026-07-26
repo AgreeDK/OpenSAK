@@ -183,6 +183,7 @@ def cache_wpt(
     logs: list[dict] | None = None,
     attributes: list[dict] | None = None,
     sym: str | None = None,
+    hidden_date: str | None = None,
 ) -> str:
     """One Groundspeak ``<wpt>`` block. logs keys: id/type/finder/finder_id/date/text;
     attributes keys: id/inc/name. sym: <sym> value — pass "Geocache Found" to mark
@@ -207,9 +208,11 @@ def cache_wpt(
         f"<groundspeak:encoded_hints>{hint}</groundspeak:encoded_hints>" if hint else ""
     )
     sym_xml = f"<sym>{sym}</sym>" if sym else ""
+    time_xml = f"<time>{hidden_date}</time>" if hidden_date else ""
     return (
         f'<wpt lat="{lat}" lon="{lon}">'
         f"<n>{gc_code}</n>"
+        f"{time_xml}"
         f"<urlname>{name}</urlname>"
         f"{sym_xml}"
         f"<type>Geocache|{cache_type}</type>"

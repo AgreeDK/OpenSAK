@@ -76,10 +76,30 @@ def _bool_attr(element, xpath: str, ns: dict = NS) -> bool:
 
 
 def _parse_datetime(raw: Optional[str]) -> Optional[datetime]:
-    """Parse ISO 8601 datetime strings from GPX files into UTC datetimes."""
+    """Parse ISO 8601 datetime strings from GPX files into UTC datetimes.
+
+    Geocaching.com's own GPX exports use a bare or 'Z'-suffixed timestamp
+    ("2026-03-16T00:00:00Z"), which the old strptime-only version below
+    handled fine. Third-party generators such as Project-GC instead emit an
+    explicit numeric UTC offset ("2026-03-16T00:00:00+00:00") — none of the
+    strptime patterns match that, so the whole field silently came back as
+    None (issue #617, e.g. hidden_date and log dates disappearing on
+    import). Try the offset-aware ISO 8601 parse first and convert properly
+    to UTC; fall back to the older strptime patterns for anything else.
+    """
     if not raw:
         return None
-    raw = raw.strip().rstrip("Z")
+    raw = raw.strip()
+
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        pass
+
+    raw = raw.rstrip("Z")
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d"):
         try:
             return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
@@ -803,7 +823,15 @@ def _upsert_cache(
         # synchronise. The DELETEs still execute immediately. flush() afterwards
         # forces them to disk before the new rows are added in the same batch,
         # otherwise the UNIQUE constraint on logs.log_id would fire.
-        session.query(Log).filter_by(cache_id=cache.id).delete(synchronize_session=False)
+        #
+        # Issue #618: Logs are deliberately NOT deleted here any more. Unlike
+        # attributes/trackables/waypoints (which a GPX always describes in
+        # full), a single GPX/PQ typically only carries a cache's most recent
+        # handful of logs — deleting-then-reinserting on every import meant
+        # older logs not present in that particular file were silently lost.
+        # Logs are now merged further down: matching log_id's are updated in
+        # place, new ones are added, and anything already in the database
+        # that isn't in this file is left untouched.
         session.query(Attribute).filter_by(cache_id=cache.id).delete(synchronize_session=False)
         session.query(Trackable).filter_by(cache_id=cache.id).delete(synchronize_session=False)
         session.query(Waypoint).filter_by(cache_id=cache.id).delete(synchronize_session=False)
@@ -849,8 +877,21 @@ def _upsert_cache(
     # Alle negative log IDs og kendte dummy-værdier får genereret et unikt ID.
     # Nogle GPX filer fra geocaching.com indeholder duplikate logs med samme id —
     # vi springer dubletter over så UNIQUE constraint ikke fyrer.
+    #
+    # Issue #618: logs accumulate across imports instead of being wiped and
+    # rebuilt each time. existing_logs_by_id holds every Log row already in
+    # the database for this cache (empty for a brand-new cache); a log_id
+    # match updates that row in place, anything new is added, and rows for
+    # log_id's simply absent from *this* file are left exactly as they were.
+    existing_logs_by_id: dict[Optional[str], Log] = {}
+    if existing is not None:
+        existing_logs_by_id = {
+            lg.log_id: lg
+            for lg in session.query(Log).filter_by(cache_id=cache.id).all()
+        }
+
     DUMMY_LOG_IDS = {"0", None, ""}
-    seen_log_ids: set[str] = set()
+    seen_log_ids_this_file: set[str] = set()
     for idx, lg in enumerate(data.get("logs", [])):
         raw_id = lg["log_id"]
         is_dummy = raw_id in DUMMY_LOG_IDS
@@ -863,28 +904,52 @@ def _upsert_cache(
             log_id = f"gen_{data['gc_code']}_{idx}"
         else:
             log_id = raw_id
-        if log_id in seen_log_ids:
+        if log_id in seen_log_ids_this_file:
             continue
-        seen_log_ids.add(log_id)
-        session.add(Log(
-            cache=cache,
-            log_id=log_id,
-            log_type=lg["log_type"],
-            log_date=lg["log_date"],
-            finder=lg["finder"],
-            finder_id=lg["finder_id"],
-            text=lg["text"],
-            text_encoded=lg["text_encoded"],
-        ))
+        seen_log_ids_this_file.add(log_id)
+
+        existing_log = existing_logs_by_id.get(log_id)
+        if existing_log is not None:
+            existing_log.log_type = lg["log_type"]
+            existing_log.log_date = lg["log_date"]
+            existing_log.finder = lg["finder"]
+            existing_log.finder_id = lg["finder_id"]
+            existing_log.text = lg["text"]
+            existing_log.text_encoded = lg["text_encoded"]
+        else:
+            new_log = Log(
+                cache=cache,
+                log_id=log_id,
+                log_type=lg["log_type"],
+                log_date=lg["log_date"],
+                finder=lg["finder"],
+                finder_id=lg["finder_id"],
+                text=lg["text"],
+                text_encoded=lg["text_encoded"],
+            )
+            session.add(new_log)
+            existing_logs_by_id[log_id] = new_log
 
     # ── Issue #87: Cache log count for fast UI display ──────────────────────
-    # Old logs were deleted at the start of this function (re-import), and
-    # seen_log_ids holds the de-duplicated set of logs we just added — so
-    # its length equals the new total count of logs for this cache.
-    cache.log_count = len(seen_log_ids)
+    # existing_logs_by_id now holds the full merged set of logs for this
+    # cache (untouched + updated + newly added), so its length is the total.
+    cache.log_count = len(existing_logs_by_id)
 
     # ── Issue #186: Cache latest log date for fast UI display ────────────────
-    log_dates = [lg["log_date"] for lg in data.get("logs", []) if lg.get("log_date")]
+    # Issue #618: computed from the merged set, not just this file's logs —
+    # otherwise re-importing a file with older logs than what's already
+    # stored could move last_log_date backwards.
+    # Issue #618: existing_logs_by_id mixes freshly-parsed dates (always
+    # UTC-aware, from _parse_datetime) with dates read back from rows already
+    # in the database (SQLite/SQLAlchemy returns those naive, since SQLite
+    # itself doesn't store tzinfo). Comparing naive and aware datetimes
+    # directly raises TypeError, so normalize to aware-UTC before max().
+    def _as_aware_utc(dt):
+        if dt is None:
+            return None
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+    log_dates = [_as_aware_utc(lg.log_date) for lg in existing_logs_by_id.values() if lg.log_date]
     cache.last_log_date = max(log_dates) if log_dates else None
 
     # Trackables
@@ -973,11 +1038,15 @@ def _upsert_cache(
     # We only touch them if we actually have log data to derive from.
     if logs_data:
         # dnf_date: date of the most recent "Didn't find it" log by any finder
-        # (GSAK stores the last DNF date regardless of who logged it)
+        # (GSAK stores the last DNF date regardless of who logged it).
+        # Issue #618: derived from the merged log set (existing_logs_by_id),
+        # not just this file's logs_data — otherwise a re-import that simply
+        # doesn't happen to include a DNF log would reset dnf_date to None
+        # even though the DNF log itself is still sitting in the database.
         dnf_dates = [
-            lg["log_date"]
-            for lg in logs_data
-            if lg.get("log_type") == "Didn't find it" and lg.get("log_date")
+            _as_aware_utc(lg.log_date)
+            for lg in existing_logs_by_id.values()
+            if lg.log_type == "Didn't find it" and lg.log_date
         ]
         cache.dnf_date = max(dnf_dates) if dnf_dates else None
 

@@ -33,6 +33,32 @@ def store(tmp_path, monkeypatch):
     return fresh
 
 
+@pytest.fixture
+def fake_active_db(monkeypatch):
+    """Let a test control which 'active database name' _col_key() sees,
+    without needing a real Database/DatabaseManager instance."""
+    class _FakeDb:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeManager:
+        def __init__(self):
+            self.active = None
+
+    manager = _FakeManager()
+
+    def _get_db_manager():
+        return manager
+
+    import opensak.db.manager as db_manager_module
+    monkeypatch.setattr(db_manager_module, "get_db_manager", _get_db_manager)
+
+    def _set_active(name):
+        manager.active = _FakeDb(name) if name is not None else None
+
+    return _set_active
+
+
 # ── module-level helpers ──────────────────────────────────────────────────────
 
 class TestColumnHelpers:
@@ -182,3 +208,62 @@ class TestColumnChooserDialog:
         assert "found" not in saved
         remaining = [c for c in saved if c in {"name", "gc_code", "difficulty", "terrain"}]
         assert remaining == ["name", "gc_code", "difficulty", "terrain"]
+
+
+# ── Issue #606: new database should inherit column settings ─────────────────
+
+class TestLastUsedFallback:
+    """A brand-new database has no columns.<name>.* key yet — it should
+    inherit the most recently used settings instead of resetting to the
+    hard-coded defaults (issue #606)."""
+
+    def test_new_database_inherits_visible_columns_from_previous_db(
+        self, store, fake_active_db
+    ):
+        fake_active_db("Default")
+        set_visible_columns(["gc_code", "name", "country", "state", "county"])
+
+        fake_active_db("New Trip DB")  # brand-new database, nothing saved yet
+        assert get_visible_columns() == ["gc_code", "name", "country", "state", "county"]
+
+    def test_new_database_inherits_column_widths_from_previous_db(
+        self, store, fake_active_db
+    ):
+        fake_active_db("Default")
+        set_column_widths({"gc_code": 90, "name": 300})
+
+        fake_active_db("New Trip DB")
+        assert get_column_widths() == {"gc_code": 90, "name": 300}
+
+    def test_database_with_its_own_saved_settings_is_not_overridden(
+        self, store, fake_active_db
+    ):
+        fake_active_db("Default")
+        set_visible_columns(["gc_code", "name", "country"])
+
+        fake_active_db("Other DB")
+        set_visible_columns(["gc_code", "name", "difficulty"])
+
+        # Switching back to "Default" must still see its own saved choice,
+        # not "Other DB"'s (last-used is only a fallback for unset databases).
+        fake_active_db("Default")
+        assert get_visible_columns() == ["gc_code", "name", "country"]
+
+    def test_last_used_updates_on_every_save_not_just_first(
+        self, store, fake_active_db
+    ):
+        fake_active_db("Default")
+        set_visible_columns(["gc_code", "name"])
+        fake_active_db("Second DB")
+        set_visible_columns(["gc_code", "name", "found"])
+
+        fake_active_db("Brand New DB")
+        assert get_visible_columns() == ["gc_code", "name", "found"]
+
+    def test_no_previous_database_falls_back_to_hard_coded_defaults(
+        self, store, fake_active_db
+    ):
+        fake_active_db("First Ever DB")
+        vis = get_visible_columns()
+        assert "gc_code" in vis
+        assert "country" not in vis

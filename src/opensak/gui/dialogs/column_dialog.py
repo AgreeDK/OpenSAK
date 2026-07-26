@@ -123,11 +123,31 @@ def _col_key(suffix: str) -> str:
     return f"columns.default.{suffix}"
 
 
+def _last_used_key(suffix: str) -> str:
+    """
+    Global (not per-database) fallback key for column settings.
+
+    Issue #606: column visibility/widths are saved per database name via
+    _col_key(), so a brand-new database has no key yet and used to fall
+    straight back to the hard-coded defaults — silently reverting any
+    customisation (e.g. added Country/State/County columns) the user had
+    already made in another database. This key is updated on every save and
+    read as a fallback before giving up to the hard-coded defaults, so a new
+    database instead inherits whatever was last configured anywhere.
+    """
+    return f"columns.__last_used__.{suffix}"
+
+
 def get_visible_columns() -> list[str]:
     """Returner liste over synlige kolonne-id'er for den aktive database."""
     saved = get_store().get(_col_key("visible"))
     if saved:
         return list(saved)
+    # Issue #606: fall back to the last database's choice before giving up
+    # to the hard-coded defaults.
+    last_used = get_store().get(_last_used_key("visible"))
+    if last_used:
+        return list(last_used)
     # Standard: vis de kolonner der er markeret som standard
     return [col[0] for col in get_all_columns() if col[3]]
 
@@ -135,11 +155,15 @@ def get_visible_columns() -> list[str]:
 def set_visible_columns(col_ids: list[str]) -> None:
     """Gem liste over synlige kolonne-id'er for den aktive database."""
     get_store().set(_col_key("visible"), col_ids)
+    get_store().set(_last_used_key("visible"), col_ids)
 
 
 def get_column_widths() -> dict[str, int]:
     """Return saved column widths (col_id -> px) for the active database."""
     raw = get_store().get(_col_key("widths"))
+    if not raw:
+        # Issue #606: same fallback as get_visible_columns() above.
+        raw = get_store().get(_last_used_key("widths"))
     if raw:
         try:
             if isinstance(raw, str):
@@ -154,6 +178,7 @@ def get_column_widths() -> dict[str, int]:
 def set_column_widths(widths: dict[str, int]) -> None:
     """Persist column widths (col_id -> px) for the active database."""
     get_store().set(_col_key("widths"), widths)
+    get_store().set(_last_used_key("widths"), widths)
 
 
 _CONTAINER_DISPLAY_KEY = "columns.container_display"
