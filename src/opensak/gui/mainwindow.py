@@ -3,7 +3,7 @@ src/opensak/gui/mainwindow.py — Main application window.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Optional, cast
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
@@ -849,11 +849,14 @@ class MainWindow(QMainWindow):
         self._reload_home_combo()
         # Genindlæs kolonner for den nye database (issue #199)
         self._cache_table.reload_columns()
-        # Issue #607: nulstil quick-switch-comboen — den er en engangs-
-        # anvend-handling, ikke en vedvarende "aktivt view for denne DB"-
-        # indikator, så den skal altid stå på "(Ingen)" efter et db-skift.
+        # Issue #607 (opfølgning): genindlæs comboen for den nye database —
+        # den viser nu automatisk navnet på et gemt view, hvis databasens
+        # nuværende kolonneopsætning matcher det byte-for-byte, i stedet for
+        # altid at nulstille til "(Ingen)". Dette er stadig ikke en
+        # vedvarende, gemt kobling (ingen "følg dette view"-tilstand) — det
+        # er blot en frisk sammenligning hver gang.
         if hasattr(self, "_column_view_combo"):
-            self._column_view_combo.setCurrentIndex(0)
+            self._populate_column_view_combo()
         # Reload kort med aktuel lokation for denne DB
         self._map_widget.reload_map(self._refresh_cache_list)
         self._statusbar.showMessage(
@@ -2175,12 +2178,23 @@ class MainWindow(QMainWindow):
             self._cache_table.reload_columns()
 
     def _populate_column_view_combo(self) -> None:
-        """Genindlæs alle gemte Column Views i toolbar-dropdown (#607)."""
+        """Genindlæs alle gemte Column Views i toolbar-dropdown (#607).
+
+        Vælger automatisk det gemte view, hvis den aktive databases
+        nuværende kolonneopsætning (synlige kolonner, bredder,
+        container/type-display) matcher et gemt view byte-for-byte —
+        ellers "(Ingen)". Dette er en frisk sammenligning hver gang, ikke
+        en gemt "denne DB følger dette view"-kobling (den blev bevidst
+        fravalgt tidligere), så det ændrer intet ved hvordan OK/anvend
+        opfører sig — det gør blot comboen til en korrekt visning af den
+        aktuelle tilstand i stedet for altid at stå tomt."""
         from opensak.gui.dialogs.column_dialog import ColumnView, get_default_view_name
         self._column_view_combo.blockSignals(True)
         self._column_view_combo.clear()
         self._column_view_combo.addItem(tr("column_view_none"), None)
         default_name = get_default_view_name()
+        match_name = self._current_column_view_match()
+        match_index = 0
         for path in ColumnView.list_views():
             try:
                 view = ColumnView.load(path)
@@ -2188,19 +2202,44 @@ class MainWindow(QMainWindow):
                 continue
             label = f"★ {view.name}" if default_name and view.name == default_name else view.name
             self._column_view_combo.addItem(label, path)
-        self._column_view_combo.setCurrentIndex(0)
+            if match_name and view.name == match_name:
+                match_index = self._column_view_combo.count() - 1
+        self._column_view_combo.setCurrentIndex(match_index)
         self._column_view_combo.blockSignals(False)
+
+    def _current_column_view_match(self) -> Optional[str]:
+        """Returner navnet på et gemt Column View, hvis den aktive databases
+        nuværende kolonneopsætning matcher det byte-for-byte — ellers None."""
+        from opensak.gui.dialogs.column_dialog import (
+            ColumnView, get_visible_columns, get_column_widths,
+            get_container_display, get_type_display,
+        )
+        current = (
+            list(get_visible_columns()),
+            dict(get_column_widths()),
+            get_container_display(),
+            get_type_display(),
+        )
+        for path in ColumnView.list_views():
+            try:
+                view = ColumnView.load(path)
+            except Exception:
+                continue
+            if (list(view.visible_columns), dict(view.widths),
+                    view.container_display, view.type_display) == current:
+                return view.name
+        return None
 
     def _on_column_view_combo_changed(self, index: int) -> None:
         """Bruger har valgt et gemt Column View i toolbar-dropdown.
 
         Anvendes øjeblikkeligt på den aktive database (samme effekt som at
         vælge viewet i "Vælg kolonner…"-dialogen og trykke OK), uden at
-        åbne dialogen. Comboen nulstilles bagefter til "(Ingen)" — den er
-        en engangs-anvend-handling, ikke en vedvarende tilstandsindikator
-        (i modsætning til filter-profil-comboen er der intet "aktivt view"
-        at holde styr på i mellemtiden, og databasen kan når som helst
-        redigeres videre uafhængigt af det view, der blev anvendt)."""
+        åbne dialogen. Comboen genindlæses bagefter (i stedet for altid at
+        blive nulstillet til "(Ingen)") — den vil nu naturligt vise det
+        netop anvendte view som valgt, fordi databasens opsætning matcher
+        det. Der er stadig ingen vedvarende kobling gemt nogen steder;
+        comboen genberegner blot matchet hver gang."""
         if index == 0:
             return
         path = self._column_view_combo.itemData(index)
@@ -2215,7 +2254,7 @@ class MainWindow(QMainWindow):
             view = ColumnView.load(path)
         except Exception as exc:
             self._statusbar.showMessage(str(exc), 4000)
-            self._column_view_combo.setCurrentIndex(0)
+            self._populate_column_view_combo()
             return
         visible = list(dict.fromkeys(view.visible_columns + list(ALWAYS_VISIBLE)))
         set_visible_columns(visible)
@@ -2226,7 +2265,7 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage(
             tr("status_column_view_applied", name=view.name), 3000
         )
-        self._column_view_combo.setCurrentIndex(0)
+        self._populate_column_view_combo()
 
     def _open_gps_export(self) -> None:
         if self._trip_planner_active():

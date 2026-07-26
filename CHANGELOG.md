@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Toolbar Column View dropdown always showed "(None)" (#607 follow-up)**
+  — columns switched correctly per database, but the quick-switch
+  dropdown reset to "(None)" on every use and every database switch
+  regardless of what was actually applied, reported by a beta tester.
+  It now compares the active database's current column configuration
+  against all saved views and selects the matching one, if any — still
+  a fresh comparison each time, not a stored "follow this view" link.
+
 ---
 
 ## [1.16.0-beta.13] — 2026-07-26

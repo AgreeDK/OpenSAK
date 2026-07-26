@@ -183,3 +183,110 @@ def test_db_combo_refreshes_on_database_switched_signal(two_db_combo_window, qtb
     qtbot.wait(50)
 
     assert window._db_combo.currentText() == "Beta"
+
+
+# ── Column View quick-switch combo (#607 follow-up) ──────────────────────────
+#
+# A Facebook beta tester reported that columns switched correctly per
+# database, but the toolbar Column View dropdown always showed "(None)"
+# even for a database whose configuration was actually set from a saved
+# view — because the combo used to unconditionally reset to "(None)"
+# after every use and after every database switch. It now recomputes,
+# on each populate, whether the active database's current column
+# configuration matches a saved view byte-for-byte, and selects that
+# view if so.
+
+def test_column_view_combo_shows_matching_view_for_active_db(
+    combo_window, qtbot, tmp_path, monkeypatch
+):
+    from opensak.gui.dialogs.column_dialog import (
+        ColumnView, get_visible_columns, get_column_widths,
+        get_container_display, get_type_display,
+    )
+    window = combo_window
+    monkeypatch.setattr(ColumnView, "_views_dir", staticmethod(lambda: tmp_path / "column_views"))
+
+    view = ColumnView(
+        "My Standard",
+        visible_columns=get_visible_columns(),
+        widths=get_column_widths(),
+        container_display=get_container_display(),
+        type_display=get_type_display(),
+    )
+    view.save()
+
+    window._populate_column_view_combo()
+    qtbot.wait(50)
+
+    assert window._column_view_combo.currentText() == "My Standard"
+
+
+def test_column_view_combo_shows_none_for_non_matching_db(
+    two_db_combo_window, qtbot, tmp_path, monkeypatch
+):
+    from opensak.gui.dialogs.column_dialog import (
+        ColumnView, get_visible_columns, get_column_widths,
+        get_container_display, get_type_display, set_visible_columns,
+    )
+    window, fake_mgr = two_db_combo_window
+    monkeypatch.setattr(ColumnView, "_views_dir", staticmethod(lambda: tmp_path / "column_views"))
+
+    # Save a view matching Alpha's (currently active) configuration.
+    ColumnView(
+        "Alpha's View",
+        visible_columns=get_visible_columns(),
+        widths=get_column_widths(),
+        container_display=get_container_display(),
+        type_display=get_type_display(),
+    ).save()
+    window._populate_column_view_combo()
+    qtbot.wait(50)
+    assert window._column_view_combo.currentText() == "Alpha's View"
+
+    # Switch to Beta and give it a deliberately different, non-matching
+    # column configuration.
+    fake_mgr._active = fake_mgr._b
+    window._on_database_switched(fake_mgr._b)
+    set_visible_columns(["gc_code", "name", "difficulty"])
+    window._populate_column_view_combo()
+    qtbot.wait(50)
+
+    assert window._column_view_combo.currentText() == "(None)"
+
+    # Switching back to Alpha should show the matching view again — this
+    # is a fresh comparison each time, not a value that got "stuck".
+    fake_mgr._active = fake_mgr._a
+    window._on_database_switched(fake_mgr._a)
+    qtbot.wait(50)
+
+    assert window._column_view_combo.currentText() == "Alpha's View"
+
+
+def test_column_view_combo_reflects_view_after_applying_from_toolbar(
+    combo_window, qtbot, tmp_path, monkeypatch
+):
+    from opensak.gui.dialogs.column_dialog import (
+        ColumnView, set_visible_columns,
+    )
+    window = combo_window
+    monkeypatch.setattr(ColumnView, "_views_dir", staticmethod(lambda: tmp_path / "column_views"))
+
+    # Make the active database's configuration deliberately not match any
+    # saved view yet.
+    set_visible_columns(["gc_code", "name", "found"])
+    path = ColumnView("Trip View", visible_columns=["gc_code", "name", "difficulty"]).save()
+    window._populate_column_view_combo()
+    qtbot.wait(50)
+    assert window._column_view_combo.currentText() == "(None)"
+
+    idx = next(
+        i for i in range(window._column_view_combo.count())
+        if window._column_view_combo.itemData(i) == path
+    )
+    window._column_view_combo.setCurrentIndex(idx)
+    window._on_column_view_combo_changed(idx)
+    qtbot.wait(50)
+
+    # After applying "Trip View" from the toolbar, the combo should show
+    # it as selected — the database's configuration now matches it.
+    assert window._column_view_combo.currentText() == "Trip View"
