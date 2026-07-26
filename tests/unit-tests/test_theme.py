@@ -24,6 +24,30 @@ def test_dark_palette_window_is_dark():
     assert p.color(QPalette.ColorRole.Window).lightness() < 100
 
 
+class TestPlaceholderText:
+    """Issue #624: PlaceholderText wasn't set explicitly, so Qt's derived
+    default rendered near-invisible hint text in dark mode."""
+
+    def test_light_placeholder_is_set_and_legible(self):
+        p = theme._light_palette()
+        placeholder = p.color(QPalette.ColorRole.PlaceholderText)
+        base = p.color(QPalette.ColorRole.Base)
+        # Must not equal the (white) background, and must be distinguishable
+        # from it by a comfortable margin.
+        assert placeholder != base
+        assert abs(placeholder.lightness() - base.lightness()) > 40
+
+    def test_dark_placeholder_is_set_and_legible(self):
+        p = theme._dark_palette()
+        placeholder = p.color(QPalette.ColorRole.PlaceholderText)
+        base = p.color(QPalette.ColorRole.Base)
+        text = p.color(QPalette.ColorRole.Text)
+        # Must be readable against the dark Base — not near-black-on-black —
+        # and dimmer than full Text so it still reads as a "hint", not a value.
+        assert placeholder.lightness() - base.lightness() > 40
+        assert placeholder.lightness() < text.lightness()
+
+
 # ── system dark detection ───────────────────────────────────────────────────────
 
 class TestSystemIsDark:

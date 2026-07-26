@@ -837,9 +837,23 @@ class FilterDialog(QDialog):
         self._where_error_label = QPlainTextEdit()
         self._where_error_label.setReadOnly(True)
         self._where_error_label.setMaximumHeight(120)
-        self._where_error_label.setStyleSheet(
-            "color: #cc0000; background: transparent; border: 1px solid #cc0000; border-radius: 4px;"
-        )
+        # Issue #613: the previous style was hardcoded for light theme
+        # (dark-red text on a transparent background) — on Windows dark
+        # mode that meant dark-red-on-dark-gray, reported as hard to read.
+        # Pick an explicit, opaque, theme-appropriate background instead of
+        # relying on "transparent" + whatever happens to sit behind it.
+        from opensak.gui.settings import get_settings
+        from opensak.gui.theme import effective_theme
+        if effective_theme(get_settings().theme) == "dark":
+            self._where_error_label.setStyleSheet(
+                "color: #ff8a80; background: #3a1f1f;"
+                "border: 1px solid #ff8a80; border-radius: 4px;"
+            )
+        else:
+            self._where_error_label.setStyleSheet(
+                "color: #cc0000; background: transparent;"
+                "border: 1px solid #cc0000; border-radius: 4px;"
+            )
         self._where_error_label.hide()
         layout.addWidget(self._where_error_label)
 

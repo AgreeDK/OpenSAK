@@ -33,7 +33,8 @@ def isolate(monkeypatch):
     monkeypatch.setattr("opensak.gui.settings.get_settings",
                         lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
                                                date_format=DateFormat.YMD,
-                                               coord_format=CoordFormat.DD, home_points=[]))
+                                               coord_format=CoordFormat.DD, home_points=[],
+                                               theme="light"))
 
 
 @pytest.fixture
@@ -432,6 +433,43 @@ class TestWhereSql:
         dlg._show_where_info()  # builds + (fake) exec, no block
 
 
+class TestWhereErrorBoxTheme:
+    """Issue #613: the Where-filter SQL error box used a hardcoded
+    light-theme-only stylesheet (dark-red text on "transparent") which was
+    unreadable on Windows dark mode. It must now pick an explicit,
+    theme-appropriate style instead."""
+
+    def test_light_theme_error_style(self, qtbot, monkeypatch):
+        from types import SimpleNamespace
+        from opensak.utils.types import DateFormat, CoordFormat
+        monkeypatch.setattr(
+            "opensak.gui.settings.get_settings",
+            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
+                                     date_format=DateFormat.YMD, coord_format=CoordFormat.DD,
+                                     home_points=[], theme="light"),
+        )
+        d = FilterDialog()
+        qtbot.addWidget(d)
+        assert "cc0000" in d._where_error_label.styleSheet().lower()
+
+    def test_dark_theme_error_style_differs_from_light(self, qtbot, monkeypatch):
+        from types import SimpleNamespace
+        from opensak.utils.types import DateFormat, CoordFormat
+        monkeypatch.setattr(
+            "opensak.gui.settings.get_settings",
+            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
+                                     date_format=DateFormat.YMD, coord_format=CoordFormat.DD,
+                                     home_points=[], theme="dark"),
+        )
+        d = FilterDialog()
+        qtbot.addWidget(d)
+        style = d._where_error_label.styleSheet().lower()
+        # Must not just be the light-mode style bleeding through, and must
+        # not rely on a transparent background (that was the actual bug).
+        assert "transparent" not in style
+        assert "background" in style
+
+
 # ── profiles ────────────────────────────────────────────────────────────────────
 
 class TestProfiles:
@@ -554,7 +592,8 @@ class TestDistanceUnitPref:
         monkeypatch.setattr(
             "opensak.gui.settings.get_settings",
             lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=True,
-                                     coord_format=CoordFormat.DD, home_points=[]),
+                                     coord_format=CoordFormat.DD, home_points=[],
+                                     theme="light"),
         )
         d = FilterDialog()
         qtbot.addWidget(d)

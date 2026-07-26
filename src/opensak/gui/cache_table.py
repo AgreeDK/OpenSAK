@@ -730,7 +730,13 @@ class CacheTableModel(QAbstractTableModel):
                        "trackables",
                        "latitude", "longitude",
                        "hidden_date", "last_log", "found_date", "dnf_date",
-                       "placed_by"):
+                       "placed_by",
+                       # Issue #603: Country/Region(state)/County were missed
+                       # by #431's sweep of "similar short-value columns" —
+                       # left-aligned while Placed By (same kind of short
+                       # free-text value) was already centered. Centered here
+                       # for the same consistency #431 was going for.
+                       "country", "state", "county"):
                 return Qt.AlignmentFlag.AlignCenter
             return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 

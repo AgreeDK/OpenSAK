@@ -379,10 +379,11 @@ class TestDataRoles:
         model.load([_cache()])
         for col in ("cache_type", "difficulty", "terrain", "distance", "found",
                     "container", "hidden_date", "last_log",
-                    "found_date", "dnf_date", "placed_by"):
+                    "found_date", "dnf_date", "placed_by",
+                    "country", "state", "county"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) == Qt.AlignmentFlag.AlignCenter, col
-        for col in ("name", "gc_code", "country", "state", "county"):
+        for col in ("name", "gc_code"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) != Qt.AlignmentFlag.AlignCenter, col
 

@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Country/Region/County columns left-aligned instead of centered (#603)**
+  — #431 centered "similar short-value columns" (Placed By, dates, etc.)
+  but missed Country, Region (state) and County. Centered here for the
+  same consistency #431 was going for.
+- **Placeholder/hint text invisible in Dark theme (#624)** — `QPalette`'s
+  `PlaceholderText` role wasn't set explicitly for either theme, so Qt
+  fell back to a derived default that was unreadable in dark mode. Both
+  palettes now set it explicitly to a legible, dimmed gray.
+- **Where-filter SQL error box unreadable in Windows dark mode (#613)** —
+  the error box used a hardcoded light-theme style (dark-red text on a
+  transparent background); in dark mode that rendered as dark-red-on-dark
+  gray. It now picks an explicit, theme-appropriate style via the
+  existing `effective_theme()` helper.
+
 ### Added
 
 - **Default Column View (#607)** — the "Choose columns" dialog now supports
