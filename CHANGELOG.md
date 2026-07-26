@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Default Column View (#607)** — the "Choose columns" dialog now supports
+  named, saveable "Column Views" (visible columns, widths, container/type
+  display), parallel to saved filter profiles. A saved view can be picked
+  from a dropdown, and one view can be marked as the global default via a
+  new "Set as Default" button (shown with a ★ in the dropdown). Any
+  database without its own explicit column configuration — including
+  brand-new databases — now falls back to the designated default view
+  instead of the hard-coded factory defaults. This replaces #606's
+  implicit "last used" fallback, which silently changed on every save
+  regardless of user intent; setting the default is now an explicit,
+  deliberate action and does not retroactively affect databases that
+  already have their own saved configuration. A quick-switch Column View
+  dropdown has also been added to the main toolbar, next to the existing
+  filter-profile dropdown, so a saved view can be applied to the active
+  database with one click, without opening the dialog.
+
 ---
 
 ## [1.16.0-beta.12] — 2026-07-26

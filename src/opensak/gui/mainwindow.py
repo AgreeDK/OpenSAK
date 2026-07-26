@@ -643,6 +643,36 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
+        # ── Issue #607: Column Views — hurtig-skift dropdown, magen til
+        # filter-profil-dropdown'en ovenfor. "Vælg kolonner…"-dialogen (View-
+        # menuen) kan stadig bruges til at gemme/slette/sætte standard-view;
+        # denne combo anvender blot et allerede gemt view øjeblikkeligt på
+        # den aktive database, uden at åbne dialogen.
+        self._act_columns = QAction(f"▦  {tr('toolbar_columns')}", self)
+        self._act_columns.setToolTip(tr("column_dialog_title"))
+        self._act_columns.triggered.connect(self._open_column_chooser)
+        tb.addAction(self._act_columns)
+
+        self._column_view_combo = QComboBox()
+        self._column_view_combo.setMinimumWidth(140)
+        self._column_view_combo.setMaximumWidth(200)
+        self._column_view_combo.setToolTip(tr("toolbar_column_view_combo_tooltip"))
+        self._column_view_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        column_view_combo_action = QWidgetAction(self)
+        column_view_combo_action.setDefaultWidget(self._column_view_combo)
+        tb.addAction(column_view_combo_action)
+        # activated() (ikke currentIndexChanged()) — samme begrundelse som
+        # filter-profil-comboen ovenfor: skal fyre uanset om index reelt
+        # ændrer sig, og fyrer aldrig ved vores egne setCurrentIndex()-kald.
+        self._column_view_combo.activated.connect(
+            self._on_column_view_combo_changed
+        )
+        self._populate_column_view_combo()
+
+        tb.addSeparator()
+
         # GPS
         gps_act = QAction(f"📤  {tr('gps_dialog_title')}", self)
         gps_act.setToolTip(tr("gps_dialog_title") + " (Ctrl+G)")
@@ -819,6 +849,11 @@ class MainWindow(QMainWindow):
         self._reload_home_combo()
         # Genindlæs kolonner for den nye database (issue #199)
         self._cache_table.reload_columns()
+        # Issue #607: nulstil quick-switch-comboen — den er en engangs-
+        # anvend-handling, ikke en vedvarende "aktivt view for denne DB"-
+        # indikator, så den skal altid stå på "(Ingen)" efter et db-skift.
+        if hasattr(self, "_column_view_combo"):
+            self._column_view_combo.setCurrentIndex(0)
         # Reload kort med aktuel lokation for denne DB
         self._map_widget.reload_map(self._refresh_cache_list)
         self._statusbar.showMessage(
@@ -2131,8 +2166,67 @@ class MainWindow(QMainWindow):
             return
         from opensak.gui.dialogs.column_dialog import ColumnChooserDialog
         dlg = ColumnChooserDialog(self)
-        if dlg.exec():
+        accepted = dlg.exec()
+        # Save/Delete/Set-default inde i dialogen skriver til disk uanset om
+        # dialogen i sidste ende afsluttes med OK eller Cancel, så toolbar-
+        # dropdown'en genindlæses altid — ikke kun ved accept.
+        self._populate_column_view_combo()
+        if accepted:
             self._cache_table.reload_columns()
+
+    def _populate_column_view_combo(self) -> None:
+        """Genindlæs alle gemte Column Views i toolbar-dropdown (#607)."""
+        from opensak.gui.dialogs.column_dialog import ColumnView, get_default_view_name
+        self._column_view_combo.blockSignals(True)
+        self._column_view_combo.clear()
+        self._column_view_combo.addItem(tr("column_view_none"), None)
+        default_name = get_default_view_name()
+        for path in ColumnView.list_views():
+            try:
+                view = ColumnView.load(path)
+            except Exception:
+                continue
+            label = f"★ {view.name}" if default_name and view.name == default_name else view.name
+            self._column_view_combo.addItem(label, path)
+        self._column_view_combo.setCurrentIndex(0)
+        self._column_view_combo.blockSignals(False)
+
+    def _on_column_view_combo_changed(self, index: int) -> None:
+        """Bruger har valgt et gemt Column View i toolbar-dropdown.
+
+        Anvendes øjeblikkeligt på den aktive database (samme effekt som at
+        vælge viewet i "Vælg kolonner…"-dialogen og trykke OK), uden at
+        åbne dialogen. Comboen nulstilles bagefter til "(Ingen)" — den er
+        en engangs-anvend-handling, ikke en vedvarende tilstandsindikator
+        (i modsætning til filter-profil-comboen er der intet "aktivt view"
+        at holde styr på i mellemtiden, og databasen kan når som helst
+        redigeres videre uafhængigt af det view, der blev anvendt)."""
+        if index == 0:
+            return
+        path = self._column_view_combo.itemData(index)
+        if path is None:
+            return
+        from opensak.gui.dialogs.column_dialog import (
+            ALWAYS_VISIBLE, ColumnView,
+            set_visible_columns, set_column_widths,
+            set_container_display, set_type_display,
+        )
+        try:
+            view = ColumnView.load(path)
+        except Exception as exc:
+            self._statusbar.showMessage(str(exc), 4000)
+            self._column_view_combo.setCurrentIndex(0)
+            return
+        visible = list(dict.fromkeys(view.visible_columns + list(ALWAYS_VISIBLE)))
+        set_visible_columns(visible)
+        set_column_widths(view.widths)
+        set_container_display(view.container_display)
+        set_type_display(view.type_display)
+        self._cache_table.reload_columns()
+        self._statusbar.showMessage(
+            tr("status_column_view_applied", name=view.name), 3000
+        )
+        self._column_view_combo.setCurrentIndex(0)
 
     def _open_gps_export(self) -> None:
         if self._trip_planner_active():
