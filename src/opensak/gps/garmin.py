@@ -803,7 +803,7 @@ def export_ggz_to_file(
 # ── Slet GPX filer fra enhed ──────────────────────────────────────────────────
 
 class DeleteResult:
-    """Resultat af sletning af GPX filer fra GPS enhed."""
+    """Resultat af sletning af eksisterende eksport-filer (GPX eller GGZ) fra GPS enhed."""
 
     def __init__(self):
         self.device:        Optional[Path] = None
@@ -827,8 +827,8 @@ class DeleteResult:
         if not self.success:
             return f"✗ Fejl ved sletning: {self.error}"
         if self.deleted_count == 0:
-            return "ℹ️  Ingen GPX filer fundet på enheden"
-        lines = [f"🗑️  {self.deleted_count} GPX fil(er) slettet fra enheden"]
+            return "ℹ️  Ingen filer fundet på enheden"
+        lines = [f"🗑️  {self.deleted_count} fil(er) slettet fra enheden"]
         for f in self.deleted_files:
             lines.append(f"   - {f.name}")
         if self.failed_count:
@@ -841,29 +841,36 @@ class DeleteResult:
 def delete_gpx_files(
     device_root: Path,
     pattern: str = "*.gpx",
+    folder: Optional[Path] = None,
 ) -> DeleteResult:
     """
-    Slet alle GPX filer i Garmin/GPX mappen på enheden.
+    Slet alle filer der matcher 'pattern' i en mappe på enheden.
+
+    Som standard slettes GPX-filer i Garmin/GPX mappen (bagudkompatibel
+    brug). Sæt 'folder' eksplicit (fx get_garmin_ggz_path(device_root))
+    for at slette i en anden mappe, fx Garmin/GGZ ved GGZ-eksport
+    (issue #656 follow-up — samme "slet gamle filer først"-funktion
+    udvidet til også at dække GGZ, ikke kun GPX).
     """
     result = DeleteResult()
     result.device = device_root
 
     try:
-        gpx_dir = get_garmin_gpx_path(device_root)
+        target_dir = folder if folder is not None else get_garmin_gpx_path(device_root)
 
-        if not gpx_dir.exists():
+        if not target_dir.exists():
             return result
 
-        gpx_files = list(gpx_dir.glob(pattern))
+        matched_files = list(target_dir.glob(pattern))
 
-        for gpx_file in gpx_files:
-            if not gpx_file.is_file():
+        for f in matched_files:
+            if not f.is_file():
                 continue
             try:
-                gpx_file.unlink()
-                result.deleted_files.append(gpx_file)
+                f.unlink()
+                result.deleted_files.append(f)
             except (PermissionError, OSError):
-                result.failed_files.append(gpx_file)
+                result.failed_files.append(f)
 
     except PermissionError:
         result.error = "Adgang nægtet — er GPS enheden skrivebeskyttet?"

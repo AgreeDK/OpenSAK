@@ -195,7 +195,7 @@ class TestDialogInteraction:
         launched = []
 
         class FakeDelete:
-            def __init__(self, dest):
+            def __init__(self, dest, export_format="gpx"):
                 self.finished = MagicMock()
                 self.error = MagicMock()
             def start(self):
@@ -355,9 +355,29 @@ class TestFilenameCollisionPrompt:
         dlg._prompt_new_filename(tmp_path / "opensak.ggz")
         assert captured["suggestion"] == "opensak2"
 
-    def test_device_mode_never_prompts(self, qtbot, with_device, tmp_path, monkeypatch):
-        # Device exports intentionally keep syncing to the same canonical
-        # Garmin/GPX path each time — the collision check must not apply.
+    def test_device_mode_prompts_on_collision(self, qtbot, with_device, tmp_path, monkeypatch):
+        # Follow-up to #656 (CheminerWill): "Send to GPS" silently overwrote
+        # a same-named file on the device with no warning. Device-mode
+        # exports must now prompt on collision just like file-mode does.
+        from opensak.gps.garmin import get_garmin_gpx_path
+        gpx_dir = get_garmin_gpx_path(with_device)
+        gpx_dir.mkdir(parents=True)
+        (gpx_dir / "opensak.gpx").write_text("existing")
+
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._cb_use_db_name.setChecked(False)  # keep filename deterministic here
+        d._filename.setText("opensak")
+        d._rb_device.setChecked(True)
+        d._cb_delete_gpx.setChecked(False)
+        monkeypatch.setattr(gd.QInputDialog, "getText",
+                             lambda *a, **k: ("renamed", True))
+        launched = self._install_fake_export(monkeypatch)
+        d._start_export()
+        assert launched == [True]
+        assert d._filename.text() == "renamed"
+
+    def test_device_mode_no_collision_runs_without_prompting(self, qtbot, with_device, monkeypatch):
         d = GpsExportDialog(caches=["c1"])
         qtbot.addWidget(d)
         d._rb_device.setChecked(True)
@@ -368,4 +388,144 @@ class TestFilenameCollisionPrompt:
         launched = self._install_fake_export(monkeypatch)
         d._start_export()
         assert launched == [True]
-        assert prompted == []
+        assert prompted == []  # no existing file on device → never prompted
+
+    def test_device_mode_delete_checked_skips_collision_prompt(
+        self, qtbot, with_device, tmp_path, monkeypatch,
+    ):
+        # When "delete old files first" is checked, the old file is about to
+        # be wiped anyway, so there's nothing to collide with — go straight
+        # to the delete-confirmation flow instead of the rename prompt.
+        from opensak.gps.garmin import get_garmin_gpx_path
+        gpx_dir = get_garmin_gpx_path(with_device)
+        gpx_dir.mkdir(parents=True)
+        (gpx_dir / "opensak.gpx").write_text("existing")
+
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._rb_device.setChecked(True)
+        d._cb_delete_gpx.setChecked(True)
+        prompted = []
+        monkeypatch.setattr(gd.QInputDialog, "getText",
+                             lambda *a, **k: (prompted.append(True), ("x", True))[1])
+        monkeypatch.setattr(
+            gd.QMessageBox, "exec",
+            lambda self: gd.QMessageBox.StandardButton.Ok,
+        )
+
+        class FakeDelete:
+            def __init__(self, dest, export_format="gpx"):
+                self.finished = MagicMock()
+                self.error = MagicMock()
+            def start(self):
+                pass
+            def isRunning(self):
+                return False
+            def wait(self):
+                pass
+        monkeypatch.setattr(gd, "DeleteWorker", FakeDelete)
+
+        d._start_export()
+        assert prompted == []  # collision-rename prompt skipped
+
+
+class TestDeleteCheckboxFormat:
+    """Regression tests for #656 follow-up: the delete-old-files checkbox
+    used to only be enabled for GPX device exports; it now applies to GGZ
+    device exports too (CheminerWill's report covered both formats)."""
+
+    def test_checkbox_enabled_for_gpx_device_mode(self, qtbot, with_device):
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._rb_device.setChecked(True)
+        d._rb_gpx.setChecked(True)
+        d._on_format_changed()
+        assert d._cb_delete_gpx.isEnabled() is True
+
+    def test_checkbox_enabled_for_ggz_device_mode(self, qtbot, with_device):
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._rb_device.setChecked(True)
+        d._rb_ggz.setChecked(True)
+        d._on_format_changed()
+        assert d._cb_delete_gpx.isEnabled() is True
+
+    def test_checkbox_disabled_for_file_mode(self, qtbot, with_device, tmp_path):
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._rb_file.setChecked(True)
+        d._selected_file_path = tmp_path
+        d._on_mode_changed(False)
+        assert d._cb_delete_gpx.isEnabled() is False
+        assert d._cb_delete_gpx.isChecked() is False
+
+class TestUseDatabaseNameCheckbox:
+    """Regression tests for the community-suggested 'use database name as
+    filename' toggle on #656 (GSAK has an equivalent feature). Default is
+    checked (Allan's decision), applying to both file-mode and device-mode."""
+
+    def test_checked_by_default(self, qtbot):
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        assert d._cb_use_db_name.isChecked() is True
+
+    def test_autofills_from_active_database(self, qtbot, monkeypatch):
+        fake_manager = SimpleNamespace(active=SimpleNamespace(name="MyGeocaches"))
+        monkeypatch.setattr(
+            "opensak.db.manager.get_db_manager", lambda: fake_manager,
+        )
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        assert d._filename.text() == "MyGeocaches"
+
+    def test_falls_back_to_opensak_when_no_active_database(self, qtbot, monkeypatch):
+        fake_manager = SimpleNamespace(active=None)
+        monkeypatch.setattr(
+            "opensak.db.manager.get_db_manager", lambda: fake_manager,
+        )
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        assert d._filename.text() == "opensak"
+
+    def test_unchecking_does_not_clear_current_filename(self, qtbot, monkeypatch):
+        fake_manager = SimpleNamespace(active=SimpleNamespace(name="MyGeocaches"))
+        monkeypatch.setattr(
+            "opensak.db.manager.get_db_manager", lambda: fake_manager,
+        )
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        assert d._filename.text() == "MyGeocaches"
+        d._cb_use_db_name.setChecked(False)
+        assert d._filename.text() == "MyGeocaches"  # untouched, not reset
+
+    def test_rechecking_refills_from_active_database(self, qtbot, monkeypatch):
+        fake_manager = SimpleNamespace(active=SimpleNamespace(name="MyGeocaches"))
+        monkeypatch.setattr(
+            "opensak.db.manager.get_db_manager", lambda: fake_manager,
+        )
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._cb_use_db_name.setChecked(False)
+        d._filename.setText("something_else")
+        d._cb_use_db_name.setChecked(True)
+        assert d._filename.text() == "MyGeocaches"
+
+
+class TestSanitizeDbNameForFilename:
+    def test_replaces_invalid_characters(self):
+        result = gd._sanitize_db_name_for_filename('My:Cache/Db*Test?"<>|')
+        assert result == "My_Cache_Db_Test_____"
+
+    def test_leaves_normal_names_untouched(self):
+        assert gd._sanitize_db_name_for_filename("MyGeocaches") == "MyGeocaches"
+
+    def test_strips_surrounding_whitespace_and_dots(self):
+        assert gd._sanitize_db_name_for_filename("  MyDb.  ") == "MyDb"
+
+    def test_fully_invalid_name_becomes_underscores(self):
+        # "???" sanitizes to "___" — still a valid (if ugly) filename stem,
+        # not treated as empty. Only a truly empty result falls back.
+        assert gd._sanitize_db_name_for_filename('???') == "___"
+
+    def test_empty_string_falls_back_to_opensak(self):
+        assert gd._sanitize_db_name_for_filename("") == "opensak"

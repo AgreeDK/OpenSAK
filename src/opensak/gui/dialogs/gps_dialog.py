@@ -23,19 +23,39 @@ from PySide6.QtWidgets import (
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 
 
+def _sanitize_db_name_for_filename(name: str) -> str:
+    """Gør et database-navn sikkert at bruge som filnavn på tværs af
+    Windows/Linux/macOS — erstatter ugyldige tegn (\\ / : * ? " < > |) med
+    underscore, og trimmer omkringliggende whitespace/punktummer."""
+    invalid_chars = '\\/:*?"<>|'
+    cleaned = "".join("_" if c in invalid_chars else c for c in name)
+    cleaned = cleaned.strip(" .")
+    return cleaned or "opensak"
+
+
 class DeleteWorker(QThread):
-    """Kører sletning af GPX filer i baggrundstråd."""
+    """Kører sletning af eksisterende eksport-filer (GPX eller GGZ) i baggrundstråd."""
     finished = Signal(object)
     error    = Signal(str)
 
-    def __init__(self, device_path: Path):
+    def __init__(self, device_path: Path, export_format: str = "gpx"):
         super().__init__()
-        self.device_path = device_path
+        self.device_path   = device_path
+        self.export_format = export_format
 
     def run(self) -> None:
         try:
-            from opensak.gps.garmin import delete_gpx_files
-            result = delete_gpx_files(self.device_path)
+            from opensak.gps.garmin import (
+                delete_gpx_files, get_garmin_gpx_path, get_garmin_ggz_path,
+            )
+            if self.export_format == "ggz":
+                result = delete_gpx_files(
+                    self.device_path,
+                    pattern="*.ggz",
+                    folder=get_garmin_ggz_path(self.device_path),
+                )
+            else:
+                result = delete_gpx_files(self.device_path)  # default: *.gpx i Garmin/GPX
             self.finished.emit(result)
         except Exception:
             import traceback
@@ -201,6 +221,14 @@ class GpsExportDialog(QDialog):
         name_row.addStretch()
         opt_layout.addLayout(name_row)
 
+        # Brug database-navn som filnavn (community-forslag på #656 — GSAK
+        # har en tilsvarende toggle; forhindrer kollisioner når man skifter
+        # mellem databaser uden selv at skulle omdøbe hver gang).
+        self._cb_use_db_name = QCheckBox(tr("gps_use_db_name_cb"))
+        self._cb_use_db_name.toggled.connect(self._on_use_db_name_toggled)
+        self._cb_use_db_name.setChecked(True)
+        opt_layout.addWidget(self._cb_use_db_name)
+
         # Max antal caches
         max_row = QHBoxLayout()
         max_row.addWidget(QLabel(tr("gps_max_label")))
@@ -214,11 +242,12 @@ class GpsExportDialog(QDialog):
         max_row.addStretch()
         opt_layout.addLayout(max_row)
 
-        # Slet eksisterende GPX filer (kun relevant for GPX + enhed)
+        # Slet eksisterende filer (kun relevant ved eksport direkte til enhed)
         self._cb_delete_gpx = QCheckBox(tr("gps_delete_cb"))
         self._cb_delete_gpx.setToolTip(
-            "Sletter alle .gpx filer i Garmin/GPX mappen på enheden\n"
-            "inden den nye fil uploades. Virker kun ved GPX-eksport direkte til GPS."
+            "Sletter alle eksisterende filer af samme format (GPX eller GGZ)\n"
+            "i den relevante Garmin-mappe på enheden, inden den nye fil uploades.\n"
+            "Virker kun ved eksport direkte til GPS."
         )
         opt_layout.addWidget(self._cb_delete_gpx)
 
@@ -284,6 +313,22 @@ class GpsExportDialog(QDialog):
         if not device_checked:
             self._cb_delete_gpx.setChecked(False)
 
+    def _on_use_db_name_toggled(self, checked: bool) -> None:
+        """Udfyld filnavnet med den aktive databases navn, når slået til.
+
+        Community-forslag på #656: forhindrer at man overskriver tidligere
+        eksporter ved uheld, når man skifter mellem flere databaser, uden at
+        skulle huske selv at omdøbe filnavnet hver gang. Slår man den fra
+        igen, ændres det aktuelle filnavn ikke — det er kun selve
+        auto-udfyldningen, der stopper.
+        """
+        if not checked:
+            return
+        from opensak.db.manager import get_db_manager
+        active = get_db_manager().active
+        if active and active.name:
+            self._filename.setText(_sanitize_db_name_for_filename(active.name))
+
     def _on_format_changed(self) -> None:
         """Opdater format, suffix-label og delete-checkbox når format skifter."""
         if self._rb_ggz.isChecked():
@@ -298,10 +343,9 @@ class GpsExportDialog(QDialog):
         self._file_path.clear()
 
     def _update_delete_checkbox_state(self) -> None:
-        """Delete-checkbox er kun aktiv ved GPX-eksport direkte til enhed."""
+        """Delete-checkbox er kun aktiv ved eksport direkte til enhed (GPX eller GGZ)."""
         device_mode = self._rb_device.isChecked()
-        gpx_format  = self._export_format == "gpx"
-        enabled = device_mode and gpx_format
+        enabled = device_mode
         self._cb_delete_gpx.setEnabled(enabled)
         if not enabled:
             self._cb_delete_gpx.setChecked(False)
@@ -339,33 +383,42 @@ class GpsExportDialog(QDialog):
 
         filename   = self._filename.text().strip() or "opensak"
         max_caches = self._max_caches.value()
-
-        # Issue #501: file-mode export silently overwrote an existing file
-        # with the same name — most likely to bite users who never touch the
-        # default "opensak" filename. Device-mode exports intentionally keep
-        # writing to the same canonical Garmin/GPX path each time (that's a
-        # sync, not a save), so this only applies to plain file exports.
-        if self._rb_file.isChecked():
-            ext = self._export_format
-            target = dest / f"{filename}.{ext}"
-            while target.exists():
-                filename, ok = self._prompt_new_filename(target)
-                if not ok:
-                    return  # bruger fortrød / annullerede
-                target = dest / f"{filename}.{ext}"
-            self._filename.setText(filename)
+        ext        = self._export_format
 
         do_delete  = (
             self._cb_delete_gpx.isChecked()
             and self._rb_device.isChecked()
-            and self._export_format == "gpx"
         )
+
+        # Issue #501 (file-mode) / follow-up report from CheminerWill on #656
+        # (device-mode "Send to GPS" silently overwrote a same-named file with
+        # no warning): check for an existing file with the same name and
+        # prompt for a new one, for BOTH file-mode and device-mode exports.
+        # Device-mode is skipped here when do_delete is set, since the old
+        # files are about to be wiped anyway — no collision to warn about.
+        if self._rb_file.isChecked():
+            target = dest / f"{filename}.{ext}"
+        elif not do_delete:
+            from opensak.gps.garmin import get_garmin_gpx_path, get_garmin_ggz_path
+            target_dir = get_garmin_ggz_path(dest) if ext == "ggz" else get_garmin_gpx_path(dest)
+            target = target_dir / f"{filename}.{ext}"
+        else:
+            target = None
+
+        if target is not None:
+            while target.exists():
+                filename, ok = self._prompt_new_filename(target)
+                if not ok:
+                    return  # bruger fortrød / annullerede
+                target = target.parent / f"{filename}.{ext}"
+            self._filename.setText(filename)
 
         # ── Bekræft sletning ──────────────────────────────────────────────────
         if do_delete:
-            from opensak.gps.garmin import get_garmin_gpx_path
-            gpx_dir  = get_garmin_gpx_path(dest)
-            existing = list(gpx_dir.glob("*.gpx")) if gpx_dir.exists() else []
+            from opensak.gps.garmin import get_garmin_gpx_path, get_garmin_ggz_path
+            target_dir = get_garmin_ggz_path(dest) if ext == "ggz" else get_garmin_gpx_path(dest)
+            pattern  = f"*.{ext}"
+            existing = list(target_dir.glob(pattern)) if target_dir.exists() else []
             count    = len(existing)
 
             msg = QMessageBox(self)
@@ -390,7 +443,7 @@ class GpsExportDialog(QDialog):
 
         if do_delete:
             self._log.setPlainText(tr("gps_deleting"))
-            self._delete_worker = DeleteWorker(dest)
+            self._delete_worker = DeleteWorker(dest, self._export_format)
             self._delete_worker.finished.connect(
                 lambda res: self._on_delete_finished(res, dest, filename, max_caches)
             )

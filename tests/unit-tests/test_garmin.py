@@ -606,6 +606,21 @@ class TestDeleteGpxFiles:
         result = delete_gpx_files(tmp_path)
         assert result.device == tmp_path
 
+    def test_folder_override_deletes_from_ggz_dir(self, tmp_path):
+        # Regression test for #656 follow-up (CheminerWill): the delete-old-
+        # files feature previously only worked for GPX; passing an explicit
+        # folder lets it also clear the GGZ directory instead.
+        ggz_dir = tmp_path / GARMIN_GGZ_SUBPATH
+        ggz_dir.mkdir(parents=True)
+        (ggz_dir / "opensak.ggz").write_text("dummy")
+        gpx_dir = self._setup_device(tmp_path, ["untouched.gpx"])
+
+        result = delete_gpx_files(tmp_path, pattern="*.ggz", folder=ggz_dir)
+
+        assert result.deleted_count == 1
+        assert not (ggz_dir / "opensak.ggz").exists()
+        assert (gpx_dir / "untouched.gpx").exists()  # GPX dir left alone
+
 
 # ── _is_garmin ────────────────────────────────────────────────────────────────
 
