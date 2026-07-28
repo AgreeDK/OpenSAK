@@ -16,6 +16,7 @@ from opensak.gps.garmin import (
     DeleteResult,
     ExportResult,
     _cache_symbol,
+    _custom_wp_symbol,
     _effective_coords,
     _is_garmin,
     _macos_volumes,
@@ -129,11 +130,51 @@ class TestCacheSymbol:
     def test_earthcache(self):
         assert _cache_symbol("Earthcache") == "Geocache"
 
+    def test_lab_cache_gets_distinct_symbol(self):
+        # Issue #660: Lab Cache stages get a distinct icon from regular
+        # geocaches, purely cosmetic — content export is unaffected.
+        assert _cache_symbol("Lab Cache") == "Flag, Blue"
+        assert _cache_symbol("Lab Cache") != _cache_symbol("Traditional Cache")
+
     def test_unknown_type_falls_back(self):
         assert _cache_symbol("Nonexistent Type") == "Geocache"
 
     def test_empty_string_falls_back(self):
         assert _cache_symbol("") == "Geocache"
+
+
+class TestCustomWpSymbol:
+    """Direct unit tests for _custom_wp_symbol() (issue #660)."""
+
+    def test_parking_area(self):
+        assert _custom_wp_symbol("Parking Area") == "Parking Area"
+
+    def test_trailhead(self):
+        assert _custom_wp_symbol("Trailhead") == "Trail Head"
+
+    def test_hotel_poi(self):
+        assert _custom_wp_symbol("Hotel/POI") == "Lodging"
+
+    def test_reference_point(self):
+        assert _custom_wp_symbol("Reference Point") == "Flag, Green"
+
+    def test_stage(self):
+        assert _custom_wp_symbol("Stage") == "Flag, Blue"
+
+    def test_final_location(self):
+        assert _custom_wp_symbol("Final Location") == "Flag, Red"
+
+    def test_waypoint(self):
+        assert _custom_wp_symbol("Waypoint") == "Waypoint"
+
+    def test_custom(self):
+        assert _custom_wp_symbol("Custom") == "Waypoint"
+
+    def test_unknown_type_falls_back_to_waypoint(self):
+        assert _custom_wp_symbol("Something Else") == "Waypoint"
+
+    def test_empty_string_falls_back_to_waypoint(self):
+        assert _custom_wp_symbol("") == "Waypoint"
 
 
 # ── _effective_coords ─────────────────────────────────────────────────────────
@@ -288,6 +329,65 @@ class TestGenerateGpx:
     def test_hints_present_when_set(self):
         result = generate_gpx([_cache(encoded_hints="Under a rock")])
         assert "Under a rock" in result
+
+    def test_custom_waypoint_has_no_groundspeak_cache_block(self):
+        # Regression test for #660: Custom Waypoints (Hotel/POI, Parking
+        # Area, etc. — issue #141) were previously exported wrapped in a
+        # full groundspeak:cache block, showing up on Garmin devices as a
+        # "fake geocache" with empty D/T stars and Size: (Not Chosen).
+        result = generate_gpx([_cache(cache_type="Parking Area")])
+        assert "groundspeak:cache" not in result
+
+    def test_custom_waypoint_still_has_name_and_desc(self):
+        result = generate_gpx([_cache(
+            cache_type="Hotel/POI", name="Hotel Example", gc_code="GC00HOTEL",
+        )])
+        assert "GC00HOTEL" in result
+        assert "Hotel Example" in result
+
+    def test_custom_waypoint_symbol_parking_area(self):
+        result = generate_gpx([_cache(cache_type="Parking Area")])
+        assert "<sym>Parking Area</sym>" in result
+
+    def test_custom_waypoint_symbol_hotel_poi(self):
+        result = generate_gpx([_cache(cache_type="Hotel/POI")])
+        assert "<sym>Lodging</sym>" in result
+
+    def test_custom_waypoint_symbol_trailhead(self):
+        result = generate_gpx([_cache(cache_type="Trailhead")])
+        assert "<sym>Trail Head</sym>" in result
+
+    def test_custom_waypoint_unmapped_type_falls_back_to_waypoint_symbol(self):
+        result = generate_gpx([_cache(cache_type="Custom")])
+        assert "<sym>Waypoint</sym>" in result
+
+    def test_custom_waypoint_type_element_is_plain_not_geocache_prefixed(self):
+        # Regular caches get "Geocache|<type>" in <type>; custom waypoints
+        # should not carry the misleading "Geocache|" prefix.
+        result = generate_gpx([_cache(cache_type="Parking Area")])
+        assert "<type>Parking Area</type>" in result
+        assert "Geocache|Parking Area" not in result
+
+    def test_regular_cache_still_gets_groundspeak_cache_block(self):
+        # Sanity check: the #660 branch must not affect normal geocaches.
+        result = generate_gpx([_cache(cache_type="Traditional Cache")])
+        assert "groundspeak:cache" in result
+        assert "<sym>Geocache</sym>" in result
+
+    def test_lab_cache_gets_distinct_icon_but_keeps_full_content(self):
+        # Regression test for #660: Adventure Lab stages already displayed
+        # correctly as full geocaches on a GPSMAP 64s (description, D/T,
+        # hint all shown) — this only changes the icon so they're visually
+        # distinguishable from regular geocaches, without losing content.
+        result = generate_gpx([_cache(
+            cache_type="Lab Cache",
+            long_description="Lab stage description",
+            encoded_hints="Lab hint",
+        )])
+        assert "<sym>Flag, Blue</sym>" in result
+        assert "groundspeak:cache" in result
+        assert "Lab stage description" in result
+        assert "Lab hint" in result
 
     def test_short_description_present_when_set(self):
         # Regression test for #656: short_description was not exported at all.
