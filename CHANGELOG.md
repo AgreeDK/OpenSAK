@@ -8,6 +8,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.0-beta.16] — 2026-07-28
+
+> **Beta release** — further "Send to GPS" polish following tester
+> feedback on beta.15, plus proper Garmin icons for Custom Waypoints
+> and Adventure Lab caches.
+
+### Fixed
+
+- **"Send to GPS" silently overwrote a same-named file on the device
+  with no warning (#656)** — reported by CheminerWill after testing
+  beta.15. The existing #501 fix only covered file-mode exports;
+  device-mode ("Send to GPS") now runs the same collision check: if a
+  file with the same name already exists in the device's Garmin/GPX or
+  Garmin/GGZ folder, you're prompted for a new name (with an
+  auto-suggested next-available name), unless "delete old files before
+  upload" is checked, in which case the old files are cleared first.
+  That checkbox now also works for GGZ exports (previously GPX-only).
+- **Custom Waypoints (Hotel/POI, Parking Area, Trailhead, etc.) showed
+  up on Garmin devices as empty "fake geocaches"** — with blank D/T
+  stars and `Size: (Not Chosen)` — instead of looking like the simple
+  waypoints they are. They're now exported as plain GPX waypoints with
+  a proper native Garmin icon (e.g. "Parking Area", "Lodging",
+  "Trail Head"). Confirmed fixed on a GPSMAP 64s via GPX import.
+
+### Added
+
+- **"Use database name as filename"** checkbox in the GPS export
+  dialog (community suggestion — GSAK has an equivalent), checked by
+  default, covering both file-mode and device-mode exports. Pre-fills
+  the export filename with the currently active database's name
+  instead of a fixed "opensak" default, reducing how often the
+  collision prompt above gets triggered in normal day-to-day use.
+
+### Notes
+
+- Adventure Lab stages were also given a distinct icon attempt
+  ("Flag, Blue" instead of the standard geocache icon) — this had no
+  visible effect on the tested GPSMAP 64s (device firmware appears to
+  always use its own icon for anything containing a full
+  `groundspeak:cache` block, regardless of the `sym` field). Left in
+  place since it's harmless and may help on other device/firmware
+  combinations; Lab stages keep their full description/D-T/hint
+  content either way, which was the more important fix.
+
+---
+
 ## [1.16.0-beta.15] — 2026-07-28
 
 > **Beta release** — a cluster of fixes to GPX/GGZ export for Garmin
