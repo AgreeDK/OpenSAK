@@ -8,6 +8,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.0-beta.15] — 2026-07-28
+
+> **Beta release** — a cluster of fixes to GPX/GGZ export for Garmin
+> devices ("Send to GPS"), including the root cause of Garmin firmware
+> not recognizing exported files as geocaches at all.
+
+### Fixed
+
+- **GPX/GGZ export missing attributes, descriptions, state, and full log
+  history (#656)** — `generate_gpx()` (used by both GPX and GGZ export,
+  since GGZ embeds a generated GPX internally) never wrote
+  `groundspeak:attributes`, `groundspeak:short_description` /
+  `long_description`, or `groundspeak:state` at all, and hardcoded log
+  export to only the last 5 logs with text truncated to 500 characters.
+  Confirmed via a controlled side-by-side comparison against GSAK's
+  export of the same cache (GC.com direct download and GSAK both
+  included full attributes, description, and complete log history for
+  the same cache; OpenSAK's export was missing all of it). All of the
+  above is now exported in full, with no artificial limits.
+
+- **Garmin devices not recognizing OpenSAK's GPX/GGZ exports as geocaches
+  (#656)** — the underlying root cause of the above and of related
+  reports (#453, #454, #455, #502): OpenSAK exported GPX 1.1
+  (`xmlns=".../GPX/1/1"`) with `groundspeak:cache` wrapped inside a
+  GPX-1.1-style `<extensions>` element. GSAK exports GPX 1.0
+  (`xmlns=".../GPX/1/0"`) with `groundspeak:cache` as a *direct child* of
+  `<wpt>` — no `<extensions>` wrapper — which is what Garmin's on-device
+  geocache parser is built around. Export format now matches GSAK's
+  exactly, including declaring the `groundspeak` XML namespace locally
+  on the `<groundspeak:cache>` element itself rather than at the GPX
+  root. Confirmed fixed on a Garmin GPSMAP 64s: description, logs and
+  hint all now display correctly for an exported cache, where previously
+  only the hint displayed and description/logs did not.
+
+---
+
 ## [1.16.0-beta.14] — 2026-07-26
 
 > **Beta release** — vertical gridlines in the database grid (#463).

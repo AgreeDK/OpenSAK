@@ -240,8 +240,17 @@ def _effective_coords(cache) -> tuple[float, float]:
 
 def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=None) -> str:
     """
-    Generer GPX 1.1 indhold fra en liste af Cache objekter.
+    Generer GPX indhold fra en liste af Cache objekter.
     Returnerer GPX som en streng klar til at skrive til fil.
+
+    Bruger GPX 1.0 med groundspeak:cache som DIREKTE child af <wpt> — ikke
+    pakket ind i et <extensions>-element (GPX 1.1-stil). Dette matcher GSAK's
+    og de facto-standarden for geocaching-GPX-filer, som Garmin-enheders
+    geocache-parser er bygget til at forvente (issue #656: en enhedstest
+    viste hint blev vist korrekt, men description/logs blev ikke, hvilket
+    passer med en firmware-parser der ikke finder groundspeak:cache når den
+    ligger i <extensions> og derfor falder tilbage til kun at vise
+    almindelig waypoint-info for de øvrige felter).
 
     Caches med korrigerede koordinater eksporteres med de korrigerede
     koordinater som waypoint-position. De originale koordinater bevares
@@ -253,12 +262,14 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
     import xml.etree.ElementTree as ET
     from datetime import datetime, timezone
 
-    # Root element
+    # Root element — GPX 1.0, matching GSAK's own export format. The
+    # groundspeak namespace is deliberately NOT declared here; it's declared
+    # locally on each <groundspeak:cache> element instead (see below),
+    # mirroring GSAK's exact convention byte-for-byte.
     gpx = Element("gpx")
-    gpx.set("version", "1.1")
+    gpx.set("version", "1.0")
     gpx.set("creator", "OpenSAK")
-    gpx.set("xmlns", "http://www.topografix.com/GPX/1/1")
-    gpx.set("xmlns:groundspeak", "http://www.groundspeak.com/cache/1/0/1")
+    gpx.set("xmlns", "http://www.topografix.com/GPX/1/0")
     gpx.set("xmlns:gsak", "http://www.gsak.net/xmlv1/6")
     gpx.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
 
@@ -311,12 +322,14 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
         type_wpt = SubElement(wpt, "type")
         type_wpt.text = f"Geocache|{cache.cache_type or 'Traditional Cache'}"
 
-        # Groundspeak extensions
-        extensions = SubElement(wpt, "extensions")
-        gs_cache = SubElement(extensions, "groundspeak:cache")
+        # groundspeak:cache — direct child of <wpt>, no <extensions> wrapper
+        # (see docstring above). The xmlns:groundspeak declaration is local
+        # to this element, matching GSAK's exact convention.
+        gs_cache = SubElement(wpt, "groundspeak:cache")
         gs_cache.set("id", str(cache.id))
         gs_cache.set("available", "True" if cache.available else "False")
         gs_cache.set("archived", "True" if cache.archived else "False")
+        gs_cache.set("xmlns:groundspeak", "http://www.groundspeak.com/cache/1/0/1")
 
         gs_name = SubElement(gs_cache, "groundspeak:name")
         gs_name.text = cache.name or ""
@@ -330,6 +343,19 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
         gs_container = SubElement(gs_cache, "groundspeak:container")
         gs_container.text = cache.container or "Regular"
 
+        # Attributes (issue #656 follow-up — previously not exported at all).
+        # Written here, right after container, to match the official
+        # Groundspeak cache.xsd element sequence (name, placed_by, type,
+        # container, attributes, difficulty, terrain, country, state,
+        # short_description, long_description, encoded_hints, logs).
+        if cache.attributes:
+            gs_attrs = SubElement(gs_cache, "groundspeak:attributes")
+            for attr in cache.attributes:
+                gs_attr = SubElement(gs_attrs, "groundspeak:attribute")
+                gs_attr.set("id", str(attr.attribute_id))
+                gs_attr.set("inc", "1" if attr.is_on else "0")
+                gs_attr.text = attr.name or ""
+
         gs_diff = SubElement(gs_cache, "groundspeak:difficulty")
         gs_diff.text = str(cache.difficulty or 1.0)
 
@@ -340,11 +366,36 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
             gs_country = SubElement(gs_cache, "groundspeak:country")
             gs_country.text = cache.country
 
+        if cache.state:
+            gs_state = SubElement(gs_cache, "groundspeak:state")
+            gs_state.text = cache.state
+
+        # Descriptions (issue #656 follow-up — these were missing entirely,
+        # which is likely why some Garmin firmware doesn't recognise OpenSAK's
+        # GPX/GGZ output as a geocaching file at all, falling back to a plain
+        # waypoint. html reflects whether the source text contains HTML markup.)
+        if cache.short_description:
+            gs_short = SubElement(gs_cache, "groundspeak:short_description")
+            gs_short.set("html", "True" if cache.short_desc_html else "False")
+            gs_short.text = cache.short_description
+
+        if cache.long_description:
+            gs_long = SubElement(gs_cache, "groundspeak:long_description")
+            gs_long.set("html", "True" if cache.long_desc_html else "False")
+            gs_long.text = cache.long_description
+
+        # encoded_hints must come AFTER the descriptions per cache.xsd —
+        # previously written before them, which likely broke strict
+        # sequential parsers partway through the cache block (issue #656:
+        # hint displayed correctly on-device, but description/logs did not,
+        # exactly as expected if a device parser gave up at this point).
         if cache.encoded_hints:
             gs_hints = SubElement(gs_cache, "groundspeak:encoded_hints")
             gs_hints.text = cache.encoded_hints
 
-        # Logs (max 5)
+        # Logs (issue #656 follow-up — previously hardcoded to only the
+        # last 5, unlike GC.com/GSAK which include the full history. Export
+        # all logs; sorted newest-first to match GC.com/GSAK ordering.)
         if cache.logs:
             gs_logs = SubElement(gs_cache, "groundspeak:logs")
             _min_dt = datetime.min.replace(tzinfo=timezone.utc)
@@ -352,7 +403,7 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
                 cache.logs,
                 key=lambda l: l.log_date or _min_dt,
                 reverse=True,
-            )[:5]:
+            ):
                 gs_log = SubElement(gs_logs, "groundspeak:log")
                 gs_log.set("id", log.log_id or "0")
                 gs_date = SubElement(gs_log, "groundspeak:date")
@@ -366,13 +417,15 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
                 gs_finder.text = log.finder or ""
                 gs_text = SubElement(gs_log, "groundspeak:text")
                 gs_text.set("encoded", "False")
-                gs_text.text = (log.text or "")[:500]
+                gs_text.text = log.text or ""
 
-        # GSAK personal note
+        # GSAK personal note — direct child of <wpt>, matching GSAK's own
+        # convention (the importer already searches descendants for this,
+        # so it accepts either placement on the way in).
         note = getattr(cache, "user_note", None)
         note_text = getattr(note, "note", None) if note else None
         if note_text:
-            gsak_ext = SubElement(extensions, "gsak:wptExtension")
+            gsak_ext = SubElement(wpt, "gsak:wptExtension")
             gsak_note = SubElement(gsak_ext, "gsak:UserNote")
             gsak_note.text = note_text
 

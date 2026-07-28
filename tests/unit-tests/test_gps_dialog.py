@@ -74,9 +74,11 @@ class TestExportWorker:
             return SimpleNamespace(
                 id=1, gc_code=gc, name="n", cache_type="Traditional Cache",
                 latitude=55.0, longitude=12.0, difficulty=1.0, terrain=1.0,
-                placed_by="o", available=True, archived=False, country="DK",
+                placed_by="o", available=True, archived=False, country="DK", state=None,
                 encoded_hints=None, hidden_date=None, logs=[], user_note=None,
                 container="Small", found=False,
+                short_description=None, short_desc_html=False,
+                long_description=None, long_desc_html=False, attributes=[],
             )
 
         caches = [_cache(f"GC{i}") for i in range(3)]

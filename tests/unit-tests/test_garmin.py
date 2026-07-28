@@ -47,12 +47,18 @@ def _cache(
     available=True,
     archived=False,
     country="Denmark",
+    state=None,
     encoded_hints=None,
     hidden_date=None,
     logs=None,
     user_note=None,
     cache_id=1,
     container="Regular",
+    short_description=None,
+    short_desc_html=False,
+    long_description=None,
+    long_desc_html=False,
+    attributes=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=cache_id,
@@ -67,11 +73,25 @@ def _cache(
         available=available,
         archived=archived,
         country=country,
+        state=state,
         encoded_hints=encoded_hints,
         hidden_date=hidden_date,
         logs=logs or [],
         user_note=user_note,
         container=container,
+        short_description=short_description,
+        short_desc_html=short_desc_html,
+        long_description=long_description,
+        long_desc_html=long_desc_html,
+        attributes=attributes or [],
+    )
+
+
+def _attribute(attribute_id=32, name="Bicycles", is_on=True):
+    return SimpleNamespace(
+        attribute_id=attribute_id,
+        name=name,
+        is_on=is_on,
     )
 
 
@@ -175,6 +195,34 @@ class TestGenerateGpx:
         result = generate_gpx([_cache()])
         assert 'creator="OpenSAK"' in result
 
+    def test_uses_gpx_1_0_namespace(self):
+        # Regression test for #656 root cause: switched from GPX 1.1 to
+        # GPX 1.0 to match GSAK's export format, which Garmin device
+        # firmware's geocache parser is built around.
+        result = generate_gpx([_cache()])
+        assert 'version="1.0"' in result
+        assert "http://www.topografix.com/GPX/1/0" in result
+        assert "GPX/1/1" not in result
+
+    def test_no_extensions_wrapper(self):
+        # Regression test for #656 root cause: a device tester confirmed
+        # hint displayed correctly but description/logs did not, on-device,
+        # with a content-complete but GPX-1.1-style export. GSAK's export
+        # (proven to work on the same device) puts groundspeak:cache
+        # directly under <wpt>, with no <extensions> wrapper at all.
+        result = generate_gpx([_cache()])
+        assert "<extensions>" not in result
+        assert "groundspeak:cache" in result
+
+    def test_groundspeak_cache_namespace_declared_locally(self):
+        # Matches GSAK's exact convention: xmlns:groundspeak is declared on
+        # the <groundspeak:cache> element itself, not at the <gpx> root.
+        result = generate_gpx([_cache()])
+        assert 'xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1"' in result
+        # Root <gpx> tag itself should not carry the groundspeak namespace.
+        gpx_tag_end = result.index(">")
+        assert "groundspeak" not in result[:gpx_tag_end]
+
     def test_custom_filename_in_metadata(self):
         result = generate_gpx([_cache()], filename="my_export")
         assert "my_export" in result
@@ -183,9 +231,153 @@ class TestGenerateGpx:
         result = generate_gpx([_cache(country="Denmark")])
         assert "Denmark" in result
 
+    def test_state_present_when_set(self):
+        # Regression test for #656 follow-up: state was not exported at all,
+        # confirmed missing via a direct GGZ diff against GSAK's export of
+        # the same cache.
+        result = generate_gpx([_cache(state="Region Sjælland")])
+        assert "groundspeak:state" in result
+        assert "Region Sjælland" in result
+
+    def test_state_absent_when_not_set(self):
+        result = generate_gpx([_cache(state=None)])
+        assert "groundspeak:state" not in result
+
+    def test_log_text_not_truncated_at_500_chars(self):
+        # Regression test for #656 follow-up: log text was silently cut off
+        # at 500 chars, confirmed via a direct GGZ diff against GSAK's
+        # export of the same cache (GSAK had a 3616-char log, OSAK's
+        # matching export was truncated to exactly 500).
+        long_text = "A" * 2000
+        lg = _log(text=long_text)
+        result = generate_gpx([_cache(logs=[lg])])
+        assert long_text in result
+
+    def test_groundspeak_cache_element_order_matches_schema(self):
+        # Regression test for #656 follow-up: element order inside
+        # groundspeak:cache must follow the official cache.xsd sequence
+        # (name, placed_by, type, container, attributes, difficulty,
+        # terrain, country, state, short_description, long_description,
+        # encoded_hints, logs). A device tester confirmed hints displayed
+        # correctly on a GPSMAP64S but description fell back to a generic
+        # "GC-code + coordinates" placeholder and logs didn't show at all
+        # — consistent with a device parser that walks the block
+        # sequentially and gives up once the expected order breaks down
+        # (encoded_hints was previously written before the descriptions,
+        # and attributes after long_description, both out of sequence).
+        import re
+        attrs = [_attribute()]
+        lg = _log()
+        result = generate_gpx([_cache(
+            attributes=attrs, logs=[lg], country="Denmark", state="Region Sjælland",
+            short_description="short", long_description="long",
+            encoded_hints="hint",
+        )])
+        tags = re.findall(r"<groundspeak:(\w+)", result)
+        expected_order = [
+            "cache", "name", "placed_by", "type", "container",
+            "attributes", "attribute",
+            "difficulty", "terrain", "country", "state",
+            "short_description", "long_description", "encoded_hints",
+            "logs", "log",
+        ]
+        # Only check the leading tags we control the order of; logs/date/
+        # etc. inside the <log> element aren't schema-order-sensitive here.
+        assert tags[:len(expected_order)] == expected_order
+
     def test_hints_present_when_set(self):
         result = generate_gpx([_cache(encoded_hints="Under a rock")])
         assert "Under a rock" in result
+
+    def test_short_description_present_when_set(self):
+        # Regression test for #656: short_description was not exported at all.
+        result = generate_gpx([_cache(short_description="A quick teaser")])
+        assert "A quick teaser" in result
+        assert 'groundspeak:short_description html="False"' in result
+
+    def test_short_description_html_flag_reflected(self):
+        result = generate_gpx([_cache(
+            short_description="<b>Teaser</b>", short_desc_html=True,
+        )])
+        assert 'groundspeak:short_description html="True"' in result
+
+    def test_short_description_absent_when_not_set(self):
+        result = generate_gpx([_cache(short_description=None)])
+        assert "groundspeak:short_description" not in result
+
+    def test_long_description_present_when_set(self):
+        # Regression test for #656: long_description was not exported at all,
+        # which several users confirmed was missing from OpenSAK's GPX/GGZ
+        # output compared to GC.com/GSAK exports of the same cache.
+        result = generate_gpx([_cache(long_description="The full cache story goes here.")])
+        assert "The full cache story goes here." in result
+        assert 'groundspeak:long_description html="False"' in result
+
+    def test_long_description_html_flag_reflected(self):
+        result = generate_gpx([_cache(
+            long_description="<p>Full story</p>", long_desc_html=True,
+        )])
+        assert 'groundspeak:long_description html="True"' in result
+
+    def test_long_description_absent_when_not_set(self):
+        result = generate_gpx([_cache(long_description=None)])
+        assert "groundspeak:long_description" not in result
+
+    def test_attributes_present_when_set(self):
+        # Regression test for #656: attributes were not exported at all.
+        attrs = [_attribute(attribute_id=32, name="Bicycles", is_on=True)]
+        result = generate_gpx([_cache(attributes=attrs)])
+        assert "groundspeak:attributes" in result
+        assert 'groundspeak:attribute id="32" inc="1"' in result
+        assert "Bicycles" in result
+
+    def test_attribute_inc_zero_when_off(self):
+        attrs = [_attribute(attribute_id=7, name="No dogs", is_on=False)]
+        result = generate_gpx([_cache(attributes=attrs)])
+        assert 'groundspeak:attribute id="7" inc="0"' in result
+
+    def test_multiple_attributes_all_present(self):
+        attrs = [
+            _attribute(attribute_id=32, name="Bicycles", is_on=True),
+            _attribute(attribute_id=7, name="No dogs", is_on=False),
+        ]
+        result = generate_gpx([_cache(attributes=attrs)])
+        assert "Bicycles" in result
+        assert "No dogs" in result
+
+    def test_attributes_absent_when_empty(self):
+        result = generate_gpx([_cache(attributes=[])])
+        assert "groundspeak:attributes" not in result
+
+    def test_groundspeak_element_order_matches_cache_xsd(self):
+        # Regression test for #656 follow-up: elements inside groundspeak:cache
+        # must appear in the exact order the official cache.xsd sequence
+        # requires (name, placed_by, type, container, attributes, difficulty,
+        # terrain, country, state, short_description, long_description,
+        # encoded_hints, logs). Confirmed on real hardware (GPSMAP64S) that
+        # violating this order — encoded_hints was previously written before
+        # the descriptions, and attributes after them — caused hint to
+        # display correctly while description and logs silently did not,
+        # consistent with a strict sequential parser giving up partway
+        # through the block once elements appeared out of sequence.
+        import re
+        attrs = [_attribute(attribute_id=32, name="Bicycles", is_on=True)]
+        lg = _log(text="Great cache!")
+        result = generate_gpx([_cache(
+            country="Denmark", state="Region Sjælland",
+            encoded_hints="Under a rock",
+            short_description="Short", long_description="Long",
+            attributes=attrs, logs=[lg],
+        )])
+        tags = re.findall(r"<groundspeak:(\w+)", result)
+        expected_order = [
+            "cache", "name", "placed_by", "type", "container",
+            "attributes", "attribute",
+            "difficulty", "terrain", "country", "state",
+            "short_description", "long_description", "encoded_hints",
+            "logs", "log",
+        ]
+        assert tags[:len(expected_order)] == expected_order
 
     def test_cache_with_none_coords_skipped(self):
         c = _cache()
@@ -198,6 +390,20 @@ class TestGenerateGpx:
         result = generate_gpx([_cache(logs=[lg])])
         assert "TestFinder" in result
         assert "Great cache!" in result
+
+    def test_all_logs_exported_not_just_five(self):
+        # Regression test for #656: logs were previously hardcoded to the
+        # last 5 only, unlike GC.com/GSAK which include full log history.
+        # Allyn56's controlled comparison on issue #656 confirmed OpenSAK's
+        # export was truncating logs where GC.com/GSAK exports were not.
+        logs = [
+            _log(log_id=str(i), finder=f"Finder{i}", text=f"Log number {i}",
+                 log_date=datetime(2026, 1, i, tzinfo=timezone.utc))
+            for i in range(1, 9)  # 8 logs — more than the old hardcoded cap of 5
+        ]
+        result = generate_gpx([_cache(logs=logs)])
+        for i in range(1, 9):
+            assert f"Finder{i}" in result, f"Log {i} missing — logs still being truncated"
 
     def test_logs_with_mixed_none_and_set_dates_does_not_crash(self):
         # Regression test for #348: sorting logs where some have log_date=None

@@ -11,13 +11,14 @@ def _build_caches(tmp_path):
     """
     Return a list of Cache ORM objects from the SAMPLE_GPX fixture.
 
-    user_note and logs are eagerly loaded so objects remain usable after the
-    session closes — generate_gpx() accesses both on detached instances.
+    user_note, logs and attributes are eagerly loaded so objects remain
+    usable after the session closes — generate_gpx() accesses all three
+    on detached instances (attributes since issue #656's fix).
     """
     from opensak.db.database import init_db, get_session
     from opensak.importer import import_gpx
     from opensak.db.models import Cache
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import joinedload, selectinload
     from tests.data import SAMPLE_GPX
 
     db_path = tmp_path / "gps_test.db"
@@ -35,6 +36,7 @@ def _build_caches(tmp_path):
             .options(
                 joinedload(Cache.user_note),
                 joinedload(Cache.logs),
+                selectinload(Cache.attributes),
             )
             .all()
         )
