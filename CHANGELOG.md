@@ -8,6 +8,116 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.0] — 2026-07-29
+
+> First stable release of the 1.16.0 cycle. Replaces the run of
+> `1.16.0-beta.2` … `1.16.0-beta.16` builds — see git history for the
+> detailed beta-by-beta log if needed. Headline of this cycle: a deep
+> investigation into why exported caches weren't showing up correctly on
+> Garmin handhelds ("Send to GPS"), plus a large-database performance
+> pass and several data-integrity fixes for GSAK/GPX imports.
+
+### Added
+
+- **Garmin "Send to GPS" — full content and correct recognition (#656,
+  #453, #454, #455, #502)** — a multi-stage investigation, working
+  directly from GGZ/GPX byte comparisons against GSAK's own export of
+  the same caches, found and fixed the actual root cause: OpenSAK
+  exported GPX 1.1 with `groundspeak:cache` wrapped in an `<extensions>`
+  element, while Garmin's on-device geocache parser is built around
+  GSAK's GPX 1.0 format, where `groundspeak:cache` is a direct child of
+  `<wpt>`. Export format now matches GSAK's exactly. Along the way,
+  several content gaps were found and fixed: missing
+  `groundspeak:attributes`, `short_description`/`long_description`, and
+  `state`; logs hardcoded to the last 5 with text truncated at 500
+  characters (now full history, no cap); and element order inside
+  `groundspeak:cache` corrected to match the official `cache.xsd`
+  sequence. Confirmed fixed by multiple testers across a GPSMAP 64s,
+  66s, 66sr, and Montana 700 — description, hint, and previous logs all
+  display correctly now, and exported files are correctly recognized as
+  geocache files (not plain waypoints) on-device.
+- **Custom Waypoints (Hotel/POI, Parking Area, Trailhead, etc.) get
+  proper icons, in both the app and on Garmin devices (#593, #660)** —
+  in-app, these now show their own distinct icon in the table, map, and
+  detail panel instead of a generic "unknown" icon. For Garmin export,
+  they're now written as plain GPX waypoints with a matching native
+  Garmin icon (e.g. "Parking Area", "Lodging", "Trail Head") instead of
+  showing up as an empty "fake geocache" with blank D/T stars.
+- **"Use database name as filename" for GPS export** — new checkbox in
+  the Send to GPS dialog (community suggestion — GSAK has an
+  equivalent), on by default, pre-fills the export filename from the
+  active database's name for both file-mode and device-mode exports.
+  Its on/off state is remembered between exports.
+- **Send to GPS collision handling** — device-mode exports ("Send to
+  GPS") now prompt before silently overwriting a same-named file on the
+  device, matching the protection file-mode export already had. The
+  "delete old files before upload" option now also covers GGZ exports
+  (previously GPX-only).
+- **Large-database performance** (#627 and its follow-ups) — a new
+  lightweight query path (`apply_filters_lightweight()`/
+  `apply_filters_auto()`) avoids ORM row-hydration cost with an
+  automatic, always-correct fallback to the full path whenever a filter
+  needs it; SQL pushdown extended to every remaining filter type; map
+  loading is dramatically faster via icon caching and bulk marker
+  loading; a "Max caches shown on map" setting and a "disable map
+  entirely" setting both target the same large-database load cost.
+  Measured on a 250,000-cache benchmark database: total time to show
+  all caches dropped by ~19% end-to-end, with individual steps (map
+  load, filtered queries) 2–48x faster depending on the scenario. A new
+  `scripts/benchmark_large_db.py` harness backs all of these numbers and
+  is available for future performance work too.
+- **Default Column View** (#607) — named, saveable column configurations
+  (visible columns, widths, container/type display), with a toolbar
+  quick-switch dropdown and a designated global default for new/
+  unconfigured databases, replacing the previous implicit "last used"
+  fallback.
+- **Vertical gridlines in the cache table** (#463), and a **center point
+  picker for the distance filter** (#511) — choose Home, a saved home
+  point, the selected cache, or a manual coordinate as the filter's
+  center, plus a matching right-click "Set as center point" action.
+
+### Fixed
+
+- **Cache distance not calculated after adding/editing a waypoint**
+  (#662) — a newly added cache (including Custom Waypoints) or one with
+  edited coordinates showed no distance and sorted to the bottom of the
+  list until the center/home point was switched away and back. Distance
+  and bearing are now recalculated immediately in both cases.
+- **Wrong attribute mappings from GSAK import** (#615) — 42 of 70
+  Groundspeak attribute IDs were mapped to the wrong attribute, also
+  silently affecting the attribute filter regardless of import source.
+- **Corrected-coordinate caches lost their original coordinates on GSAK
+  database import** (#614) — the original (pre-solve) position is now
+  read from GSAK's `Corrected` table instead of the already-corrected
+  `Latitude`/`Longitude` columns.
+- **Hidden date (and log dates) lost when importing Project-GC-style
+  GPX** (#617) — an explicit UTC-offset timestamp format
+  (`+00:00`) wasn't recognized by the old parser and silently came back
+  as `None`.
+- **Logs wiped on every re-import instead of accumulating** (#618) — a
+  partial GPX/PQ re-import now merges logs (update-in-place for a
+  matching ID, add new ones, keep existing ones not present in the
+  current file) instead of deleting and rebuilding from that file alone.
+- **Community Celebration Event caches imported as generic "Event
+  Cache"** (#591) — narrow name-based fallback for this un-typed,
+  time-limited Groundspeak program.
+- **New database didn't inherit column settings** (#606) — falls back to
+  the last-used configuration instead of hard-coded factory defaults.
+- **Redundant distance recalculation on every startup** (#579) — skipped
+  when nothing about the database or home point has changed since the
+  last run.
+- **Boolean filters bypassed their SQL indexes** (#628) — `IS true`/
+  `IS false` changed to the index-usable `= true`/`= false` form.
+- **Hint markup incorrectly ROT13-scrambled** (#595) — bracketed markup
+  like `[br]` is now left untouched by the hint cipher.
+- Several dark-theme/UI fixes: unreadable placeholder text (#624), an
+  unreadable Where-filter SQL error box (#613), and Country/Region/
+  County columns left-aligned instead of centered (#603).
+- Database dropdown/lists not sorted alphabetically (#531, #601), and a
+  misleading "database created" confirmation message (#464).
+
+---
+
 ## [1.16.0-beta.16] — 2026-07-28
 
 > **Beta release** — further "Send to GPS" polish following tester
