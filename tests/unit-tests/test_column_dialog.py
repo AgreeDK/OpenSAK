@@ -10,13 +10,17 @@ from opensak.gui.dialogs import column_dialog as cd
 from opensak.gui.dialogs.column_dialog import (
     ALWAYS_VISIBLE,
     ColumnChooserDialog,
+    ColumnView,
     get_all_columns,
     get_column_widths,
     get_container_display,
+    get_default_view,
+    get_default_view_name,
     get_type_display,
     get_visible_columns,
     set_column_widths,
     set_container_display,
+    set_default_view_name,
     set_type_display,
     set_visible_columns,
 )
@@ -31,6 +35,40 @@ def store(tmp_path, monkeypatch):
     fresh._path = tmp_path / "opensak.json"
     monkeypatch.setattr(ss, "_store", fresh)
     return fresh
+
+
+@pytest.fixture
+def views_dir(tmp_path, monkeypatch):
+    """Isolated on-disk folder for ColumnView JSON files, per test."""
+    d = tmp_path / "column_views"
+    monkeypatch.setattr(ColumnView, "_views_dir", staticmethod(lambda: d))
+    return d
+
+
+@pytest.fixture
+def fake_active_db(monkeypatch):
+    """Let a test control which 'active database name' _col_key() sees,
+    without needing a real Database/DatabaseManager instance."""
+    class _FakeDb:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeManager:
+        def __init__(self):
+            self.active = None
+
+    manager = _FakeManager()
+
+    def _get_db_manager():
+        return manager
+
+    import opensak.db.manager as db_manager_module
+    monkeypatch.setattr(db_manager_module, "get_db_manager", _get_db_manager)
+
+    def _set_active(name):
+        manager.active = _FakeDb(name) if name is not None else None
+
+    return _set_active
 
 
 # ── module-level helpers ──────────────────────────────────────────────────────
@@ -182,3 +220,103 @@ class TestColumnChooserDialog:
         assert "found" not in saved
         remaining = [c for c in saved if c in {"name", "gc_code", "difficulty", "terrain"}]
         assert remaining == ["name", "gc_code", "difficulty", "terrain"]
+
+
+# ── Issue #607: new/unconfigured database should inherit the default view ───
+
+class TestDefaultView:
+    """A brand-new database (or one that never had its own columns.<name>.*
+    key) should fall back to the user-designated default Column View
+    (issue #607) — not to whatever database happened to be edited last
+    (that implicit #606 behaviour has been replaced by this explicit one),
+    and not directly to the hard-coded factory defaults while a default
+    view is set."""
+
+    def test_new_database_inherits_visible_columns_from_default_view(
+        self, store, views_dir, fake_active_db
+    ):
+        ColumnView(
+            "My Standard",
+            visible_columns=["gc_code", "name", "country", "state", "county"],
+        ).save()
+        set_default_view_name("My Standard")
+
+        fake_active_db("New Trip DB")  # brand-new database, nothing saved yet
+        assert get_visible_columns() == ["gc_code", "name", "country", "state", "county"]
+
+    def test_new_database_inherits_column_widths_from_default_view(
+        self, store, views_dir, fake_active_db
+    ):
+        ColumnView(
+            "My Standard",
+            visible_columns=["gc_code", "name"],
+            widths={"gc_code": 90, "name": 300},
+        ).save()
+        set_default_view_name("My Standard")
+
+        fake_active_db("New Trip DB")
+        assert get_column_widths() == {"gc_code": 90, "name": 300}
+
+    def test_new_database_inherits_display_modes_from_default_view(
+        self, store, views_dir, fake_active_db
+    ):
+        ColumnView(
+            "My Standard",
+            visible_columns=["gc_code", "name"],
+            container_display="text",
+            type_display="both",
+        ).save()
+        set_default_view_name("My Standard")
+
+        fake_active_db("New Trip DB")
+        assert get_container_display() == "text"
+        assert get_type_display() == "both"
+
+    def test_database_with_its_own_saved_settings_is_not_overridden(
+        self, store, views_dir, fake_active_db
+    ):
+        ColumnView("My Standard", visible_columns=["gc_code", "name", "country"]).save()
+        set_default_view_name("My Standard")
+
+        fake_active_db("Other DB")
+        set_visible_columns(["gc_code", "name", "difficulty"])
+
+        # "Other DB" has its own explicit choice — it must not be replaced
+        # by the default view, even though a default view exists.
+        assert get_visible_columns() == ["gc_code", "name", "difficulty"]
+
+    def test_setting_default_does_not_retroactively_change_other_databases(
+        self, store, views_dir, fake_active_db
+    ):
+        fake_active_db("Untouched DB")  # never configured, no default set yet
+        assert get_visible_columns() == [col[0] for col in get_all_columns() if col[3]]
+
+        ColumnView("My Standard", visible_columns=["gc_code", "name", "country"]).save()
+        set_default_view_name("My Standard")
+
+        # Same, still-unconfigured database now picks up the default view.
+        assert get_visible_columns() == ["gc_code", "name", "country"]
+
+    def test_no_default_view_set_falls_back_to_hard_coded_defaults(
+        self, store, views_dir, fake_active_db
+    ):
+        fake_active_db("First Ever DB")
+        vis = get_visible_columns()
+        assert "gc_code" in vis
+        assert "country" not in vis
+
+    def test_get_default_view_returns_none_when_unset(self, store, views_dir):
+        assert get_default_view_name() is None
+        assert get_default_view() is None
+
+    def test_deleting_the_default_view_file_clears_the_reference(
+        self, store, views_dir, fake_active_db
+    ):
+        path = ColumnView("My Standard", visible_columns=["gc_code", "name"]).save()
+        set_default_view_name("My Standard")
+        path.unlink()
+
+        # get_default_view() should notice the file is gone, clear the
+        # dangling reference, and fall back cleanly.
+        assert get_default_view() is None
+        assert get_default_view_name() is None

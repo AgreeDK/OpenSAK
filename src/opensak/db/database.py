@@ -853,22 +853,29 @@ def make_session():
 def reload_caches_full(caches: list) -> list:
     """Reload *caches* with everything an export needs eagerly loaded.
 
-    Table-model caches come from apply_filters(), which defers the text blobs
-    (hints/descriptions) and noloads logs/waypoints for speed. Once their
-    session closes they are detached, so an export worker that reads those
-    attributes raises DetachedInstanceError. Reloading here returns fully
-    populated, detached-safe objects (logs, waypoints, attributes, user_note
-    and the text blobs) in the original order.
+    Table-model caches come from apply_filters_auto() — either real Cache
+    ORM objects or, since #627 beta.9-11, LightweightCache rows (which defer
+    the text blobs and never carry logs/waypoints/attributes at all).
+    Either way, an export worker that reads those attributes needs the full
+    picture: a real Cache would raise DetachedInstanceError once its
+    session closes, and a LightweightCache raises AttributeError by design
+    (see its docstring) for exactly these fields. Reloading here returns
+    fully populated, detached-safe Cache objects (logs, waypoints,
+    attributes, user_note and the text blobs) in the original order,
+    regardless of which of the two types the caller is currently holding.
 
     Objects without a matching DB row (e.g. test stand-ins) pass through
     unchanged.
     """
     from opensak.db.models import Cache
+    from opensak.filters.engine import LightweightCache
     from sqlalchemy.orm import joinedload, selectinload, undefer
 
-    # Only persisted Cache rows can be reloaded; pass anything else through
-    # (e.g. SimpleNamespace stand-ins in tests).
-    ids = [c.id for c in caches if isinstance(c, Cache) and c.id is not None]
+    # Both Cache (full ORM) and LightweightCache (#627 beta.9-11) carry a
+    # real .id — anything else (e.g. SimpleNamespace stand-ins in tests)
+    # passes through unchanged.
+    reloadable = (Cache, LightweightCache)
+    ids = [c.id for c in caches if isinstance(c, reloadable) and c.id is not None]
     if not ids:
         return list(caches)
 
@@ -889,7 +896,7 @@ def reload_caches_full(caches: list) -> list:
         )
 
     by_id = {c.id: c for c in rows}
-    return [by_id.get(c.id, c) if isinstance(c, Cache) else c for c in caches]
+    return [by_id.get(c.id, c) if isinstance(c, reloadable) else c for c in caches]
 
 
 # ── Distance recalculation ────────────────────────────────────────────────────
@@ -948,7 +955,77 @@ def recalculate_distances(lat: float, lon: float) -> int:
             [{"d": float(dists[i]), "b": float(bears[i]), "id": ids[i]} for i in range(len(ids))],
         )
 
+    # Persist the center + method this recalculation used, so
+    # distances_up_to_date() can skip a redundant full recalc on next
+    # startup if nothing has changed (issue #579).
+    from opensak.gui.settings import get_settings
+    s = get_settings()
+    s.dist_calc_lat = lat
+    s.dist_calc_lon = lon
+    s.dist_calc_method = s.distance_method
+
     return len(ids)
+
+
+# Tolerance for comparing a freshly-calculated centre point / distance to a
+# previously persisted one. Anything above this is treated as "changed" and
+# triggers a full recalculation.
+_COORD_EPSILON = 1e-9
+_DISTANCE_EPSILON_KM = 0.01  # 10 m — generous enough to absorb float rounding
+
+
+def distances_up_to_date(lat: float, lon: float) -> bool:
+    """Check whether the persisted Cache.distance/bearing values are still
+    valid for the given centre point, so a full recalculate_distances() call
+    can be skipped on startup (issue #579).
+
+    Two checks must both pass:
+    1. The centre point and distance_method match what was used for the last
+       recalculation (persisted in settings, see recalculate_distances()).
+    2. A cheap spot-check: recompute the distance for a single cache and
+       compare it against the persisted value, to catch a database that was
+       modified outside this OpenSAK install (e.g. synced from another
+       machine with a different home point, or edited by another tool)
+       without a matching recalculation ever having run here.
+
+    Returns True if it's safe to skip the full recalculation.
+    """
+    from opensak.gui.settings import get_settings
+    from opensak.filters.engine import distance_km
+
+    # Deterministic spot-check row: lowest id with coordinates, regardless of
+    # whether it currently has a persisted distance. Checked first (and
+    # unconditionally) so an empty/coordinate-less database is always
+    # considered up to date — there is nothing to recalculate either way.
+    with get_session() as session:
+        row = session.execute(
+            text(
+                "SELECT latitude, longitude, distance FROM caches "
+                "WHERE latitude IS NOT NULL AND longitude IS NOT NULL "
+                "ORDER BY id LIMIT 1"
+            )
+        ).fetchone()
+
+    if row is None:
+        return True
+
+    s = get_settings()
+    calc_lat = s.dist_calc_lat
+    calc_lon = s.dist_calc_lon
+    calc_method = s.dist_calc_method
+
+    if calc_lat is None or calc_lon is None or calc_method is None:
+        return False
+    if calc_method != s.distance_method:
+        return False
+    if abs(calc_lat - lat) > _COORD_EPSILON or abs(calc_lon - lon) > _COORD_EPSILON:
+        return False
+
+    row_lat, row_lon, stored_distance = row
+    if stored_distance is None:
+        return False
+    fresh_distance = distance_km(lat, lon, row_lat, row_lon)
+    return abs(fresh_distance - stored_distance) <= _DISTANCE_EPSILON_KM
 
 
 # ── Health-check helper ───────────────────────────────────────────────────────

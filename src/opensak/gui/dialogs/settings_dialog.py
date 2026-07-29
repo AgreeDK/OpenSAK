@@ -78,6 +78,7 @@ class SettingsDialog(QDialog):
         # Tab-widget med tre faner
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_general_tab(),   tr("settings_tab_general"))
+        self._tabs.addTab(self._build_map_tab(),        tr("settings_tab_map"))
         self._tabs.addTab(self._build_gc_tab(),         tr("settings_tab_geocaching"))
         self._tabs.addTab(self._build_advanced_tab(),   tr("settings_tab_advanced"))
 
@@ -346,7 +347,60 @@ class SettingsDialog(QDialog):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         return scroll
 
-    # ── Fane 3: Advanced ─────────────────────────────────────────────────────
+    # ── Fane: Kort ────────────────────────────────────────────────────────────
+
+    def _build_map_tab(self) -> QWidget:
+        # Issue #638: dedicated tab for map-related settings, split out of
+        # General so map-specific settings have a natural shared home
+        # instead of accumulating in General. #639 added the second
+        # setting below, so a QGroupBox now makes sense (a single-setting
+        # group would have just duplicated the tab's own name — see the
+        # comment that used to be here, removed once this stopped applying).
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        group = QGroupBox(tr("settings_group_map"))
+        group_layout = QVBoxLayout(group)
+
+        self._map_enabled_cb = QCheckBox(tr("settings_map_enabled_cb"))
+        group_layout.addWidget(self._map_enabled_cb)
+
+        map_enabled_note = QLabel(tr("settings_map_enabled_note"))
+        map_enabled_note.setWordWrap(True)
+        map_enabled_note.setStyleSheet("color: gray; font-size: 10px;")
+        group_layout.addWidget(map_enabled_note)
+
+        group_layout.addSpacing(8)
+
+        # Issue #639: cap the map to the nearest N caches from home,
+        # rather than every filtered result — dramatically faster on large
+        # databases (SQL LIMIT push-down, see apply_filters_lightweight()'s
+        # push_limit parameter) and arguably more useful in practice too
+        # (a map with hundreds of thousands of pins isn't very readable at
+        # normal zoom anyway).
+        max_caches_row = QHBoxLayout()
+        max_caches_row.addWidget(QLabel(tr("settings_map_max_caches_label")))
+        self._map_max_caches = QSpinBox()
+        self._map_max_caches.setRange(0, 100000)
+        self._map_max_caches.setSingleStep(100)
+        self._map_max_caches.setSpecialValueText(tr("settings_map_unlimited"))
+        self._map_max_caches.setFixedWidth(100)
+        max_caches_row.addWidget(self._map_max_caches)
+        max_caches_row.addStretch()
+        group_layout.addLayout(max_caches_row)
+
+        max_caches_note = QLabel(tr("settings_map_max_caches_note"))
+        max_caches_note.setWordWrap(True)
+        max_caches_note.setStyleSheet("color: gray; font-size: 10px;")
+        group_layout.addWidget(max_caches_note)
+
+        layout.addWidget(group)
+        layout.addStretch()
+        return tab
+
+    # ── Fane: Avanceret ───────────────────────────────────────────────────────
 
     def _build_advanced_tab(self) -> QWidget:
         tab = QWidget()
@@ -472,6 +526,13 @@ class SettingsDialog(QDialog):
 
         self._update_check_cb = QCheckBox(tr("settings_update_check_label"))
         update_layout.addWidget(self._update_check_cb)
+
+        # Only meaningful for users running a stable release — a beta user
+        # already gets checked against both stable and beta releases
+        # automatically (see UpdateCheckWorker). Shown regardless, so the
+        # choice is remembered if/when the user is back on stable.
+        self._notify_betas_cb = QCheckBox(tr("settings_notify_betas_label"))
+        update_layout.addWidget(self._notify_betas_cb)
 
         layout.addWidget(update_group)
 
@@ -983,6 +1044,8 @@ class SettingsDialog(QDialog):
         idx = self._text_size.findData(s.text_size)
         self._text_size.setCurrentIndex(idx if idx >= 0 else 0)
         self._decode_hints_cb.setChecked(s.default_decode_hints)
+        self._map_enabled_cb.setChecked(s.map_enabled)
+        self._map_max_caches.setValue(s.map_max_caches)
         lang_idx = self._lang_combo.findData(current_language())
         self._lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
         theme_idx = self._theme_combo.findData(s.theme)
@@ -995,6 +1058,7 @@ class SettingsDialog(QDialog):
         if self._nominatim_cb is not None:
             self._nominatim_cb.setChecked(s.nominatim_enabled)
         self._update_check_cb.setChecked(s.updates_check_enabled)
+        self._notify_betas_cb.setChecked(s.notify_about_betas)
         idx = self._distance_method_combo.findData(s.distance_method)
         self._distance_method_combo.setCurrentIndex(idx if idx >= 0 else 0)
         # Opdater GC-status
@@ -1024,6 +1088,8 @@ class SettingsDialog(QDialog):
         s.date_format       = self._date_format.currentData()
         s.text_size         = self._text_size.currentData()
         s.default_decode_hints = self._decode_hints_cb.isChecked()
+        s.map_enabled = self._map_enabled_cb.isChecked()
+        s.map_max_caches = self._map_max_caches.value()
         s.search_min_chars  = self._search_min_chars.value()
         s.search_debounce_ms = self._search_debounce_ms.value()
         new_theme = self._theme_combo.currentData()
@@ -1038,6 +1104,7 @@ class SettingsDialog(QDialog):
         if self._nominatim_cb is not None:
             s.nominatim_enabled = self._nominatim_cb.isChecked()
         s.updates_check_enabled = self._update_check_cb.isChecked()
+        s.notify_about_betas = self._notify_betas_cb.isChecked()
         s.distance_method = self._distance_method_combo.currentData()
         s.sync()
 

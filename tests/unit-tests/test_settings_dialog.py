@@ -90,8 +90,9 @@ class TestWorkers:
 # ── construction (covers the three tab builders + _load) ──────────────────────
 
 class TestConstruction:
-    def test_builds_three_tabs(self, dlg):
-        assert dlg._tabs.count() == 3
+    def test_builds_four_tabs(self, dlg):
+        # General, Map (#638), Geocaching.com, Advanced.
+        assert dlg._tabs.count() == 4
 
     def test_load_reflects_settings(self, qtbot, settings):
         settings.gc_username = "preset"
@@ -100,6 +101,55 @@ class TestConstruction:
         qtbot.addWidget(d)
         assert d._gc_username.text() == "preset"
         assert d._unit_combo.currentData() is True
+
+    def test_map_enabled_defaults_to_checked(self, dlg):
+        # map_enabled defaults to True (opt-out, not opt-in) — see #638.
+        assert dlg._map_enabled_cb.isChecked() is True
+
+    def test_map_enabled_loads_false_from_settings(self, qtbot, settings):
+        settings.map_enabled = False
+        d = SettingsDialog()
+        qtbot.addWidget(d)
+        assert d._map_enabled_cb.isChecked() is False
+
+    def test_map_enabled_saves_on_accept(self, qtbot, settings):
+        d = SettingsDialog()
+        qtbot.addWidget(d)
+        d._map_enabled_cb.setChecked(False)
+        d._save()
+        assert settings.map_enabled is False
+
+    def test_map_max_caches_defaults_to_2000(self, dlg):
+        # #639 — benchmarked default, see settings.py's docstring.
+        assert dlg._map_max_caches.value() == 2000
+
+    def test_map_max_caches_loads_from_settings(self, qtbot, settings):
+        settings.map_max_caches = 500
+        d = SettingsDialog()
+        qtbot.addWidget(d)
+        assert d._map_max_caches.value() == 500
+
+    def test_map_max_caches_zero_shows_unlimited_text(self, qtbot, settings):
+        from opensak.lang import tr
+        settings.map_max_caches = 0
+        d = SettingsDialog()
+        qtbot.addWidget(d)
+        assert d._map_max_caches.value() == 0
+        assert d._map_max_caches.text() == tr("settings_map_unlimited")
+
+    def test_map_max_caches_saves_on_accept(self, qtbot, settings):
+        d = SettingsDialog()
+        qtbot.addWidget(d)
+        d._map_max_caches.setValue(1500)
+        d._save()
+        assert settings.map_max_caches == 1500
+
+    def test_map_max_caches_negative_input_clamped_to_zero(self, qtbot, settings):
+        # Settings.map_max_caches itself also clamps (defense in depth) —
+        # the spinbox's own setRange(0, ...) should already prevent this in
+        # practice, but confirm the setter is safe regardless.
+        settings.map_max_caches = -5
+        assert settings.map_max_caches == 0
 
 
 # ── coordinate / home-location feedback ───────────────────────────────────────
@@ -315,6 +365,14 @@ class TestSave:
         dlg._decode_hints_cb.setChecked(True)
         dlg._save()
         assert settings.default_decode_hints is True
+
+    def test_notify_about_betas_round_trip(self, dlg, settings):
+        assert settings.notify_about_betas is False  # default
+        assert dlg._notify_betas_cb.isChecked() is False
+
+        dlg._notify_betas_cb.setChecked(True)
+        dlg._save()
+        assert settings.notify_about_betas is True
 
     def test_save_keeps_existing_home_when_invalid(self, dlg, settings):
         settings.gc_home_location = _VALID

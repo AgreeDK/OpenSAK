@@ -379,10 +379,11 @@ class TestDataRoles:
         model.load([_cache()])
         for col in ("cache_type", "difficulty", "terrain", "distance", "found",
                     "container", "hidden_date", "last_log",
-                    "found_date", "dnf_date", "placed_by"):
+                    "found_date", "dnf_date", "placed_by",
+                    "country", "state", "county"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) == Qt.AlignmentFlag.AlignCenter, col
-        for col in ("name", "gc_code", "country", "state", "county"):
+        for col in ("name", "gc_code"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) != Qt.AlignmentFlag.AlignCenter, col
 
@@ -510,6 +511,22 @@ class TestIconKeys:
     def test_type_icon_mapping(self):
         assert CacheTableModel._type_icon_key(_cache(cache_type="Multi-cache")) == "multi"
         assert CacheTableModel._type_icon_key(_cache(cache_type="Weird Type")) == "unknown"
+
+    def test_type_icon_custom_waypoint_types(self):
+        # Custom waypoint types (CUSTOM_WP_TYPES) must each resolve to their
+        # own icon key, not fall through to the generic "unknown" icon.
+        expected = {
+            "Parking Area":    "parking_area",
+            "Trailhead":       "trailhead",
+            "Stage":           "stage",
+            "Final Location":  "final_location",
+            "Reference Point": "reference_point",
+            "Waypoint":        "waypoint",
+            "Hotel/POI":       "hotel_poi",
+            "Custom":          "custom_wp",
+        }
+        for cache_type, key in expected.items():
+            assert CacheTableModel._type_icon_key(_cache(cache_type=cache_type)) == key
 
 
 # ── effective coords ────────────────────────────────────────────────────────────
@@ -1327,6 +1344,35 @@ class TestView:
         qtbot.addWidget(view)
         pos = view.visualRect(view._model.index(0, 0)).center()
         view._show_context_menu(pos)  # builds full menu, exec is a no-op
+
+    def test_context_menu_set_as_center_emits_signal(self, view, qtbot, monkeypatch):
+        # Issue #511: right-clicking a cache and choosing "Sæt som
+        # centerpunkt" must emit center_point_requested with that cache —
+        # mainwindow does the actual recalculation/persistence.
+        built_menus = []
+
+        class _Menu(ct.QMenu):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                built_menus.append(self)
+            def exec(self, *a, **k):
+                return None
+        monkeypatch.setattr(ct, "QMenu", _Menu)
+        monkeypatch.setattr(ct.webbrowser, "open", lambda *a, **k: None)
+
+        c = _cache(gc_code="GCCENTER", latitude=55.0, longitude=12.0)
+        view.load_caches([c])
+        view.show()
+        qtbot.addWidget(view)
+        pos = view.visualRect(view._model.index(0, 0)).center()
+        view._show_context_menu(pos)
+
+        from opensak.lang import tr
+        menu = built_menus[-1]
+        action = next(a for a in menu.actions() if a.text() == tr("ctx_set_as_center"))
+        with qtbot.waitSignal(view.center_point_requested, timeout=1000) as blocker:
+            action.trigger()
+        assert blocker.args[0].gc_code == "GCCENTER"
 
     def test_context_menu_no_cache_noop(self, view):
         view.load_caches([])

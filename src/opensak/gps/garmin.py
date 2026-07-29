@@ -19,6 +19,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from opensak.utils.constants import CUSTOM_WP_TYPES
+
 
 # ── Garmin GPX/GGZ mapper på enheden ──────────────────────────────────────────
 
@@ -240,8 +242,17 @@ def _effective_coords(cache) -> tuple[float, float]:
 
 def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=None) -> str:
     """
-    Generer GPX 1.1 indhold fra en liste af Cache objekter.
+    Generer GPX indhold fra en liste af Cache objekter.
     Returnerer GPX som en streng klar til at skrive til fil.
+
+    Bruger GPX 1.0 med groundspeak:cache som DIREKTE child af <wpt> — ikke
+    pakket ind i et <extensions>-element (GPX 1.1-stil). Dette matcher GSAK's
+    og de facto-standarden for geocaching-GPX-filer, som Garmin-enheders
+    geocache-parser er bygget til at forvente (issue #656: en enhedstest
+    viste hint blev vist korrekt, men description/logs blev ikke, hvilket
+    passer med en firmware-parser der ikke finder groundspeak:cache når den
+    ligger i <extensions> og derfor falder tilbage til kun at vise
+    almindelig waypoint-info for de øvrige felter).
 
     Caches med korrigerede koordinater eksporteres med de korrigerede
     koordinater som waypoint-position. De originale koordinater bevares
@@ -253,12 +264,14 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
     import xml.etree.ElementTree as ET
     from datetime import datetime, timezone
 
-    # Root element
+    # Root element — GPX 1.0, matching GSAK's own export format. The
+    # groundspeak namespace is deliberately NOT declared here; it's declared
+    # locally on each <groundspeak:cache> element instead (see below),
+    # mirroring GSAK's exact convention byte-for-byte.
     gpx = Element("gpx")
-    gpx.set("version", "1.1")
+    gpx.set("version", "1.0")
     gpx.set("creator", "OpenSAK")
-    gpx.set("xmlns", "http://www.topografix.com/GPX/1/1")
-    gpx.set("xmlns:groundspeak", "http://www.groundspeak.com/cache/1/0/1")
+    gpx.set("xmlns", "http://www.topografix.com/GPX/1/0")
     gpx.set("xmlns:gsak", "http://www.gsak.net/xmlv1/6")
     gpx.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
 
@@ -305,74 +318,139 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
         url_wpt = SubElement(wpt, "url")
         url_wpt.text = f"https://coord.info/{cache.gc_code}"
 
+        # Custom Waypoints (issue #141: Hotel/POI, Parking Area, Trailhead,
+        # etc.) are stored as Cache rows for simplicity, but they aren't
+        # real geocaches — issue #660: exporting them wrapped in a full
+        # groundspeak:cache block made them show up on Garmin devices as a
+        # "fake geocache" with empty D/T stars and Size: (Not Chosen).
+        # Export them instead as a plain GPX waypoint with a proper native
+        # Garmin icon symbol, and skip the groundspeak:cache block entirely.
+        is_custom_wp = (cache.cache_type or "") in CUSTOM_WP_TYPES
+
         sym_wpt = SubElement(wpt, "sym")
-        sym_wpt.text = _cache_symbol(cache.cache_type or "")
+        sym_wpt.text = (
+            _custom_wp_symbol(cache.cache_type or "")
+            if is_custom_wp
+            else _cache_symbol(cache.cache_type or "")
+        )
 
         type_wpt = SubElement(wpt, "type")
-        type_wpt.text = f"Geocache|{cache.cache_type or 'Traditional Cache'}"
+        if is_custom_wp:
+            type_wpt.text = cache.cache_type or "Waypoint"
+        else:
+            type_wpt.text = f"Geocache|{cache.cache_type or 'Traditional Cache'}"
 
-        # Groundspeak extensions
-        extensions = SubElement(wpt, "extensions")
-        gs_cache = SubElement(extensions, "groundspeak:cache")
-        gs_cache.set("id", str(cache.id))
-        gs_cache.set("available", "True" if cache.available else "False")
-        gs_cache.set("archived", "True" if cache.archived else "False")
+        if not is_custom_wp:
+            # groundspeak:cache — direct child of <wpt>, no <extensions>
+            # wrapper (see docstring above). The xmlns:groundspeak
+            # declaration is local to this element, matching GSAK's exact
+            # convention.
+            gs_cache = SubElement(wpt, "groundspeak:cache")
+            gs_cache.set("id", str(cache.id))
+            gs_cache.set("available", "True" if cache.available else "False")
+            gs_cache.set("archived", "True" if cache.archived else "False")
+            gs_cache.set("xmlns:groundspeak", "http://www.groundspeak.com/cache/1/0/1")
 
-        gs_name = SubElement(gs_cache, "groundspeak:name")
-        gs_name.text = cache.name or ""
+            gs_name = SubElement(gs_cache, "groundspeak:name")
+            gs_name.text = cache.name or ""
 
-        gs_placed = SubElement(gs_cache, "groundspeak:placed_by")
-        gs_placed.text = cache.placed_by or ""
+            gs_placed = SubElement(gs_cache, "groundspeak:placed_by")
+            gs_placed.text = cache.placed_by or ""
 
-        gs_type = SubElement(gs_cache, "groundspeak:type")
-        gs_type.text = cache.cache_type or "Traditional Cache"
+            gs_type = SubElement(gs_cache, "groundspeak:type")
+            gs_type.text = cache.cache_type or "Traditional Cache"
 
-        gs_container = SubElement(gs_cache, "groundspeak:container")
-        gs_container.text = cache.container or "Regular"
+            gs_container = SubElement(gs_cache, "groundspeak:container")
+            gs_container.text = cache.container or "Regular"
 
-        gs_diff = SubElement(gs_cache, "groundspeak:difficulty")
-        gs_diff.text = str(cache.difficulty or 1.0)
+            # Attributes (issue #656 follow-up — previously not exported at
+            # all). Written here, right after container, to match the
+            # official Groundspeak cache.xsd element sequence (name,
+            # placed_by, type, container, attributes, difficulty, terrain,
+            # country, state, short_description, long_description,
+            # encoded_hints, logs).
+            if cache.attributes:
+                gs_attrs = SubElement(gs_cache, "groundspeak:attributes")
+                for attr in cache.attributes:
+                    gs_attr = SubElement(gs_attrs, "groundspeak:attribute")
+                    gs_attr.set("id", str(attr.attribute_id))
+                    gs_attr.set("inc", "1" if attr.is_on else "0")
+                    gs_attr.text = attr.name or ""
 
-        gs_terr = SubElement(gs_cache, "groundspeak:terrain")
-        gs_terr.text = str(cache.terrain or 1.0)
+            gs_diff = SubElement(gs_cache, "groundspeak:difficulty")
+            gs_diff.text = str(cache.difficulty or 1.0)
 
-        if cache.country:
-            gs_country = SubElement(gs_cache, "groundspeak:country")
-            gs_country.text = cache.country
+            gs_terr = SubElement(gs_cache, "groundspeak:terrain")
+            gs_terr.text = str(cache.terrain or 1.0)
 
-        if cache.encoded_hints:
-            gs_hints = SubElement(gs_cache, "groundspeak:encoded_hints")
-            gs_hints.text = cache.encoded_hints
+            if cache.country:
+                gs_country = SubElement(gs_cache, "groundspeak:country")
+                gs_country.text = cache.country
 
-        # Logs (max 5)
-        if cache.logs:
-            gs_logs = SubElement(gs_cache, "groundspeak:logs")
-            _min_dt = datetime.min.replace(tzinfo=timezone.utc)
-            for log in sorted(
-                cache.logs,
-                key=lambda l: l.log_date or _min_dt,
-                reverse=True,
-            )[:5]:
-                gs_log = SubElement(gs_logs, "groundspeak:log")
-                gs_log.set("id", log.log_id or "0")
-                gs_date = SubElement(gs_log, "groundspeak:date")
-                gs_date.text = (
-                    log.log_date.strftime("%Y-%m-%dT%H:%M:%SZ")
-                    if log.log_date else "2000-01-01T00:00:00Z"
-                )
-                gs_ltype = SubElement(gs_log, "groundspeak:type")
-                gs_ltype.text = log.log_type or ""
-                gs_finder = SubElement(gs_log, "groundspeak:finder")
-                gs_finder.text = log.finder or ""
-                gs_text = SubElement(gs_log, "groundspeak:text")
-                gs_text.set("encoded", "False")
-                gs_text.text = (log.text or "")[:500]
+            if cache.state:
+                gs_state = SubElement(gs_cache, "groundspeak:state")
+                gs_state.text = cache.state
 
-        # GSAK personal note
+            # Descriptions (issue #656 follow-up — these were missing
+            # entirely, which is likely why some Garmin firmware doesn't
+            # recognise OpenSAK's GPX/GGZ output as a geocaching file at
+            # all, falling back to a plain waypoint. html reflects whether
+            # the source text contains HTML markup.)
+            if cache.short_description:
+                gs_short = SubElement(gs_cache, "groundspeak:short_description")
+                gs_short.set("html", "True" if cache.short_desc_html else "False")
+                gs_short.text = cache.short_description
+
+            if cache.long_description:
+                gs_long = SubElement(gs_cache, "groundspeak:long_description")
+                gs_long.set("html", "True" if cache.long_desc_html else "False")
+                gs_long.text = cache.long_description
+
+            # encoded_hints must come AFTER the descriptions per cache.xsd —
+            # previously written before them, which likely broke strict
+            # sequential parsers partway through the cache block (issue
+            # #656: hint displayed correctly on-device, but
+            # description/logs did not, exactly as expected if a device
+            # parser gave up at this point).
+            if cache.encoded_hints:
+                gs_hints = SubElement(gs_cache, "groundspeak:encoded_hints")
+                gs_hints.text = cache.encoded_hints
+
+            # Logs (issue #656 follow-up — previously hardcoded to only the
+            # last 5, unlike GC.com/GSAK which include the full history.
+            # Export all logs; sorted newest-first to match GC.com/GSAK
+            # ordering.)
+            if cache.logs:
+                gs_logs = SubElement(gs_cache, "groundspeak:logs")
+                _min_dt = datetime.min.replace(tzinfo=timezone.utc)
+                for log in sorted(
+                    cache.logs,
+                    key=lambda l: l.log_date or _min_dt,
+                    reverse=True,
+                ):
+                    gs_log = SubElement(gs_logs, "groundspeak:log")
+                    gs_log.set("id", log.log_id or "0")
+                    gs_date = SubElement(gs_log, "groundspeak:date")
+                    gs_date.text = (
+                        log.log_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                        if log.log_date else "2000-01-01T00:00:00Z"
+                    )
+                    gs_ltype = SubElement(gs_log, "groundspeak:type")
+                    gs_ltype.text = log.log_type or ""
+                    gs_finder = SubElement(gs_log, "groundspeak:finder")
+                    gs_finder.text = log.finder or ""
+                    gs_text = SubElement(gs_log, "groundspeak:text")
+                    gs_text.set("encoded", "False")
+                    gs_text.text = log.text or ""
+
+        # GSAK personal note — direct child of <wpt>, matching GSAK's own
+        # convention (the importer already searches descendants for this,
+        # so it accepts either placement on the way in). Applies regardless
+        # of custom-waypoint status.
         note = getattr(cache, "user_note", None)
         note_text = getattr(note, "note", None) if note else None
         if note_text:
-            gsak_ext = SubElement(extensions, "gsak:wptExtension")
+            gsak_ext = SubElement(wpt, "gsak:wptExtension")
             gsak_note = SubElement(gsak_ext, "gsak:UserNote")
             gsak_note.text = note_text
 
@@ -393,8 +471,38 @@ def _cache_symbol(cache_type: str) -> str:
         "Event Cache":        "Geocache",
         "Earthcache":         "Geocache",
         "Virtual Cache":      "Geocache",
+        # Issue #660: Adventure Lab stages aren't real geocaches — give them
+        # a visually distinct built-in Garmin icon instead of the plain
+        # "Geocache" pin, so they stand out from regular caches on the map.
+        # Full groundspeak:cache content (description/D-T/logs) is kept —
+        # confirmed on a GPSMAP 64s that this already displays correctly;
+        # this is a cosmetic-only change.
+        "Lab Cache":          "Flag, Blue",
     }
     return symbols.get(cache_type, "Geocache")
+
+
+def _custom_wp_symbol(cache_type: str) -> str:
+    """Returner et passende indbygget Garmin ikon-navn for en Custom
+    Waypoint-type (issue #141 / #660). Disse er ikke rigtige geocaches, så
+    de får et rigtigt waypoint-ikon i stedet for det generiske
+    geocache-ikon.
+
+    Garmin-enheder genkender et fast, indbygget bibliotek af symbolnavne
+    (samme vokabular som BaseCamp/GSAK bruger) — falder tilbage til det
+    generiske "Waypoint"-symbol for typer, der ikke har en oplagt match.
+    """
+    symbols = {
+        "Parking Area":    "Parking Area",
+        "Trailhead":       "Trail Head",
+        "Hotel/POI":       "Lodging",
+        "Reference Point": "Flag, Green",
+        "Stage":           "Flag, Blue",
+        "Final Location":  "Flag, Red",
+        "Waypoint":        "Waypoint",
+        "Custom":          "Waypoint",
+    }
+    return symbols.get(cache_type, "Waypoint")
 
 
 def _indent(elem, level: int = 0) -> None:
@@ -750,7 +858,7 @@ def export_ggz_to_file(
 # ── Slet GPX filer fra enhed ──────────────────────────────────────────────────
 
 class DeleteResult:
-    """Resultat af sletning af GPX filer fra GPS enhed."""
+    """Resultat af sletning af eksisterende eksport-filer (GPX eller GGZ) fra GPS enhed."""
 
     def __init__(self):
         self.device:        Optional[Path] = None
@@ -774,8 +882,8 @@ class DeleteResult:
         if not self.success:
             return f"✗ Fejl ved sletning: {self.error}"
         if self.deleted_count == 0:
-            return "ℹ️  Ingen GPX filer fundet på enheden"
-        lines = [f"🗑️  {self.deleted_count} GPX fil(er) slettet fra enheden"]
+            return "ℹ️  Ingen filer fundet på enheden"
+        lines = [f"🗑️  {self.deleted_count} fil(er) slettet fra enheden"]
         for f in self.deleted_files:
             lines.append(f"   - {f.name}")
         if self.failed_count:
@@ -788,29 +896,36 @@ class DeleteResult:
 def delete_gpx_files(
     device_root: Path,
     pattern: str = "*.gpx",
+    folder: Optional[Path] = None,
 ) -> DeleteResult:
     """
-    Slet alle GPX filer i Garmin/GPX mappen på enheden.
+    Slet alle filer der matcher 'pattern' i en mappe på enheden.
+
+    Som standard slettes GPX-filer i Garmin/GPX mappen (bagudkompatibel
+    brug). Sæt 'folder' eksplicit (fx get_garmin_ggz_path(device_root))
+    for at slette i en anden mappe, fx Garmin/GGZ ved GGZ-eksport
+    (issue #656 follow-up — samme "slet gamle filer først"-funktion
+    udvidet til også at dække GGZ, ikke kun GPX).
     """
     result = DeleteResult()
     result.device = device_root
 
     try:
-        gpx_dir = get_garmin_gpx_path(device_root)
+        target_dir = folder if folder is not None else get_garmin_gpx_path(device_root)
 
-        if not gpx_dir.exists():
+        if not target_dir.exists():
             return result
 
-        gpx_files = list(gpx_dir.glob(pattern))
+        matched_files = list(target_dir.glob(pattern))
 
-        for gpx_file in gpx_files:
-            if not gpx_file.is_file():
+        for f in matched_files:
+            if not f.is_file():
                 continue
             try:
-                gpx_file.unlink()
-                result.deleted_files.append(gpx_file)
+                f.unlink()
+                result.deleted_files.append(f)
             except (PermissionError, OSError):
-                result.failed_files.append(gpx_file)
+                result.failed_files.append(f)
 
     except PermissionError:
         result.error = "Adgang nægtet — er GPS enheden skrivebeskyttet?"

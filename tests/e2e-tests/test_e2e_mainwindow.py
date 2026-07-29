@@ -75,6 +75,28 @@ def fake_worker():
     return _W
 
 
+def fake_worker_capturing(captured: dict):
+    """Like fake_worker(), but also records the kwargs it was constructed with."""
+    class _W:
+        def __init__(self, *a, **k):
+            captured.update(k)
+            self.update_available = _Sig()
+            self.check_done = _Sig()
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def quit(self):
+            pass
+
+        def wait(self, *a):
+            pass
+    return _W
+
+
 def _wp_data(gc_code="CW001"):
     return {
         "gc_code": gc_code, "name": "New WP", "cache_type": "Traditional Cache",
@@ -346,7 +368,182 @@ class TestCacheList:
         assert seeded_window._info_bar._found_lbl.text() == str(total_found)
 
 
-# ── selection slots ───────────────────────────────────────────────────────────
+
+# ── issue #638: skip map data load when disabled ──────────────────────────────
+
+class TestMapEnabledSetting:
+    def test_map_load_skipped_when_disabled(self, seeded_window, monkeypatch):
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = False
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+        assert calls == []
+
+    def test_map_load_runs_when_enabled(self, seeded_window, monkeypatch):
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = True
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+        assert len(calls) == 1
+
+    def test_table_unaffected_when_map_disabled(self, seeded_window):
+        # #638 only guards the map — the table must show exactly the same
+        # rows either way.
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = True
+        seeded_window._refresh_cache_list()
+        with_map = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
+
+        get_settings().map_enabled = False
+        seeded_window._refresh_cache_list()
+        without_map = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
+
+        assert with_map == without_map
+
+    def test_reenabling_mid_session_populates_map(self, seeded_window, monkeypatch):
+        # The existing _open_settings() flow already calls
+        # _refresh_cache_list() unconditionally after the dialog closes, so
+        # toggling map_enabled back on needs no special-case code — this
+        # test confirms that's actually true, not just assumed.
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = False
+        seeded_window._refresh_cache_list()
+
+        get_settings().map_enabled = True
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+        assert len(calls) == 1
+
+    def test_placeholder_shown_when_disabled(self, seeded_window):
+        # Follow-up: disabling the map only ever skipped the marker data
+        # load — the map's own tiles/zoom controls rendered regardless,
+        # looking like a stuck/empty map rather than an intentional off
+        # state. A QStackedWidget now swaps in a plain placeholder page.
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = False
+        seeded_window._update_map_visibility()
+        assert seeded_window._map_stack.currentWidget() is seeded_window._map_disabled_placeholder
+
+    def test_real_map_shown_when_enabled(self, seeded_window):
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = True
+        seeded_window._update_map_visibility()
+        assert seeded_window._map_stack.currentWidget() is seeded_window._map_widget
+
+    def test_placeholder_swap_via_open_settings_flow(self, seeded_window, monkeypatch):
+        # _open_settings() calls _update_map_visibility() after the dialog
+        # closes — confirm the stack actually swaps through that real flow,
+        # not just via the helper method directly.
+        from opensak.gui.settings import get_settings
+
+        get_settings().map_enabled = True
+        seeded_window._update_map_visibility()
+        assert seeded_window._map_stack.currentWidget() is seeded_window._map_widget
+
+        class _FakeDialog:
+            def __init__(self, parent=None):
+                pass
+
+            def exec(self):
+                # Simulate the user unchecking "Show map" and clicking OK —
+                # the real dialog's _save() would set this.
+                get_settings().map_enabled = False
+                return True
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.settings_dialog.SettingsDialog", _FakeDialog
+        )
+        monkeypatch.setattr(seeded_window, "_reload_home_combo", lambda: None)
+        monkeypatch.setattr(seeded_window._map_widget, "reload_map", lambda cb: None)
+
+        seeded_window._open_settings()
+
+        assert seeded_window._map_stack.currentWidget() is seeded_window._map_disabled_placeholder
+
+
+# ── issue #639: limit map to nearest N caches from home coordinate ───────────
+
+class TestMapMaxCaches:
+    def test_unlimited_reuses_table_caches_directly(self, seeded_window, monkeypatch):
+        # map_max_caches=0 (unlimited) must be a pure pass-through — same
+        # list object, no separate query, identical to pre-#639 behavior.
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = True
+        get_settings().map_max_caches = 0
+
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+        table_caches = seeded_window._cache_table.get_all_caches()
+        assert len(calls) == 1
+        assert calls[0] is table_caches or [c.gc_code for c in calls[0]] == [
+            c.gc_code for c in table_caches
+        ]
+
+    def test_limit_smaller_than_total_shrinks_map_set_only(self, seeded_window, monkeypatch):
+        from opensak.db.database import recalculate_distances
+        from opensak.gui.settings import get_settings
+
+        recalculate_distances(55.6761, 12.5683)
+        get_settings().map_enabled = True
+        get_settings().map_max_caches = 2
+
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+
+        table_codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
+        assert len(table_codes) > 2  # table unaffected — still shows everything
+        assert len(calls) == 1
+        assert len(calls[0]) == 2  # map limited to the requested count
+
+    def test_limit_larger_than_total_returns_everything(self, seeded_window, monkeypatch):
+        from opensak.db.database import recalculate_distances
+        from opensak.gui.settings import get_settings
+
+        recalculate_distances(55.6761, 12.5683)
+        get_settings().map_enabled = True
+        get_settings().map_max_caches = 100000
+
+        calls = []
+        monkeypatch.setattr(
+            seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
+        )
+        seeded_window._refresh_cache_list()
+
+        table_codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
+        assert len(calls) == 1
+        assert len(calls[0]) == len(table_codes)
+
+    def test_map_disabled_never_calls_fetch_map_caches(self, seeded_window, monkeypatch):
+        # #638's guard must still short-circuit before #639's fetch even
+        # runs — no extra query when the map isn't shown at all.
+        from opensak.gui.settings import get_settings
+        get_settings().map_enabled = False
+        get_settings().map_max_caches = 2
+
+        fetch_calls = []
+        original = seeded_window._fetch_map_caches
+        monkeypatch.setattr(
+            seeded_window, "_fetch_map_caches",
+            lambda fs, caches: fetch_calls.append(1) or original(fs, caches),
+        )
+        seeded_window._refresh_cache_list()
+        assert fetch_calls == []
+
 
 class TestSelectionSlots:
     def test_on_cache_selected(self, seeded_window):
@@ -545,6 +742,32 @@ class TestStartup:
         monkeypatch.setattr("opensak.gui.mainwindow.UpdateCheckWorker", fake_worker())
         _REAL_CHECK_UPDATE_BG(seeded_window)
 
+    def test_check_update_background_forwards_notify_about_betas(
+        self, seeded_window, monkeypatch, iso_settings
+    ):
+        from opensak.gui.settings import get_settings
+        captured: dict = {}
+        monkeypatch.setattr(
+            "opensak.gui.mainwindow.UpdateCheckWorker", fake_worker_capturing(captured)
+        )
+        get_settings().notify_about_betas = True
+        _REAL_CHECK_UPDATE_BG(seeded_window)
+
+        assert captured.get("include_prereleases") is True
+
+    def test_check_update_manual_forwards_notify_about_betas(
+        self, seeded_window, monkeypatch, iso_settings
+    ):
+        from opensak.gui.settings import get_settings
+        captured: dict = {}
+        monkeypatch.setattr(
+            "opensak.gui.mainwindow.UpdateCheckWorker", fake_worker_capturing(captured)
+        )
+        get_settings().notify_about_betas = False
+        seeded_window._check_update_manual()
+
+        assert captured.get("include_prereleases") is False
+
 
 # ── waypoint CRUD ─────────────────────────────────────────────────────────────
 
@@ -558,6 +781,20 @@ class TestWaypoints:
             fake_dialog(exec_result=1, data=_wp_data("CW001")))
         seeded_window._add_waypoint()
         assert seeded_window._load_full_cache("CW001") is not None
+
+    def test_add_waypoint_calculates_distance_immediately(self, seeded_window, monkeypatch):
+        # Regression test for #662 (CheminerWill): a newly added cache had
+        # no distance/bearing computed until the center/home point was
+        # switched away and back — it sorted to the bottom of the list as
+        # if distance were unset. Distance must now be available right
+        # after adding, without any extra user action.
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.waypoint_dialog.WaypointDialog",
+            fake_dialog(exec_result=1, data=_wp_data("CW001")))
+        seeded_window._add_waypoint()
+        cache = seeded_window._load_full_cache("CW001")
+        assert cache.distance is not None
+        assert cache.bearing is not None
 
     def test_add_waypoint_existing_warns(self, seeded_window, monkeypatch, mbox_ok):
         monkeypatch.setattr(
@@ -592,6 +829,34 @@ class TestWaypoints:
             fake_dialog(exec_result=0))
         seeded_window._edit_waypoint_from_cache(cache)
         assert seeded_window._load_full_cache("GC12345").name == before
+
+    def test_edit_waypoint_recalculates_distance_after_coordinate_change(
+        self, seeded_window, monkeypatch,
+    ):
+        # Regression test for #662 follow-up: editing a cache's coordinates
+        # left the stored distance/bearing stale (unchanged from before the
+        # edit) until the center/home point was switched away and back.
+        from opensak.filters.engine import distance_km
+        from opensak.gui.settings import get_settings
+
+        cache = seeded_window._load_full_cache("GC12345")
+        before_distance = cache.distance
+
+        far_data = _wp_data("GC12345")
+        far_data["latitude"] = -33.8688   # Sydney — far from the Copenhagen
+        far_data["longitude"] = 151.2093  # default home point
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.waypoint_dialog.WaypointDialog",
+            fake_dialog(exec_result=1, data=far_data))
+        seeded_window._edit_waypoint_from_cache(cache)
+
+        updated = seeded_window._load_full_cache("GC12345")
+        s = get_settings()
+        expected = distance_km(
+            s.home_lat, s.home_lon, far_data["latitude"], far_data["longitude"],
+        )
+        assert updated.distance == pytest.approx(expected, rel=0.01)
+        assert updated.distance != before_distance
 
     def test_edit_waypoint_from_cache_with_deferred_fields(self, seeded_window, monkeypatch):
         """Regression test: apply_filters() (used by the grid/_refresh_cache_list)
