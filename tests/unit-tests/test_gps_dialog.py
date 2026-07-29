@@ -510,6 +510,47 @@ class TestUseDatabaseNameCheckbox:
         d._cb_use_db_name.setChecked(True)
         assert d._filename.text() == "MyGeocaches"
 
+    def test_unchecked_state_persists_to_next_dialog(self, qtbot):
+        # CheminerWill's follow-up suggestion on #656: remember the
+        # checkbox state across exports, since some testers frequently
+        # export named filtered subsets and don't want the filename
+        # auto-overwritten every time.
+        d1 = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d1)
+        d1._cb_use_db_name.setChecked(False)
+
+        d2 = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d2)
+        assert d2._cb_use_db_name.isChecked() is False
+
+    def test_checked_state_persists_to_next_dialog(self, qtbot):
+        d1 = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d1)
+        d1._cb_use_db_name.setChecked(False)  # change away from default first
+        d1._cb_use_db_name.setChecked(True)   # then explicitly re-check
+
+        d2 = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d2)
+        assert d2._cb_use_db_name.isChecked() is True
+
+    def test_default_is_checked_when_nothing_persisted_yet(self, qtbot):
+        # First-ever run (no settings-store key yet) should default to
+        # checked, per Allan's decision.
+        from opensak.settings_store import get_store
+        assert get_store().get(gd._USE_DB_NAME_KEY) is None  # nothing saved yet
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        assert d._cb_use_db_name.isChecked() is True
+
+    def test_toggling_writes_to_settings_store_immediately(self, qtbot):
+        from opensak.settings_store import get_store
+        d = GpsExportDialog(caches=["c1"])
+        qtbot.addWidget(d)
+        d._cb_use_db_name.setChecked(False)
+        assert get_store().get(gd._USE_DB_NAME_KEY) is False
+        d._cb_use_db_name.setChecked(True)
+        assert get_store().get(gd._USE_DB_NAME_KEY) is True
+
 
 class TestSanitizeDbNameForFilename:
     def test_replaces_invalid_characters(self):

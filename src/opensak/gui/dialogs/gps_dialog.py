@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
 from opensak.lang import tr
 from opensak.gui.dialogs import make_progress_cb
+from opensak.settings_store import get_store
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QLineEdit, QTextEdit,
@@ -21,6 +22,10 @@ from PySide6.QtWidgets import (
 
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
+
+# Issue #656 (CheminerWill's follow-up suggestion): remember the "use
+# database name as filename" checkbox state across exports/sessions.
+_USE_DB_NAME_KEY = "gps.use_db_name_as_filename"
 
 
 def _sanitize_db_name_for_filename(name: str) -> str:
@@ -223,10 +228,15 @@ class GpsExportDialog(QDialog):
 
         # Brug database-navn som filnavn (community-forslag på #656 — GSAK
         # har en tilsvarende toggle; forhindrer kollisioner når man skifter
-        # mellem databaser uden selv at skulle omdøbe hver gang).
+        # mellem databaser uden selv at skulle omdøbe hver gang). Status
+        # huskes mellem eksporter (CheminerWill's opfølgende forslag på
+        # #656) — nogle bruger den altid, andre eksporterer ofte navngivne
+        # filtrerede undersæt og vil ikke have filnavnet overskrevet hver gang.
         self._cb_use_db_name = QCheckBox(tr("gps_use_db_name_cb"))
         self._cb_use_db_name.toggled.connect(self._on_use_db_name_toggled)
-        self._cb_use_db_name.setChecked(True)
+        self._cb_use_db_name.setChecked(
+            get_store().get(_USE_DB_NAME_KEY, True)  # True = standard for nye brugere
+        )
         opt_layout.addWidget(self._cb_use_db_name)
 
         # Max antal caches
@@ -314,14 +324,17 @@ class GpsExportDialog(QDialog):
             self._cb_delete_gpx.setChecked(False)
 
     def _on_use_db_name_toggled(self, checked: bool) -> None:
-        """Udfyld filnavnet med den aktive databases navn, når slået til.
+        """Udfyld filnavnet med den aktive databases navn, når slået til, og
+        husk brugerens valg til næste gang (issue #656 opfølgning).
 
         Community-forslag på #656: forhindrer at man overskriver tidligere
         eksporter ved uheld, når man skifter mellem flere databaser, uden at
         skulle huske selv at omdøbe filnavnet hver gang. Slår man den fra
         igen, ændres det aktuelle filnavn ikke — det er kun selve
-        auto-udfyldningen, der stopper.
+        auto-udfyldningen, der stopper. Selve til/fra-status huskes dog
+        altid til næste gang dialogen åbnes, uanset retning.
         """
+        get_store().set(_USE_DB_NAME_KEY, checked)
         if not checked:
             return
         from opensak.db.manager import get_db_manager
