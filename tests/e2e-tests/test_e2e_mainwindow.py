@@ -782,6 +782,20 @@ class TestWaypoints:
         seeded_window._add_waypoint()
         assert seeded_window._load_full_cache("CW001") is not None
 
+    def test_add_waypoint_calculates_distance_immediately(self, seeded_window, monkeypatch):
+        # Regression test for #662 (CheminerWill): a newly added cache had
+        # no distance/bearing computed until the center/home point was
+        # switched away and back — it sorted to the bottom of the list as
+        # if distance were unset. Distance must now be available right
+        # after adding, without any extra user action.
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.waypoint_dialog.WaypointDialog",
+            fake_dialog(exec_result=1, data=_wp_data("CW001")))
+        seeded_window._add_waypoint()
+        cache = seeded_window._load_full_cache("CW001")
+        assert cache.distance is not None
+        assert cache.bearing is not None
+
     def test_add_waypoint_existing_warns(self, seeded_window, monkeypatch, mbox_ok):
         monkeypatch.setattr(
             "opensak.gui.dialogs.waypoint_dialog.WaypointDialog",
@@ -815,6 +829,34 @@ class TestWaypoints:
             fake_dialog(exec_result=0))
         seeded_window._edit_waypoint_from_cache(cache)
         assert seeded_window._load_full_cache("GC12345").name == before
+
+    def test_edit_waypoint_recalculates_distance_after_coordinate_change(
+        self, seeded_window, monkeypatch,
+    ):
+        # Regression test for #662 follow-up: editing a cache's coordinates
+        # left the stored distance/bearing stale (unchanged from before the
+        # edit) until the center/home point was switched away and back.
+        from opensak.filters.engine import distance_km
+        from opensak.gui.settings import get_settings
+
+        cache = seeded_window._load_full_cache("GC12345")
+        before_distance = cache.distance
+
+        far_data = _wp_data("GC12345")
+        far_data["latitude"] = -33.8688   # Sydney — far from the Copenhagen
+        far_data["longitude"] = 151.2093  # default home point
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.waypoint_dialog.WaypointDialog",
+            fake_dialog(exec_result=1, data=far_data))
+        seeded_window._edit_waypoint_from_cache(cache)
+
+        updated = seeded_window._load_full_cache("GC12345")
+        s = get_settings()
+        expected = distance_km(
+            s.home_lat, s.home_lon, far_data["latitude"], far_data["longitude"],
+        )
+        assert updated.distance == pytest.approx(expected, rel=0.01)
+        assert updated.distance != before_distance
 
     def test_edit_waypoint_from_cache_with_deferred_fields(self, seeded_window, monkeypatch):
         """Regression test: apply_filters() (used by the grid/_refresh_cache_list)

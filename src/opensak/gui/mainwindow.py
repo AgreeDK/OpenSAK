@@ -1630,6 +1630,19 @@ class MainWindow(QMainWindow):
                     return
                 cache = Cache(**data)
                 session.add(cache)
+            # Issue #662: a newly added cache/custom waypoint had no
+            # distance/bearing computed, so it sorted to the bottom of the
+            # list (as if distance were unset) until the user switched the
+            # center/home point away and back, which happens to trigger a
+            # full recalculate_distances() pass. Same pattern already used
+            # after import (_refresh_after_import()) and after switching
+            # home/center point — applied here too so a freshly added cache
+            # shows its distance immediately.
+            from opensak.gui.settings import get_settings
+            s = get_settings()
+            if s.home_lat and s.home_lon:
+                from opensak.db.database import recalculate_distances
+                recalculate_distances(s.home_lat, s.home_lon)
             self._refresh_cache_list()
             self._statusbar.showMessage(
                 tr("status_cache_added", gc_code=data["gc_code"]), 3000
@@ -1668,6 +1681,19 @@ class MainWindow(QMainWindow):
                     for field, value in data.items():
                         if field != "gc_code":
                             setattr(c, field, value)
+            # Issue #662 follow-up: same stale-distance issue as adding a
+            # new cache — editing coordinates left Cache.distance/bearing
+            # unchanged until the center/home point was switched away and
+            # back. recalculate_distances() recomputes for every cache in
+            # the database (a full batch SQL update, not just this one row),
+            # same as after import/center-point-change — acceptable here
+            # since it's still a single fast batched query, not a per-row
+            # round trip.
+            from opensak.gui.settings import get_settings
+            s = get_settings()
+            if s.home_lat and s.home_lon:
+                from opensak.db.database import recalculate_distances
+                recalculate_distances(s.home_lat, s.home_lon)
             self._refresh_cache_list()
             self._statusbar.showMessage(
                 tr("status_cache_updated", gc_code=data["gc_code"]), 3000
