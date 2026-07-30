@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Status bar / bottom panel could disappear with no way back (#577)** —
+  ported from the v1.16.1 stable patch. Dragging the main vertical
+  splitter all the way down let the bottom panel (info bar + detail/map)
+  collapse fully to 0px, with the collapsed position then persisted and
+  restored on every subsequent launch. Both the main and the detail/map
+  splitter now refuse to collapse their panels completely
+  (`setChildrenCollapsible(False)`), and restoring a previously-saved
+  splitter ratio that would still leave either side below a small
+  minimum size now falls back to the default layout instead of
+  reproducing the stuck state.
+
 ---
 
 ## [1.16.0] — 2026-07-29
