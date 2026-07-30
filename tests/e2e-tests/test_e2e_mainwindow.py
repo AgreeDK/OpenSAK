@@ -195,6 +195,38 @@ class TestLayout:
     def test_save_splitter_ratios(self, seeded_window):
         seeded_window._save_splitter_ratios()
 
+    def test_splitters_not_collapsible(self, seeded_window):
+        # Issue #577: neither splitter may allow a panel to be dragged
+        # all the way to 0px — that left the status bar area with no
+        # way back for the user.
+        assert seeded_window._splitter.childrenCollapsible() is False
+        assert seeded_window._bottom_splitter.childrenCollapsible() is False
+
+    def test_restore_splitter_ratios_heals_collapsed_saved_state(self, seeded_window):
+        # Issue #577: a ratio saved before this fix (or otherwise pushed
+        # to an edge) must not be reproduced forever on every launch —
+        # restoring it should fall back to the default split instead.
+        from opensak.gui.settings import get_settings
+
+        s = get_settings()
+        s.splitter_ratio_top = 0.99
+        s.bottom_splitter_ratio_left = 0.01
+
+        seeded_window._restore_splitter_ratios()
+
+        min_pane = seeded_window._MIN_SPLIT_PANE
+        top, bottom = seeded_window._splitter.sizes()
+        assert top >= min_pane
+        assert bottom >= min_pane
+
+        left, right = seeded_window._bottom_splitter.sizes()
+        assert left >= min_pane
+        assert right >= min_pane
+
+        # The healed ratio is persisted too, not just applied once.
+        assert 0.1 < s.splitter_ratio_top < 0.9
+        assert 0.1 < s.bottom_splitter_ratio_left < 0.9
+
 
 # ── cache list / info bar / filterset ─────────────────────────────────────────
 

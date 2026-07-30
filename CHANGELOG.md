@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.1] — 2026-07-30
+
+> Small patch release for a splitter/layout regression reported on Facebook
+> right after 1.16.0.
+
+### Fixed
+
+- **Status bar could disappear with no way to bring it back (#577)** —
+  dragging the main vertical splitter all the way down let the bottom
+  panel (info bar + detail/map) collapse fully to 0px, with the collapsed
+  position then persisted and restored on every subsequent launch. Both
+  the main and the detail/map splitter now refuse to collapse their
+  panels completely (`setChildrenCollapsible(False)`), and restoring a
+  previously-saved splitter ratio that would still leave either side
+  below a small minimum size now falls back to the default layout
+  instead of reproducing the stuck state.
+
+---
+
 ## [1.16.0] — 2026-07-29
 
 > First stable release of the 1.16.0 cycle. Replaces the run of

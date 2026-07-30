@@ -231,6 +231,11 @@ class MainWindow(QMainWindow):
         # ── Main splitter: cache list (top) | info bar + bottom panel (below) ─
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.setObjectName("main_splitter")
+        # Issue #577: uden dette kan et træk helt til bunden lade
+        # bund-panelet (info bar + detail/map) snappe til 0 px og
+        # forsvinde uden nogen vej tilbage. Panelet kan stadig gøres
+        # meget lille, men ikke reduceres til ingenting.
+        self._splitter.setChildrenCollapsible(False)
 
         # Top: cache list — fuld bredde
         self._cache_table = CacheTableView()
@@ -260,6 +265,7 @@ class MainWindow(QMainWindow):
         # Horisontal splitter — detaljer til venstre, kort til højre
         self._bottom_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._bottom_splitter.setObjectName("bottom_splitter")
+        self._bottom_splitter.setChildrenCollapsible(False)  # issue #577
 
         self._detail_panel = CacheDetailPanel()
         self._detail_panel.corrected_coords_changed.connect(self._on_corrected_coords_changed)
@@ -893,18 +899,35 @@ class MainWindow(QMainWindow):
         manager.switch_to(db)
         self._on_database_switched(db)
 
+    # Under denne pixel-grænse regnes en gendannet splitter-side som
+    # (tilnærmelsesvis) kollapset (issue #577). Bruges kun som et
+    # sikkerhedsnet ved genindlæsning af en gemt ratio — selve trækket
+    # forhindres allerede af setChildrenCollapsible(False) i _setup_ui.
+    _MIN_SPLIT_PANE = 40
+
     def _restore_splitter_ratios(self) -> None:
         """Gendan splitter-størrelser fra gemte procentandele (issue #62).
 
         Ratios gemmes som floats (0.0–1.0) så layoutet skalerer korrekt
         på tværs af skærmopløsninger og platforme.
+
+        Issue #577: en ratio gemt før denne rettelse (eller på anden
+        vis presset mod en yderkant) kan svare til et helt eller næsten
+        helt kollapset panel. I stedet for at gengive en evigt
+        usynlig/fastlåst tilstand nulstiller vi til default-fordelingen,
+        hvis nogen af siderne ville blive mindre end _MIN_SPLIT_PANE.
         """
         s = get_settings()
         total_v = self._splitter.height()
         ratio_v = s.splitter_ratio_top
         if total_v > 10:
             top = int(total_v * ratio_v)
-            self._splitter.setSizes([top, total_v - top])
+            bottom = total_v - top
+            if top < self._MIN_SPLIT_PANE or bottom < self._MIN_SPLIT_PANE:
+                self._splitter.setSizes([380, 400])
+                s.splitter_ratio_top = 380 / 780
+            else:
+                self._splitter.setSizes([top, bottom])
         else:
             self._splitter.setSizes([380, 400])
 
@@ -912,7 +935,12 @@ class MainWindow(QMainWindow):
         ratio_h = s.bottom_splitter_ratio_left
         if total_h > 10:
             left = int(total_h * ratio_h)
-            self._bottom_splitter.setSizes([left, total_h - left])
+            right = total_h - left
+            if left < self._MIN_SPLIT_PANE or right < self._MIN_SPLIT_PANE:
+                self._bottom_splitter.setSizes([560, 540])
+                s.bottom_splitter_ratio_left = 560 / 1100
+            else:
+                self._bottom_splitter.setSizes([left, right])
         else:
             self._bottom_splitter.setSizes([560, 540])
 
