@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.17.0-beta.1] — 2026-07-31
+
+> Brings the `beta` line back in sync with `main`. Beta had drifted 12
+> commits behind after the v1.15.1, v1.16.0, and v1.16.1 stable releases
+> went out without being merged back — this release folds all of that in,
+> including the #577 splitter fix below. No other beta-only changes.
+
 ### Fixed
 
 - **Status bar / bottom panel could disappear with no way back (#577)** —
