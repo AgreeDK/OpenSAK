@@ -126,6 +126,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "None",
     "toolbar_filter_combo_active":   "Active (unsaved)",
     "toolbar_refresh":              "Refresh",
+    "toolbar_context_menu":         "Toolbar",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter cleared",

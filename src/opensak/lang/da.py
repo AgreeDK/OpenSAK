@@ -126,6 +126,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Ingen",
     "toolbar_filter_combo_active":   "Aktivt (ikke gemt)",
     "toolbar_refresh":              "Opdater",
+    "toolbar_context_menu":         "Værktøjslinje",
 
     # ── Statusbar ─────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter nulstillet",

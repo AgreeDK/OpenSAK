@@ -126,6 +126,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Žádný",
     "toolbar_filter_combo_active":   "Aktivní (neuloženo)",
     "toolbar_refresh":              "Obnovit",
+    "toolbar_context_menu":         "Panel nástrojů",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filtr zrušen",
@@ -200,7 +201,7 @@ STRINGS: dict[str, str] = {
     "gsak_prescan_title":           "Některé osobní poznámky obsahují obrázky",
     "gsak_prescan_body":            "{notes} vašich osobních poznámek obsahuje {images} obrázek/obrázky, které GSAK stáhl do vašeho starého počítače. Ty nelze automaticky zkopírovat, takže OpenSAK místo nich zobrazí zástupný text jako [image: filename.jpg]. Samotný text poznámky bude importován normálně.\n\nPokračovat v importu?",
     "gsak_prescan_continue":        "Pokračovat v importu",
-    
+
     # ── Filter dialog ─────────────────────────────────────────────────────────
     "filter_dialog_title":          "Nastavit filtr",
     "filter_tab_dates":             "Data",
