@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.2] — 2026-08-02
+
+### Fixed
+
+- Toolbar title was hardcoded in Danish ("Værktøjslinje") regardless of the
+  selected UI language, showing incorrectly in the toolbar's right-click
+  context menu for all non-Danish users (#683, thanks @urs-beeli)
+
+---
+
 ## [1.17.0-beta.1] — 2026-07-31
 
 > Brings the `beta` line back in sync with `main`. Beta had drifted 12
