@@ -567,7 +567,7 @@ class MainWindow(QMainWindow):
         menubar.addAction(count_action)
 
     def _setup_toolbar(self) -> None:
-        tb = QToolBar("Værktøjslinje")
+        tb = QToolBar(tr("toolbar_context_menu"))
         tb.setObjectName("main_toolbar")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)

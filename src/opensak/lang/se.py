@@ -126,6 +126,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Inget",
     "toolbar_filter_combo_active":   "Aktivt (ej sparat)",
     "toolbar_refresh":              "Uppdatera",
+    "toolbar_context_menu":         "Verktygsfält",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter rensat",
@@ -666,7 +667,7 @@ STRINGS: dict[str, str] = {
     "detail_no_logs":               "(Inga loggar)",
 
     # ── Toolbar extras ────────────────────────────────────────────────────────
-    
+
     # ── Cache table columns ───────────────────────────────────────────────────
     "col_gc_code":      "GC Kod",
     "col_name":         "Namn",
@@ -992,7 +993,7 @@ STRINGS: dict[str, str] = {
     "trip_btn_preview_map_tooltip":            "Öppna valda cacher på en interaktiv karta",
     "trip_map_preview_title":                  "Ruttplanerare — Förhandsvisning",
     "trip_map_preview_info":                   "{count} cacher visas — ruttplaneraren hålls öppen",
-    
+
     # Trip planner — save to database
     "trip_btn_save_db":                        "🗄️  Spara till databas…",
     "trip_btn_save_db_tooltip":                "Spara den valda rutten till en ny eller en existerande OpenSAK databas",
