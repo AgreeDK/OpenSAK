@@ -39,7 +39,7 @@ class MapPopoutWindow(QMainWindow):
     def save_geometry_to_settings(self) -> None:
         """Persist current geometry to settings (base64 string)."""
         s = get_settings()
-        s.map_popout_geometry = self.saveGeometry().toBase64().data().decode("ascii")
+        s.map_popout_geometry = bytes(self.saveGeometry().toBase64().data()).decode("ascii")
 
     def _restore_geometry(self) -> None:
         from PySide6.QtCore import QByteArray
