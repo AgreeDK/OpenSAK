@@ -12,6 +12,7 @@ Usage
 
 from __future__ import annotations
 
+import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
@@ -62,7 +63,7 @@ _migrated_paths: set = set()  # undgår at køre migrationer to gange på samme 
 # bumped to the highest migration number whenever a new migration is added
 # below — _run_migrations() skips the whole block when the database already
 # reports this version, so a stale constant means new migrations never run.
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 22
 
 
 def init_db(db_path: Path | None = None) -> Engine:
@@ -606,6 +607,172 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.find_count")
 
+        # ── Migration 20: remove leftover favorite_point column (issue #530) ─
+        # `favorite_point` (singular, Boolean NOT NULL) was briefly introduced
+        # in v1.14.0 without a migration to add it to already-existing
+        # databases, which surfaced as "no such column" errors (#488). The fix
+        # for #488 removed the field from the model, filters, and UI entirely
+        # — but never added a migration to drop the physical column from
+        # databases that had already been created with it present during that
+        # window. On those databases, every insert into `caches` fails with
+        # `NOT NULL constraint failed: caches.favorite_point`, since current
+        # code has no knowledge of the column and never supplies a value for
+        # it. Reported by community tester Bob Long while testing the GSAK
+        # Database Import feature (#469).
+        existing_caches_20 = [
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
+        ]
+        if "favorite_point" in existing_caches_20:
+            # DROP COLUMN requires SQLite 3.35.0+ (March 2021). A full
+            # table-rebuild fallback is deliberately not attempted here: the
+            # caches table has ~50 columns and a dozen indexes, and hand-
+            # rewriting that whole schema to remove one leftover column would
+            # carry far more risk of a mistake than the near-zero chance of a
+            # bundled SQLite that old on a machine running Python 3.12.
+            if sqlite3.sqlite_version_info >= (3, 35, 0):
+                conn.execute(text("ALTER TABLE caches DROP COLUMN favorite_point"))
+                conn.commit()
+                print("Migration: fjernede efterladt caches.favorite_point kolonne")
+            else:
+                print(
+                    "Migration: kunne ikke fjerne efterladt caches.favorite_point "
+                    f"kolonne — SQLite {sqlite3.sqlite_version} understøtter ikke "
+                    "DROP COLUMN (kræver 3.35+). Kontakt hello@opensak.com."
+                )
+
+        # ── Migration 21: waypoints unique constraint on wp_code, not name (#536) ─
+        # GSAK's own uniqueness for a waypoint is per-cache by its own code
+        # (cCode, stored here as wp_code) — not by prefix+name. The
+        # (cache_id, prefix, name) constraint added in Migration 2 was too
+        # strict: real GSAK databases can legitimately have two distinct
+        # waypoints on one cache sharing the same prefix+name (e.g. several
+        # stages a user happened to name identically) but with different
+        # cCode, and those were being silently dropped as "duplicates" on
+        # import (reported by nagisml, #536).
+        #
+        # wp_code is NULL for every GPX-imported waypoint (only the GSAK
+        # importer populates it) — SQLite/SQL treats each NULL as distinct
+        # for UNIQUE purposes, so this constraint imposes no restriction at
+        # all on GPX-sourced waypoints, only on GSAK-sourced ones where
+        # wp_code is genuinely GSAK's own per-cache unique waypoint code.
+        idx_rows_21 = conn.execute(text(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type='index' AND tbl_name='waypoints' AND name NOT LIKE 'sqlite_%'"
+        )).fetchall()
+        idx_names_21 = [r[0] for r in idx_rows_21]
+
+        if "uq_waypoint_cache_wp_code" not in idx_names_21:
+            # Preserve every existing index except the old, too-strict unique
+            # constraint we're replacing — rather than hardcoding an assumed
+            # index list, so this is safe even if a database has picked up
+            # extra indexes some other way.
+            keep_indexes = [
+                (name, sql) for name, sql in idx_rows_21
+                if name != "uq_waypoint_cache_prefix_name" and sql
+            ]
+
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+            conn.execute(text("""
+                CREATE TABLE waypoints_new (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cache_id         INTEGER NOT NULL REFERENCES caches(id),
+                    prefix           TEXT,
+                    wp_type          TEXT,
+                    name             TEXT,
+                    description      TEXT,
+                    comment          TEXT,
+                    latitude         REAL,
+                    longitude        REAL,
+                    parent_gc_code   VARCHAR(16),
+                    wp_code          VARCHAR(16),
+                    url              VARCHAR(512),
+                    wp_date          DATETIME,
+                    created_by_user  BOOLEAN NOT NULL DEFAULT 0,
+                    wp_flag          BOOLEAN NOT NULL DEFAULT 0
+                )
+            """))
+            conn.execute(text(
+                "INSERT INTO waypoints_new "
+                "SELECT id, cache_id, prefix, wp_type, name, description, comment, "
+                "latitude, longitude, parent_gc_code, wp_code, url, wp_date, "
+                "created_by_user, wp_flag FROM waypoints"
+            ))
+            conn.execute(text("DROP TABLE waypoints"))
+            conn.execute(text("ALTER TABLE waypoints_new RENAME TO waypoints"))
+            for name, sql in keep_indexes:
+                conn.execute(text(sql))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_waypoint_cache_wp_code "
+                "ON waypoints (cache_id, wp_code)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_waypoints_cache_id ON waypoints (cache_id)"
+            ))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+            conn.commit()
+            print("Migration: opdaterede waypoints unique constraint til (cache_id, wp_code)")
+
+        # ── Migration 22: found_log_count kolonne (issue #552) ───────────────
+        # Cache.found is a boolean ("have I found this cache at least once"),
+        # which undercounts relocatable/multi-visit caches where the same
+        # user can legitimately log a found-type entry more than once —
+        # geocaching.com and GSAK both count found LOGS in the footer total,
+        # not found CACHES. We add the column AND backfill it from existing
+        # logs so users don't have to re-import for the count to appear.
+        #
+        # Backfill matches the same way found_date/FTF are derived elsewhere
+        # (see count_own_found_logs() in utils/utils.py): numeric finder_id
+        # first, falling back to a case-insensitive username comparison
+        # (SQL TRIM only strips leading/trailing whitespace here — the fuller
+        # normalize_geocacher_name() whitespace/GSAK-stats-suffix handling
+        # only applies at import time, not in this one-off backfill). Only
+        # caches already marked found=1 are touched, since that's the only place found_log_count is read (mainwindow.py falls
+        # back to counting the cache itself if found_log_count is 0 but
+        # found=1 — e.g. no username configured, or the matching log simply
+        # isn't present in this database).
+        existing_caches_22 = [
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
+        ]
+        if "found_log_count" not in existing_caches_22:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN found_log_count "
+                "INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
+            from opensak.gui.settings import get_settings
+            _sett = get_settings()
+            gc_finder_id = (_sett.gc_finder_id or "").strip()
+            gc_username = (_sett.gc_username or "").strip().lower()
+
+            if gc_finder_id or gc_username:
+                result = conn.execute(text("""
+                    UPDATE caches
+                    SET found_log_count = (
+                        SELECT COUNT(*) FROM logs
+                        WHERE logs.cache_id = caches.id
+                          AND logs.log_type IN ('Found it', 'Attended', 'Webcam Photo Taken')
+                          AND (
+                              (:gc_finder_id != '' AND logs.finder_id = :gc_finder_id)
+                              OR (:gc_username != ''
+                                  AND LOWER(TRIM(logs.finder)) = :gc_username)
+                          )
+                    )
+                    WHERE caches.found = 1
+                """), {"gc_finder_id": gc_finder_id, "gc_username": gc_username})
+                conn.commit()
+                print(
+                    "Migration: tilføjede caches.found_log_count og "
+                    f"opdaterede {result.rowcount} caches"
+                )
+            else:
+                print(
+                    "Migration: tilføjede caches.found_log_count "
+                    "(intet gc_username/gc_finder_id sat — springer backfill over)"
+                )
+
         # ── Stamp the schema version so the next launch skips the probes ─────
         # PRAGMA does not accept bind parameters; SCHEMA_VERSION is a trusted
         # int constant, so inlining it is safe.
@@ -686,22 +853,29 @@ def make_session():
 def reload_caches_full(caches: list) -> list:
     """Reload *caches* with everything an export needs eagerly loaded.
 
-    Table-model caches come from apply_filters(), which defers the text blobs
-    (hints/descriptions) and noloads logs/waypoints for speed. Once their
-    session closes they are detached, so an export worker that reads those
-    attributes raises DetachedInstanceError. Reloading here returns fully
-    populated, detached-safe objects (logs, waypoints, attributes, user_note
-    and the text blobs) in the original order.
+    Table-model caches come from apply_filters_auto() — either real Cache
+    ORM objects or, since #627 beta.9-11, LightweightCache rows (which defer
+    the text blobs and never carry logs/waypoints/attributes at all).
+    Either way, an export worker that reads those attributes needs the full
+    picture: a real Cache would raise DetachedInstanceError once its
+    session closes, and a LightweightCache raises AttributeError by design
+    (see its docstring) for exactly these fields. Reloading here returns
+    fully populated, detached-safe Cache objects (logs, waypoints,
+    attributes, user_note and the text blobs) in the original order,
+    regardless of which of the two types the caller is currently holding.
 
     Objects without a matching DB row (e.g. test stand-ins) pass through
     unchanged.
     """
     from opensak.db.models import Cache
+    from opensak.filters.engine import LightweightCache
     from sqlalchemy.orm import joinedload, selectinload, undefer
 
-    # Only persisted Cache rows can be reloaded; pass anything else through
-    # (e.g. SimpleNamespace stand-ins in tests).
-    ids = [c.id for c in caches if isinstance(c, Cache) and c.id is not None]
+    # Both Cache (full ORM) and LightweightCache (#627 beta.9-11) carry a
+    # real .id — anything else (e.g. SimpleNamespace stand-ins in tests)
+    # passes through unchanged.
+    reloadable = (Cache, LightweightCache)
+    ids = [c.id for c in caches if isinstance(c, reloadable) and c.id is not None]
     if not ids:
         return list(caches)
 
@@ -722,7 +896,7 @@ def reload_caches_full(caches: list) -> list:
         )
 
     by_id = {c.id: c for c in rows}
-    return [by_id.get(c.id, c) if isinstance(c, Cache) else c for c in caches]
+    return [by_id.get(c.id, c) if isinstance(c, reloadable) else c for c in caches]
 
 
 # ── Distance recalculation ────────────────────────────────────────────────────
@@ -781,7 +955,77 @@ def recalculate_distances(lat: float, lon: float) -> int:
             [{"d": float(dists[i]), "b": float(bears[i]), "id": ids[i]} for i in range(len(ids))],
         )
 
+    # Persist the center + method this recalculation used, so
+    # distances_up_to_date() can skip a redundant full recalc on next
+    # startup if nothing has changed (issue #579).
+    from opensak.gui.settings import get_settings
+    s = get_settings()
+    s.dist_calc_lat = lat
+    s.dist_calc_lon = lon
+    s.dist_calc_method = s.distance_method
+
     return len(ids)
+
+
+# Tolerance for comparing a freshly-calculated centre point / distance to a
+# previously persisted one. Anything above this is treated as "changed" and
+# triggers a full recalculation.
+_COORD_EPSILON = 1e-9
+_DISTANCE_EPSILON_KM = 0.01  # 10 m — generous enough to absorb float rounding
+
+
+def distances_up_to_date(lat: float, lon: float) -> bool:
+    """Check whether the persisted Cache.distance/bearing values are still
+    valid for the given centre point, so a full recalculate_distances() call
+    can be skipped on startup (issue #579).
+
+    Two checks must both pass:
+    1. The centre point and distance_method match what was used for the last
+       recalculation (persisted in settings, see recalculate_distances()).
+    2. A cheap spot-check: recompute the distance for a single cache and
+       compare it against the persisted value, to catch a database that was
+       modified outside this OpenSAK install (e.g. synced from another
+       machine with a different home point, or edited by another tool)
+       without a matching recalculation ever having run here.
+
+    Returns True if it's safe to skip the full recalculation.
+    """
+    from opensak.gui.settings import get_settings
+    from opensak.filters.engine import distance_km
+
+    # Deterministic spot-check row: lowest id with coordinates, regardless of
+    # whether it currently has a persisted distance. Checked first (and
+    # unconditionally) so an empty/coordinate-less database is always
+    # considered up to date — there is nothing to recalculate either way.
+    with get_session() as session:
+        row = session.execute(
+            text(
+                "SELECT latitude, longitude, distance FROM caches "
+                "WHERE latitude IS NOT NULL AND longitude IS NOT NULL "
+                "ORDER BY id LIMIT 1"
+            )
+        ).fetchone()
+
+    if row is None:
+        return True
+
+    s = get_settings()
+    calc_lat = s.dist_calc_lat
+    calc_lon = s.dist_calc_lon
+    calc_method = s.dist_calc_method
+
+    if calc_lat is None or calc_lon is None or calc_method is None:
+        return False
+    if calc_method != s.distance_method:
+        return False
+    if abs(calc_lat - lat) > _COORD_EPSILON or abs(calc_lon - lon) > _COORD_EPSILON:
+        return False
+
+    row_lat, row_lon, stored_distance = row
+    if stored_distance is None:
+        return False
+    fresh_distance = distance_km(lat, lon, row_lat, row_lon)
+    return abs(fresh_distance - stored_distance) <= _DISTANCE_EPSILON_KM
 
 
 # ── Health-check helper ───────────────────────────────────────────────────────

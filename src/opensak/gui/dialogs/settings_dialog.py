@@ -78,6 +78,7 @@ class SettingsDialog(QDialog):
         # Tab-widget med tre faner
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_general_tab(),   tr("settings_tab_general"))
+        self._tabs.addTab(self._build_map_tab(),        tr("settings_tab_map"))
         self._tabs.addTab(self._build_gc_tab(),         tr("settings_tab_geocaching"))
         self._tabs.addTab(self._build_advanced_tab(),   tr("settings_tab_advanced"))
 
@@ -243,6 +244,12 @@ class SettingsDialog(QDialog):
         text_size_row.addStretch()
         disp_layout.addLayout(text_size_row)
 
+        # Issue #499: default hints to their decoded (plain-text) state
+        # instead of always starting hidden behind the ROT13-style spoiler
+        # protection — some users always want to see the hint immediately.
+        self._decode_hints_cb = QCheckBox(tr("settings_default_decode_hints_cb"))
+        disp_layout.addWidget(self._decode_hints_cb)
+
         layout.addWidget(disp_group)
 
         # ── Udseende (tema) ───────────────────────────────────────────────────
@@ -340,7 +347,60 @@ class SettingsDialog(QDialog):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         return scroll
 
-    # ── Fane 3: Advanced ─────────────────────────────────────────────────────
+    # ── Fane: Kort ────────────────────────────────────────────────────────────
+
+    def _build_map_tab(self) -> QWidget:
+        # Issue #638: dedicated tab for map-related settings, split out of
+        # General so map-specific settings have a natural shared home
+        # instead of accumulating in General. #639 added the second
+        # setting below, so a QGroupBox now makes sense (a single-setting
+        # group would have just duplicated the tab's own name — see the
+        # comment that used to be here, removed once this stopped applying).
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        group = QGroupBox(tr("settings_group_map"))
+        group_layout = QVBoxLayout(group)
+
+        self._map_enabled_cb = QCheckBox(tr("settings_map_enabled_cb"))
+        group_layout.addWidget(self._map_enabled_cb)
+
+        map_enabled_note = QLabel(tr("settings_map_enabled_note"))
+        map_enabled_note.setWordWrap(True)
+        map_enabled_note.setStyleSheet("color: gray; font-size: 10px;")
+        group_layout.addWidget(map_enabled_note)
+
+        group_layout.addSpacing(8)
+
+        # Issue #639: cap the map to the nearest N caches from home,
+        # rather than every filtered result — dramatically faster on large
+        # databases (SQL LIMIT push-down, see apply_filters_lightweight()'s
+        # push_limit parameter) and arguably more useful in practice too
+        # (a map with hundreds of thousands of pins isn't very readable at
+        # normal zoom anyway).
+        max_caches_row = QHBoxLayout()
+        max_caches_row.addWidget(QLabel(tr("settings_map_max_caches_label")))
+        self._map_max_caches = QSpinBox()
+        self._map_max_caches.setRange(0, 100000)
+        self._map_max_caches.setSingleStep(100)
+        self._map_max_caches.setSpecialValueText(tr("settings_map_unlimited"))
+        self._map_max_caches.setFixedWidth(100)
+        max_caches_row.addWidget(self._map_max_caches)
+        max_caches_row.addStretch()
+        group_layout.addLayout(max_caches_row)
+
+        max_caches_note = QLabel(tr("settings_map_max_caches_note"))
+        max_caches_note.setWordWrap(True)
+        max_caches_note.setStyleSheet("color: gray; font-size: 10px;")
+        group_layout.addWidget(max_caches_note)
+
+        layout.addWidget(group)
+        layout.addStretch()
+        return tab
+
+    # ── Fane: Avanceret ───────────────────────────────────────────────────────
 
     def _build_advanced_tab(self) -> QWidget:
         tab = QWidget()
@@ -381,6 +441,32 @@ class SettingsDialog(QDialog):
         folders_hint.setWordWrap(True)
         folders_hint.setStyleSheet("color: gray; font-size: 10px;")
         folders_layout.addWidget(folders_hint)
+
+        # Issue #519: custom icons folder — read-only path (not user-browsable,
+        # it's always <install_dir>/icons) plus an "Open folder" button so
+        # users can drop in replacement SVGs without knowing the path.
+        from opensak.config import get_icons_dir
+
+        folders_layout.addSpacing(8)
+        folders_layout.addWidget(QLabel(tr("settings_icons_dir_label")))
+        icons_dir_row = QHBoxLayout()
+        self._icons_dir_row = DirRow(get_icons_dir(), browsable=False)
+        icons_dir_row.addWidget(self._icons_dir_row)
+        open_icons_btn = QPushButton(tr("settings_open_icons_folder_button"))
+        open_icons_btn.clicked.connect(self._on_open_icons_folder)
+        icons_dir_row.addWidget(open_icons_btn)
+        folders_layout.addLayout(icons_dir_row)
+        icons_note = QLabel(tr("settings_icons_dir_note"))
+        icons_note.setWordWrap(True)
+        icons_note.setStyleSheet("color: gray; font-size: 10px;")
+        folders_layout.addWidget(icons_note)
+
+        icon_guide_row = QHBoxLayout()
+        icon_guide_btn = QPushButton(tr("settings_view_icon_guide_button"))
+        icon_guide_btn.clicked.connect(self._on_open_icon_guide)
+        icon_guide_row.addWidget(icon_guide_btn)
+        icon_guide_row.addStretch()
+        folders_layout.addLayout(icon_guide_row)
 
         layout.addWidget(folders_group)
 
@@ -441,6 +527,13 @@ class SettingsDialog(QDialog):
         self._update_check_cb = QCheckBox(tr("settings_update_check_label"))
         update_layout.addWidget(self._update_check_cb)
 
+        # Only meaningful for users running a stable release — a beta user
+        # already gets checked against both stable and beta releases
+        # automatically (see UpdateCheckWorker). Shown regardless, so the
+        # choice is remembered if/when the user is back on stable.
+        self._notify_betas_cb = QCheckBox(tr("settings_notify_betas_label"))
+        update_layout.addWidget(self._notify_betas_cb)
+
         layout.addWidget(update_group)
 
         # ── Distance calculation ───────────────────────────────────────────────
@@ -465,6 +558,22 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         return tab
+
+    def _on_open_icon_guide(self) -> None:
+        """Åbn den bundlede icon-navngivnings-guide i systemets standard browser (issue #519 follow-up)."""
+        from opensak.gui.icon_provider import get_icon_guide_path
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(get_icon_guide_path())))
+
+    def _on_open_icons_folder(self) -> None:
+        """Åbn brugerens custom-icons mappe i systemets filhåndtering (issue #519)."""
+        from opensak.config import get_icons_dir
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(get_icons_dir())))
 
     def _on_run_wizard_again(self) -> None:
         """
@@ -934,6 +1043,9 @@ class SettingsDialog(QDialog):
         self._date_format.setCurrentIndex(idx if idx >= 0 else 0)
         idx = self._text_size.findData(s.text_size)
         self._text_size.setCurrentIndex(idx if idx >= 0 else 0)
+        self._decode_hints_cb.setChecked(s.default_decode_hints)
+        self._map_enabled_cb.setChecked(s.map_enabled)
+        self._map_max_caches.setValue(s.map_max_caches)
         lang_idx = self._lang_combo.findData(current_language())
         self._lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
         theme_idx = self._theme_combo.findData(s.theme)
@@ -946,6 +1058,7 @@ class SettingsDialog(QDialog):
         if self._nominatim_cb is not None:
             self._nominatim_cb.setChecked(s.nominatim_enabled)
         self._update_check_cb.setChecked(s.updates_check_enabled)
+        self._notify_betas_cb.setChecked(s.notify_about_betas)
         idx = self._distance_method_combo.findData(s.distance_method)
         self._distance_method_combo.setCurrentIndex(idx if idx >= 0 else 0)
         # Opdater GC-status
@@ -974,6 +1087,9 @@ class SettingsDialog(QDialog):
         s.coord_format      = self._coord_format.currentData()
         s.date_format       = self._date_format.currentData()
         s.text_size         = self._text_size.currentData()
+        s.default_decode_hints = self._decode_hints_cb.isChecked()
+        s.map_enabled = self._map_enabled_cb.isChecked()
+        s.map_max_caches = self._map_max_caches.value()
         s.search_min_chars  = self._search_min_chars.value()
         s.search_debounce_ms = self._search_debounce_ms.value()
         new_theme = self._theme_combo.currentData()
@@ -988,6 +1104,7 @@ class SettingsDialog(QDialog):
         if self._nominatim_cb is not None:
             s.nominatim_enabled = self._nominatim_cb.isChecked()
         s.updates_check_enabled = self._update_check_cb.isChecked()
+        s.notify_about_betas = self._notify_betas_cb.isChecked()
         s.distance_method = self._distance_method_combo.currentData()
         s.sync()
 
@@ -997,7 +1114,9 @@ class SettingsDialog(QDialog):
         if new_db_dir != get_db_dir():
             from opensak.db.manager import get_db_manager
             manager = get_db_manager()
-            existing_count = len(manager.databases)
+            # Issue #609: tæl kun databaser der rent faktisk har en fysisk
+            # fil på disk — se samme rettelse i welcome_wizard.py.
+            existing_count = sum(1 for db in manager.databases if db.exists)
 
             if existing_count > 0:
                 move_box = QMessageBox(self)

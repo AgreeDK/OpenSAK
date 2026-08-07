@@ -179,7 +179,10 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 // ── Marker cluster gruppe ─────────────────────────────────────────────────────
 var clusterGroup = L.markerClusterGroup({
     maxClusterRadius: 40,
-    showCoverageOnHover: false
+    showCoverageOnHover: false,
+    chunkedLoading: true,
+    chunkInterval: 200,
+    chunkDelay: 10
 });
 map.addLayer(clusterGroup);
 
@@ -270,11 +273,27 @@ function loadCaches(cachesJson) {
     map.removeLayer(clusterGroup);
     clusterGroup = L.markerClusterGroup({
         maxClusterRadius: 40,
-        showCoverageOnHover: false
+        showCoverageOnHover: false,
+        chunkedLoading: true,
+        chunkInterval: 200,
+        chunkDelay: 10,
+        chunkProgress: function(processed, total) {
+            // Issue #630: chunkedLoading adds markers to the map in
+            // background chunks (via requestAnimationFrame/setTimeout)
+            // instead of all at once, so the post-load pan/fitBounds step
+            // below can't run synchronously right after addLayers() — the
+            // cluster bounds wouldn't include markers from chunks that
+            // haven't been processed yet. chunkProgress fires repeatedly as
+            // chunks complete; only act once every marker has been added.
+            if (total > 0 && processed >= total) {
+                afterCachesLoaded();
+            }
+        }
     });
     map.addLayer(clusterGroup);
     markers = {};
 
+    var markerArray = [];
     caches.forEach(function(c) {
         if (!c.lat || !c.lon) return;
 
@@ -301,10 +320,25 @@ function loadCaches(cachesJson) {
         });
 
         markers[c.gc_code] = marker;
-        clusterGroup.addLayer(marker);
+        markerArray.push(marker);
     });
 
-    // Pan/zoom efter markers er tilføjet
+    // Issue #630: bulk-add via addLayers() instead of calling addLayer() once
+    // per marker in the loop above. Leaflet.markercluster rebuilds its
+    // spatial index on every single addLayer() call, which is dramatically
+    // slower than the library's own bulk API at large marker counts — the
+    // library's own recommendation for exactly this case.
+    if (markerArray.length > 0) {
+        clusterGroup.addLayers(markerArray);
+    } else {
+        // Nothing to chunk-load, so chunkProgress above will never fire —
+        // run the pan/fitBounds step (or lack thereof) immediately instead.
+        afterCachesLoaded();
+    }
+}
+
+function afterCachesLoaded() {
+    // Pan/zoom once every marker has actually been added to the map.
     if (window._panHomeAfterLoad) {
         window._panHomeAfterLoad = false;
         panToHome();
@@ -389,6 +423,12 @@ function showWaypointMarkers(waypointsJson) {
     clearWaypointMarkers();
     var wps = JSON.parse(waypointsJson);
     wps.forEach(function(wp) {
+        // Issue #546: hidden/unset coordinates come through as 0/0 (e.g.
+        // finale waypoints with hidden coords after a GSAK import) — a
+        // marker at null-island is never meaningful, and including it in
+        // the bounds below made the map zoom out to show the whole world
+        // instead of the cache's actual waypoints.
+        if (!wp.lat || !wp.lon) return;
         var icon = L.divIcon({
             className: '',
             html: '<div class="waypoint-marker">' + wp.prefix + '</div>',

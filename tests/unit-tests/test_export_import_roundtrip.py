@@ -59,7 +59,11 @@ def test_exported_gpx_reimports_with_full_data(tmp_path):
         caches = reload_caches_full(s.query(Cache).all())
 
     exported = generate_gpx(caches, "roundtrip")
-    assert "GPX/1/1" in exported  # we export 1.1 with an <extensions> wrapper
+    # #656 fix: we now export GPX 1.0 with groundspeak:cache as a direct
+    # child of <wpt> (no <extensions> wrapper), matching GSAK's convention.
+    assert "GPX/1/0" in exported
+    assert "<extensions>" not in exported
+    assert "groundspeak:cache" in exported
 
     # Re-import into a fresh DB — used to yield 0 caches.
     out = tmp_path / "out.gpx"
@@ -84,8 +88,11 @@ def test_personal_note_survives_gpx_roundtrip(tmp_path):
     cache = SimpleNamespace(
         id=1, gc_code="GCNOTE1", name="Note Cache", cache_type="Traditional Cache",
         latitude=55.0, longitude=12.0, difficulty=1.5, terrain=2.0,
-        placed_by="Owner", available=True, archived=False, country="Denmark",
+        placed_by="Owner", available=True, archived=False, country="Denmark", state=None,
         encoded_hints=None, hidden_date=None, logs=[], user_note=note, container="Regular",
+        short_description=None, short_desc_html=False,
+        long_description=None, long_desc_html=False,
+        attributes=[],
     )
 
     exported = generate_gpx([cache], "note_roundtrip")

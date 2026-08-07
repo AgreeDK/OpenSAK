@@ -29,10 +29,12 @@ from opensak.filters.engine import (
 def isolate(monkeypatch):
     # No real profiles on disk; deterministic home for DistanceFilter.
     monkeypatch.setattr(fd.FilterProfile, "list_profiles", staticmethod(lambda: []))
-    from opensak.utils.types import DateFormat
+    from opensak.utils.types import DateFormat, CoordFormat
     monkeypatch.setattr("opensak.gui.settings.get_settings",
                         lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
-                                               date_format=DateFormat.YMD))
+                                               date_format=DateFormat.YMD,
+                                               coord_format=CoordFormat.DD, home_points=[],
+                                               theme="light"))
 
 
 @pytest.fixture
@@ -40,6 +42,50 @@ def dlg(qtbot):
     d = FilterDialog()
     qtbot.addWidget(d)
     return d
+
+
+# ── multi-monitor positioning (#580) ─────────────────────────────────────────
+
+class TestScreenPositioning:
+    def test_uses_parent_screen_not_primary(self, qtbot, monkeypatch):
+        # Issue #580: on a multi-monitor setup, the filter dialog always
+        # opened on the primary screen instead of whichever screen the main
+        # window (its parent) was actually on.
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QWidget
+
+        primary_screen = MagicMock()
+        primary_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+        secondary_screen = MagicMock()
+        secondary_screen.availableGeometry.return_value = QRect(1920, 0, 1920, 1080)
+
+        import PySide6.QtWidgets as _qtw
+        monkeypatch.setattr(_qtw.QApplication, "primaryScreen", staticmethod(lambda: primary_screen))
+
+        parent = QWidget()
+        qtbot.addWidget(parent)
+        parent.screen = lambda: secondary_screen  # PySide6 QWidget instances allow this
+
+        d = FilterDialog(parent=parent)
+        qtbot.addWidget(d)
+
+        assert not primary_screen.availableGeometry.called
+        assert secondary_screen.availableGeometry.called
+        # Centred within the secondary screen's bounds (x >= 1920), not the
+        # primary screen's (x in [0, 1920)).
+        assert d.pos().x() >= 1920
+
+    def test_falls_back_to_primary_screen_without_a_parent(self, qtbot, monkeypatch):
+        from PySide6.QtCore import QRect
+        primary_screen = MagicMock()
+        primary_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+        import PySide6.QtWidgets as _qtw
+        monkeypatch.setattr(_qtw.QApplication, "primaryScreen", staticmethod(lambda: primary_screen))
+
+        d = FilterDialog(parent=None)
+        qtbot.addWidget(d)
+
+        assert primary_screen.availableGeometry.called
 
 
 # ── helper widgets ──────────────────────────────────────────────────────────────
@@ -127,6 +173,35 @@ class TestBuildFilterset:
     def test_distance_filter(self, dlg):
         dlg._dist_enabled.setChecked(True)
         assert "distance" in _types(dlg._build_filterset())
+
+    def test_default_availability_state_does_not_count(self, dlg):
+        # Mike's report: setting only a distance filter (leaving Available/
+        # Unavailable checked and Archived unchecked, i.e. all defaults)
+        # showed "2 active" instead of "1 active". The default availability
+        # state still adds a real AvailabilityFilter (archived caches must
+        # stay hidden), but it must not count toward the active badge.
+        dlg._dist_enabled.setChecked(True)
+        fs = dlg._build_filterset()
+        assert set(_types(fs)) == {"distance", "availability"}
+        assert len(fs) == 2
+        assert fs.active_count() == 1
+
+    def test_default_availability_state_alone_counts_zero(self, dlg):
+        # Opening the dialog and applying with no changes at all should not
+        # register as "1 active" even though an AvailabilityFilter is
+        # silently present to keep archived caches hidden.
+        fs = dlg._build_filterset()
+        assert _types(fs) == ["availability"]
+        assert fs.active_count() == 0
+
+    def test_explicit_availability_change_still_counts(self, dlg):
+        # A deliberate availability change (e.g. also showing archived
+        # caches) is a real, user-chosen filter and must still count.
+        dlg._archived_cb.setChecked(True)
+        dlg._unavail_cb.setChecked(False)
+        fs = dlg._build_filterset()
+        assert "availability" in _types(fs)
+        assert fs.active_count() == 1
 
     def test_premium_and_trackable_and_corrected(self, dlg):
         dlg._prem_no.setChecked(False)
@@ -358,6 +433,43 @@ class TestWhereSql:
         dlg._show_where_info()  # builds + (fake) exec, no block
 
 
+class TestWhereErrorBoxTheme:
+    """Issue #613: the Where-filter SQL error box used a hardcoded
+    light-theme-only stylesheet (dark-red text on "transparent") which was
+    unreadable on Windows dark mode. It must now pick an explicit,
+    theme-appropriate style instead."""
+
+    def test_light_theme_error_style(self, qtbot, monkeypatch):
+        from types import SimpleNamespace
+        from opensak.utils.types import DateFormat, CoordFormat
+        monkeypatch.setattr(
+            "opensak.gui.settings.get_settings",
+            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
+                                     date_format=DateFormat.YMD, coord_format=CoordFormat.DD,
+                                     home_points=[], theme="light"),
+        )
+        d = FilterDialog()
+        qtbot.addWidget(d)
+        assert "cc0000" in d._where_error_label.styleSheet().lower()
+
+    def test_dark_theme_error_style_differs_from_light(self, qtbot, monkeypatch):
+        from types import SimpleNamespace
+        from opensak.utils.types import DateFormat, CoordFormat
+        monkeypatch.setattr(
+            "opensak.gui.settings.get_settings",
+            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=False,
+                                     date_format=DateFormat.YMD, coord_format=CoordFormat.DD,
+                                     home_points=[], theme="dark"),
+        )
+        d = FilterDialog()
+        qtbot.addWidget(d)
+        style = d._where_error_label.styleSheet().lower()
+        # Must not just be the light-mode style bleeding through, and must
+        # not rely on a transparent background (that was the actual bug).
+        assert "transparent" not in style
+        assert "background" in style
+
+
 # ── profiles ────────────────────────────────────────────────────────────────────
 
 class TestProfiles:
@@ -476,9 +588,12 @@ class TestApply:
 class TestDistanceUnitPref:
     @pytest.fixture
     def dlg_mi(self, qtbot, monkeypatch):
+        from opensak.utils.types import CoordFormat
         monkeypatch.setattr(
             "opensak.gui.settings.get_settings",
-            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=True),
+            lambda: SimpleNamespace(home_lat=55.0, home_lon=12.0, use_miles=True,
+                                     coord_format=CoordFormat.DD, home_points=[],
+                                     theme="light"),
         )
         d = FilterDialog()
         qtbot.addWidget(d)
@@ -523,3 +638,71 @@ class TestDistanceUnitPref:
         fs = dlg_mi._build_filterset()
         dlg_mi._load_filterset(fs)
         assert abs(dlg_mi._dist_max.value() - 50.0) < 0.1
+
+
+# ── center point picker integration (#511) ───────────────────────────────────
+
+class TestCenterPointIntegration:
+    def test_defaults_to_home(self, dlg):
+        dlg._dist_enabled.setChecked(True)
+        fs = dlg._build_filterset()
+        f = next(x for x in fs._filters if getattr(x, "filter_type", None) == "distance")
+        assert (f.lat, f.lon) == (55.0, 12.0)
+        assert f.center_state == {"kind": "home"}
+
+    def test_selected_cache_as_center(self, qtbot):
+        cache = SimpleNamespace(gc_code="GC1AB23", name="Troll Bridge",
+                                 latitude=56.1, longitude=10.2)
+        d = FilterDialog(current_cache=cache)
+        qtbot.addWidget(d)
+        d._dist_enabled.setChecked(True)
+        d._center_picker.set_state({"kind": "cache"})
+        fs = d._build_filterset()
+        f = next(x for x in fs._filters if getattr(x, "filter_type", None) == "distance")
+        assert (f.lat, f.lon) == (56.1, 10.2)
+        assert f.center_state == {"kind": "cache"}
+
+    def test_custom_coordinate_as_center(self, dlg):
+        dlg._dist_enabled.setChecked(True)
+        dlg._center_picker.set_state({"kind": "custom", "text": "56.5, 10.1"})
+        fs = dlg._build_filterset()
+        f = next(x for x in fs._filters if getattr(x, "filter_type", None) == "distance")
+        assert (f.lat, f.lon) == (56.5, 10.1)
+
+    def test_invalid_center_skips_distance_filter_with_warning(self, dlg, monkeypatch):
+        warned = []
+        monkeypatch.setattr(fd.QMessageBox, "warning",
+                            staticmethod(lambda *a, **kw: warned.append(a)))
+        dlg._dist_enabled.setChecked(True)
+        dlg._center_picker.set_state({"kind": "custom", "text": "not a coordinate"})
+        fs = dlg._build_filterset()
+        assert "distance" not in _types(fs)
+        assert warned
+
+    def test_min_distance_included(self, dlg):
+        dlg._dist_enabled.setChecked(True)
+        dlg._dist_min.setValue(2.0)
+        dlg._dist_max.setValue(50.0)
+        fs = dlg._build_filterset()
+        f = next(x for x in fs._filters if getattr(x, "filter_type", None) == "distance")
+        assert abs(f.min_km - 2.0) < 0.01
+
+    def test_load_restores_center_state(self, dlg):
+        fs = FilterSet(mode="AND")
+        fs.add(DistanceFilter(60.0, 10.0, 30.0, center_state={"kind": "custom", "text": "60.0, 10.0"}))
+        dlg._load_filterset(fs)
+        assert dlg._center_picker.to_state() == {"kind": "custom", "text": "60.0, 10.0"}
+
+    def test_load_legacy_filter_without_center_state(self, dlg):
+        # Pre-#511 saved profile: no center_state at all. Should surface the
+        # stored lat/lon as an editable custom point rather than silently
+        # assuming Home.
+        fs = FilterSet(mode="AND")
+        fs.add(DistanceFilter(60.0, 10.0, 30.0))
+        dlg._load_filterset(fs)
+        assert dlg._center_picker.get_center() == (60.0, 10.0)
+
+    def test_reset_returns_center_to_home(self, dlg):
+        dlg._center_picker.set_state({"kind": "custom", "text": "60.0, 10.0"})
+        dlg._reset_general()
+        assert dlg._center_picker.to_state() == {"kind": "home"}

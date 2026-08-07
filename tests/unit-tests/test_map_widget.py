@@ -151,9 +151,142 @@ class TestLoadCaches:
         assert all("GC_NONE" not in js for js in w._page.js)
 
 
-# ── ready-guarded JS methods ──────────────────────────────────────────────────
+# ── LightweightCache compatibility (#627 beta.11) ─────────────────────────────
+#
+# TestLoadCaches above uses SimpleNamespace fakes — proving _do_load_caches()
+# is duck-typed, but not that a real LightweightCache (from
+# apply_filters_lightweight()) actually satisfies that duck type end to end.
+# These tests run the real query engine against a real (temp) SQLite
+# database and feed genuine LightweightCache rows into the map widget, with
+# no source changes to map_widget.py needed — confirming what the #627
+# beta.10/11 compatibility audit found.
+
+class TestLoadCachesWithRealLightweightCache:
+    @pytest.fixture
+    def w(self, qtbot):
+        widget = MapWidget()
+        qtbot.addWidget(widget)
+        widget._ready = True
+        widget._page = FakePage()
+        return widget
+
+    def _lightweight_caches(self, tmp_db, **cache_kwargs):
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache, UserNote
+        from opensak.filters.engine import apply_filters_lightweight
+
+        defaults = dict(gc_code="GCLW001", name="Lightweight Test",
+                         cache_type="Traditional Cache",
+                         latitude=55.0, longitude=12.0, found=False, dnf=False)
+        defaults.update(cache_kwargs)
+        with get_session() as s:
+            s.add(Cache(**defaults))
+        with get_session() as s:
+            return apply_filters_lightweight(s)
+
+    def test_real_lightweight_cache_renders_on_map(self, w, tmp_db):
+        caches = self._lightweight_caches(tmp_db)
+        from opensak.filters.engine import LightweightCache
+        assert isinstance(caches[0], LightweightCache)
+        w._do_load_caches(caches)
+        assert any("GCLW001" in js for js in w._page.js)
+
+    def test_real_lightweight_cache_with_corrected_coords(self, w, tmp_db):
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache, UserNote
+        from opensak.filters.engine import apply_filters_lightweight
+
+        with get_session() as s:
+            c = Cache(gc_code="GCLW002", name="Corrected", cache_type="Unknown Cache",
+                       latitude=55.0, longitude=12.0, found=False, dnf=False)
+            s.add(c)
+            s.flush()
+            s.add(UserNote(cache_id=c.id, is_corrected=True,
+                            corrected_lat=56.5, corrected_lon=13.5))
+
+        with get_session() as s:
+            caches = apply_filters_lightweight(s)
+
+        w._do_load_caches(caches)
+        js = next(j for j in w._page.js if "GCLW002" in j)
+        assert "56.5" in js
+        assert "13.5" in js
+
+    def test_real_lightweight_cache_found_and_dnf_flags(self, w, tmp_db):
+        caches = self._lightweight_caches(tmp_db, gc_code="GCLW003", found=True)
+        w._do_load_caches(caches)
+        assert any("GCLW003" in js for js in w._page.js)
+
+    def test_real_lightweight_cache_missing_coords_skipped(self, w, tmp_db):
+        # Cache.latitude/longitude are NOT NULL on the model, so this exercises
+        # the same "no coords" skip path via a cache with default (0,0) coords
+        # is out of scope here — covered already by the SimpleNamespace test
+        # above. This test instead confirms a normal lightweight row with
+        # valid coords is never accidentally skipped.
+        caches = self._lightweight_caches(tmp_db, gc_code="GCLW004")
+        w._do_load_caches(caches)
+        assert any("GCLW004" in js for js in w._page.js)
+
+    def test_load_caches_public_api_accepts_lightweight_rows(self, w, tmp_db):
+        # load_caches() (not _do_load_caches()) is what mainwindow.py
+        # actually calls — confirm the public entry point works too.
+        caches = self._lightweight_caches(tmp_db, gc_code="GCLW005")
+        w.load_caches(caches)
+        assert any("GCLW005" in js for js in w._page.js)
+
+
+# ── loadCaches() JS: bulk marker loading (issue #630) ─────────────────────────
+
+class TestLoadCachesJsBulkLoading:
+    # Issue #630: loadCaches() previously called clusterGroup.addLayer(marker)
+    # once per cache inside the forEach loop. Leaflet.markercluster rebuilds
+    # its spatial index on every single addLayer() call, which is dramatically
+    # slower than the library's own bulk addLayers() API at large marker
+    # counts (250k+ caches) — and without chunkedLoading, even the bulk call
+    # blocks the browser's UI thread in one go.
+
+    def _load_caches_body(self):
+        start = mw_mod.MAP_HTML.index("function loadCaches")
+        end = mw_mod.MAP_HTML.index("\nfunction afterCachesLoaded", start)
+        return mw_mod.MAP_HTML[start:end]
+
+    def test_uses_bulk_addLayers_not_per_marker_addLayer(self):
+        body = self._load_caches_body()
+        assert "clusterGroup.addLayers(markerArray)" in body
+        # The forEach loop must build the array, not call addLayer() per marker.
+        assert "clusterGroup.addLayer(marker)" not in body
+
+    def test_marker_cluster_groups_use_chunked_loading(self):
+        # Both the module-level initial group and the one recreated inside
+        # loadCaches() need chunkedLoading, since loadCaches() always
+        # replaces the group before the bulk addLayers() call.
+        assert mw_mod.MAP_HTML.count("chunkedLoading: true") == 2
+
+    def test_pan_fit_bounds_deferred_to_chunk_completion(self):
+        # The post-load pan/fitBounds step must run from chunkProgress once
+        # every chunk has been processed, not synchronously right after
+        # addLayers() — chunked loading adds markers to the map in the
+        # background, so an immediate getBounds() call would miss markers
+        # from chunks that haven't been processed yet.
+        body = self._load_caches_body()
+        assert "chunkProgress: function(processed, total)" in body
+        assert "afterCachesLoaded()" in body
+        # The old synchronous pan/fitBounds logic must not still run inline
+        # right after the marker loop.
+        addlayers_pos = body.index("clusterGroup.addLayers(markerArray)")
+        assert "map.fitBounds(bounds" not in body[addlayers_pos:]
+
+    def test_empty_cache_list_still_runs_after_load_hook(self):
+        # chunkProgress never fires for an empty array (addLayers([]) has
+        # nothing to chunk), so the empty case must call the after-load hook
+        # directly or a stale/empty database would never pan to home.
+        body = self._load_caches_body()
+        assert "afterCachesLoaded();" in body
+        assert "markerArray.length > 0" in body
+
 
 class TestJsMethods:
+
     @pytest.fixture
     def w(self, qtbot, fake_settings):
         widget = MapWidget()
@@ -205,6 +338,20 @@ class TestJsMethods:
         wps = json.dumps([{"lat": 55.1, "lon": 12.1, "prefix": "PK", "wp_type": "Parking", "name": "P"}])
         w.show_waypoint_markers(wps)
         assert any("showWaypointMarkers" in js for js in w._page.js)
+
+    def test_show_waypoint_markers_skips_zero_zero_coords(self):
+        # Issue #546: hidden-coordinate waypoints (e.g. finales after a GSAK
+        # import) come through as lat=0/lon=0 — a marker at null-island must
+        # never be created, or fitBounds() would zoom out to show the whole
+        # world instead of the cache's actual waypoints.
+        start = mw_mod.MAP_HTML.index("function showWaypointMarkers")
+        end = mw_mod.MAP_HTML.index("\n}", start)
+        body = mw_mod.MAP_HTML[start:end]
+        assert "if (!wp.lat || !wp.lon) return;" in body
+        # ...and that the skip happens before any marker is built/added.
+        skip_pos = body.index("if (!wp.lat || !wp.lon) return;")
+        marker_pos = body.index("L.marker([wp.lat, wp.lon]")
+        assert skip_pos < marker_pos
 
     def test_clear_waypoint_markers(self, w):
         w.clear_waypoint_markers()

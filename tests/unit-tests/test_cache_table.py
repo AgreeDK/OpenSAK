@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("pytestqt")
 
 from PySide6.QtCore import Qt, QModelIndex
-from PySide6.QtGui import QPixmap, QPainter
+from PySide6.QtGui import QPixmap, QPainter, QFont
 
 from opensak.gui import cache_table as ct
 from opensak.gui.cache_table import (
@@ -24,6 +24,7 @@ from opensak.gui.cache_table import (
     _bearing_compass,
     _gc_sort_key,
     _CacheTableHeaderView,
+    get_column_defs,
 )
 from opensak.db.models import Cache, UserNote
 from opensak.utils.types import CoordFormat, DateFormat, TextSize, TEXT_SIZE_MAP
@@ -378,10 +379,11 @@ class TestDataRoles:
         model.load([_cache()])
         for col in ("cache_type", "difficulty", "terrain", "distance", "found",
                     "container", "hidden_date", "last_log",
-                    "found_date", "dnf_date", "placed_by"):
+                    "found_date", "dnf_date", "placed_by",
+                    "country", "state", "county"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) == Qt.AlignmentFlag.AlignCenter, col
-        for col in ("name", "gc_code", "country", "state", "county"):
+        for col in ("name", "gc_code"):
             idx = model.index(0, ALL_COLUMNS.index(col))
             assert model.data(idx, Qt.ItemDataRole.TextAlignmentRole) != Qt.AlignmentFlag.AlignCenter, col
 
@@ -509,6 +511,22 @@ class TestIconKeys:
     def test_type_icon_mapping(self):
         assert CacheTableModel._type_icon_key(_cache(cache_type="Multi-cache")) == "multi"
         assert CacheTableModel._type_icon_key(_cache(cache_type="Weird Type")) == "unknown"
+
+    def test_type_icon_custom_waypoint_types(self):
+        # Custom waypoint types (CUSTOM_WP_TYPES) must each resolve to their
+        # own icon key, not fall through to the generic "unknown" icon.
+        expected = {
+            "Parking Area":    "parking_area",
+            "Trailhead":       "trailhead",
+            "Stage":           "stage",
+            "Final Location":  "final_location",
+            "Reference Point": "reference_point",
+            "Waypoint":        "waypoint",
+            "Hotel/POI":       "hotel_poi",
+            "Custom":          "custom_wp",
+        }
+        for cache_type, key in expected.items():
+            assert CacheTableModel._type_icon_key(_cache(cache_type=cache_type)) == key
 
 
 # ── effective coords ────────────────────────────────────────────────────────────
@@ -781,6 +799,59 @@ class TestDelegates:
         idx = model.index(0, ALL_COLUMNS.index("gc_code"))
         assert d._bg_color(idx) == GcCodeDelegate._COLOR_PLACED
 
+    def test_gc_code_delegate_uses_font_role_for_colored_cells(self, model, fake_settings):
+        """Issue #547: archived/placed/found GC codes were drawn with
+        painter.drawText() using whatever font the painter already had,
+        instead of the model's Qt.ItemDataRole.FontRole (where the "Large"
+        text-size setting's point size comes from — see
+        CacheTableModel.data()). Every other cell got the right size via
+        the default QStyledItemDelegate.paint() path; only the coloured
+        GC Code branch silently ignored the setting."""
+        from PySide6.QtCore import Qt
+        from opensak.utils.types import TextSize
+
+        fake_settings.text_size = TextSize.LARGE
+        c = _cache(gc_code="GCLARGE", found=True, available=True, archived=False)
+        model.load([c])
+        idx = model.index(0, ALL_COLUMNS.index("gc_code"))
+        expected_font = idx.data(Qt.ItemDataRole.FontRole)
+
+        from PySide6.QtWidgets import QStyleOptionViewItem, QStyle
+        from PySide6.QtCore import QRect
+
+        class _RecordingPainter(QPainter):
+            """Records the font point size in effect at each drawText() call.
+
+            A plain assertion on painter.font() *after* paint() returns
+            wouldn't catch a regression here: paint() brackets everything in
+            save()/restore(), which reverts the font back to whatever it was
+            *before* paint() ran — regardless of what was actually used for
+            drawText() internally. Recording at call-time sidesteps that.
+            """
+            def __init__(self, device):
+                super().__init__(device)
+                self.font_sizes_at_draw: list[int] = []
+
+            def drawText(self, *args, **kwargs):
+                self.font_sizes_at_draw.append(self.font().pointSize())
+                return super().drawText(*args, **kwargs)
+
+        pm = QPixmap(80, 24)
+        painter = _RecordingPainter(pm)
+        # Seed the painter with a deliberately wrong/default font, mirroring
+        # what it would have going into paint() in the real table — the bug
+        # was that this default leaked straight through to drawText().
+        wrong_font = QFont()
+        wrong_font.setPointSize(6)
+        painter.setFont(wrong_font)
+        opt = QStyleOptionViewItem()
+        opt.rect = QRect(0, 0, 80, 24)
+
+        GcCodeDelegate().paint(painter, opt, idx)
+        painter.end()
+
+        assert painter.font_sizes_at_draw == [TEXT_SIZE_MAP[TextSize.LARGE]["grid"]]
+
     def test_gc_code_bg_none_when_no_cache(self, model):
         d = GcCodeDelegate()
 
@@ -880,6 +951,83 @@ class TestIconOnlyHeaderView:
                 header.paintSection(painter, QRect(0, 0, width, 24), i)
         painter.end()
 
+    # Issue #556: the icon-only column headers (Corrected/Found/Premium/
+    # Fav. points/Trackables) were hardcoded to 14px regardless of the
+    # user's Text Size setting, making them hard to read at Medium/Large —
+    # feedback from Mike Wood. They now scale with the same "grid_icon"
+    # sizes already used for the type icon in the grid rows.
+    @pytest.mark.parametrize("text_size", [TextSize.SMALL, TextSize.MEDIUM, TextSize.LARGE])
+    def test_header_data_icon_scales_with_text_size(self, model, fake_settings, text_size):
+        fake_settings.text_size = text_size
+        expected = TEXT_SIZE_MAP[text_size]["grid_icon"]
+        for col_id in ("corrected", "found", "premium_only", "favorite_points", "trackables"):
+            section = ALL_COLUMNS.index(col_id)
+            icon = model.headerData(section, Qt.Orientation.Horizontal, Qt.ItemDataRole.DecorationRole)
+            sizes = icon.availableSizes()
+            assert sizes, f"{col_id} header icon has no rendered pixmap"
+            assert sizes[0].width() == expected
+            assert sizes[0].height() == expected
+
+    def test_header_data_icon_grows_from_small_to_large(self, model, fake_settings):
+        # Sanity-check the three levels are actually distinct, not just that
+        # each matches TEXT_SIZE_MAP (which would also pass if the map itself
+        # were flattened to one value by mistake).
+        section = ALL_COLUMNS.index("corrected")
+        got = []
+        for text_size in (TextSize.SMALL, TextSize.MEDIUM, TextSize.LARGE):
+            fake_settings.text_size = text_size
+            icon = model.headerData(section, Qt.Orientation.Horizontal, Qt.ItemDataRole.DecorationRole)
+            got.append(icon.availableSizes()[0].width())
+        assert got[0] < got[1] < got[2]
+
+    def test_paint_section_scales_icon_with_text_size(self, qtbot, fake_settings):
+        # Smoke-test paintSection() itself (not just headerData()) at each
+        # text size, since it independently reads get_settings().text_size
+        # to size both the icon and the sort arrow.
+        from PySide6.QtGui import QPixmap, QPainter
+        from PySide6.QtCore import QRect
+
+        columns = ["found", "premium_only", "favorite_points", "trackables", "corrected"]
+        header = _CacheTableHeaderView(lambda: columns)
+        header.setSortIndicator(0, Qt.SortOrder.AscendingOrder)  # exercise the arrow path too
+        canvas = QPixmap(400, 40)
+        for text_size in (TextSize.SMALL, TextSize.MEDIUM, TextSize.LARGE):
+            fake_settings.text_size = text_size
+            canvas.fill()
+            painter = QPainter(canvas)
+            for i, col_id in enumerate(columns):
+                header.paintSection(painter, QRect(0, 0, 80, 40), i)
+            painter.end()
+
+    def test_corrected_column_default_width_fits_large_icon_and_arrow(self):
+        # Issue #556: bumped from 40 -> 48px so the Large text-size icon
+        # (26px) plus the scaled sort arrow don't get clipped when the
+        # "corrected" column is sorted at its default width.
+        default_width = get_column_defs()["corrected"][1]
+        icon_size = TEXT_SIZE_MAP[TextSize.LARGE]["grid_icon"]
+        arrow_size = max(7, round(icon_size * 0.64))
+        spacing = 3
+        assert default_width >= icon_size + spacing + arrow_size
+
+
+class TestRefreshVisualsUpdatesHeader:
+    # Issue #556: refresh_visuals() must tell the header its DecorationRole
+    # data changed, or the icon-only headers would keep their old size until
+    # the app was restarted after the user changed the Text Size setting.
+    def test_refresh_visuals_emits_header_data_changed(self, view, fake_settings):
+        view.load_caches([_cache(gc_code="A")])
+        received = []
+        view._model.headerDataChanged.connect(
+            lambda orientation, first, last: received.append((orientation, first, last))
+        )
+        fake_settings.text_size = TextSize.LARGE
+        view.refresh_visuals()
+        assert received, "refresh_visuals() did not emit headerDataChanged"
+        orientation, first, last = received[-1]
+        assert orientation == Qt.Orientation.Horizontal
+        assert first == 0
+        assert last == view._model.columnCount() - 1
+
 
 # ── view ────────────────────────────────────────────────────────────────────────
 
@@ -966,16 +1114,41 @@ class TestView:
         view.load_caches([_cache(gc_code="A")])
         called = []
         monkeypatch.setattr(view, "_edit_corrected", lambda c: called.append(c.gc_code))
+        opened = []
+        monkeypatch.setattr(ct.webbrowser, "open", lambda url: opened.append(url))
         idx = view._model.index(0, ALL_COLUMNS.index("corrected"))
         view._on_double_clicked(idx)
         assert called == ["A"]
+        assert opened == []  # corrected column keeps its own behaviour, not the browser
 
-    def test_double_click_other_column_noop(self, view, monkeypatch):
+    def test_double_click_other_column_opens_browser(self, view, monkeypatch):
+        # Issue #471: double-clicking anywhere on a cache row (except the
+        # corrected/flag columns) opens the cache on geocaching.com.
         view.load_caches([_cache(gc_code="A")])
-        called = []
-        monkeypatch.setattr(view, "_edit_corrected", lambda c: called.append(c))
+        edit_called = []
+        monkeypatch.setattr(view, "_edit_corrected", lambda c: edit_called.append(c))
+        opened = []
+        monkeypatch.setattr(ct.webbrowser, "open", lambda url: opened.append(url))
         view._on_double_clicked(view._model.index(0, ALL_COLUMNS.index("name")))
-        assert called == []
+        assert edit_called == []
+        assert opened == ["https://coord.info/A"]
+
+    def test_double_click_flag_column_does_not_open_browser(self, view, monkeypatch):
+        # Flag/first-to-find/locked columns already toggle on a single
+        # click (mousePressEvent) — a double-click there must not also pop
+        # a browser window open, which would be surprising.
+        view.load_caches([_cache(gc_code="A")])
+        opened = []
+        monkeypatch.setattr(ct.webbrowser, "open", lambda url: opened.append(url))
+        for col_id in ("user_flag", "first_to_find", "locked"):
+            view._on_double_clicked(view._model.index(0, ALL_COLUMNS.index(col_id)))
+        assert opened == []
+
+    def test_double_click_invalid_index_noop(self, view, monkeypatch):
+        opened = []
+        monkeypatch.setattr(ct.webbrowser, "open", lambda url: opened.append(url))
+        view._on_double_clicked(view._model.index(-1, -1))  # must not raise
+        assert opened == []
 
     def test_copy_to_clipboard(self, view):
         view._copy_to_clipboard("hello")
@@ -1172,6 +1345,35 @@ class TestView:
         pos = view.visualRect(view._model.index(0, 0)).center()
         view._show_context_menu(pos)  # builds full menu, exec is a no-op
 
+    def test_context_menu_set_as_center_emits_signal(self, view, qtbot, monkeypatch):
+        # Issue #511: right-clicking a cache and choosing "Sæt som
+        # centerpunkt" must emit center_point_requested with that cache —
+        # mainwindow does the actual recalculation/persistence.
+        built_menus = []
+
+        class _Menu(ct.QMenu):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                built_menus.append(self)
+            def exec(self, *a, **k):
+                return None
+        monkeypatch.setattr(ct, "QMenu", _Menu)
+        monkeypatch.setattr(ct.webbrowser, "open", lambda *a, **k: None)
+
+        c = _cache(gc_code="GCCENTER", latitude=55.0, longitude=12.0)
+        view.load_caches([c])
+        view.show()
+        qtbot.addWidget(view)
+        pos = view.visualRect(view._model.index(0, 0)).center()
+        view._show_context_menu(pos)
+
+        from opensak.lang import tr
+        menu = built_menus[-1]
+        action = next(a for a in menu.actions() if a.text() == tr("ctx_set_as_center"))
+        with qtbot.waitSignal(view.center_point_requested, timeout=1000) as blocker:
+            action.trigger()
+        assert blocker.args[0].gc_code == "GCCENTER"
+
     def test_context_menu_no_cache_noop(self, view):
         view.load_caches([])
         from PySide6.QtCore import QPoint
@@ -1195,4 +1397,70 @@ class TestView:
         assert view.verticalHeader().minimumSectionSize() <= smallest
         view.refresh_visuals()
         assert view.verticalHeader().minimumSectionSize() <= smallest
+
+    # Issue #557: at TextSize.LARGE, the icon-only column headers (Corrected/
+    # Found/Premium/Fav. points/Trackables) were visibly clipped — Qt does
+    # not grow a QHeaderView's own height just because headerData() returns
+    # a bigger DecorationRole icon, so the header stayed at its old fixed
+    # height while the icon inside it grew past it. Separately, the cell-
+    # level icons for Corrected/Found/Premium (in the grid, not the header)
+    # were hardcoded to 16px and never followed the Text Size setting at
+    # all — at TextSize.SMALL that made them visibly *bigger* than the
+    # (correctly scaled) 14px header icon above them. Reported by Mike Wood.
+    def test_header_height_grows_with_text_size_and_matches_helper(self, view, fake_settings):
+        for size in TextSize:
+            fake_settings.text_size = size
+            view.refresh_visuals()
+            assert view.horizontalHeader().height() == ct._header_height_for(size)
+
+    def test_header_height_never_shrinks_below_the_icon_it_contains(self, view, fake_settings):
+        for size in TextSize:
+            fake_settings.text_size = size
+            view.refresh_visuals()
+            icon_size = TEXT_SIZE_MAP[size]["grid_icon"]
+            assert view.horizontalHeader().height() >= icon_size
+
+    def test_small_header_height_unchanged_from_pre_557_default(self, view, fake_settings):
+        # SMALL's icon size (14px) was already the flat size used everywhere
+        # before #556/#557 — SMALL users should see no header-height change.
+        fake_settings.text_size = TextSize.SMALL
+        view.refresh_visuals()
+        assert view.horizontalHeader().height() == 20
+
+    def test_cell_icons_for_corrected_found_premium_scale_with_text_size(self, view, fake_settings):
+        c = _cache(gc_code="GCFIX", found=True, premium_only=True)
+        c.user_note = _note()  # is_corrected=True by default
+        view.load_caches([c])
+        cols = {col: ALL_COLUMNS.index(col) for col in ("corrected", "found", "premium_only")}
+        for size in TextSize:
+            fake_settings.text_size = size
+            view.refresh_visuals()
+            expected = TEXT_SIZE_MAP[size]["grid_icon"]
+            for col, col_i in cols.items():
+                idx = view._model.index(0, col_i)
+                icon = view._model.data(idx, Qt.ItemDataRole.DecorationRole)
+                assert icon is not None, f"{col} should have an icon for this cache"
+                got = icon.availableSizes()[0].width()
+                assert got == expected, f"{col} cell icon is {got}px, expected {expected}px at {size}"
+
+    def test_cell_and_header_icons_match_at_every_text_size(self, view, fake_settings):
+        # The concrete symptom reported: at SMALL, the header icon (now
+        # correctly scaled down) looked smaller than the still-fixed-16px
+        # cell icon in the grid below it. Header and cell icon for the same
+        # column must always agree.
+        c = _cache(gc_code="GCFIX2", found=True, premium_only=True)
+        c.user_note = _note()
+        view.load_caches([c])
+        for size in TextSize:
+            fake_settings.text_size = size
+            view.refresh_visuals()
+            for col in ("found", "premium_only", "corrected"):
+                col_i = ALL_COLUMNS.index(col)
+                header_icon = view._model.headerData(
+                    col_i, Qt.Orientation.Horizontal, Qt.ItemDataRole.DecorationRole
+                )
+                cell_icon = view._model.data(
+                    view._model.index(0, col_i), Qt.ItemDataRole.DecorationRole
+                )
+                assert header_icon.availableSizes()[0].width() == cell_icon.availableSizes()[0].width()
 

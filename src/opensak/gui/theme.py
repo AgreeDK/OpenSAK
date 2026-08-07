@@ -43,6 +43,13 @@ def _light_palette():
     p.setColor(QPalette.ColorRole.Midlight,        QColor(0xE0E0E0))
     p.setColor(QPalette.ColorRole.Dark,            QColor(0x9E9E9E))
     p.setColor(QPalette.ColorRole.Shadow,          QColor(0x757575))
+    # Issue #624: PlaceholderText wasn't set explicitly for either palette,
+    # so Qt fell back to a derived/theme-dependent default that turned out
+    # unreadable in dark mode (reported as invisible hint text in the
+    # Where/General filter fields and text boxes). Set explicitly here for
+    # both themes so it's always a dimmed-but-legible gray, distinct from
+    # both the real Text colour and the Base background.
+    p.setColor(QPalette.ColorRole.PlaceholderText,  QColor(0x757575))
     # Disabled colours
     p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(0xA0A0A0))
     p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(0xA0A0A0))
@@ -72,6 +79,10 @@ def _dark_palette():
     p.setColor(QPalette.ColorRole.Midlight,        QColor(0x444444))
     p.setColor(QPalette.ColorRole.Dark,            QColor(0x222222))
     p.setColor(QPalette.ColorRole.Shadow,          QColor(0x111111))
+    # Issue #624: see matching comment in _light_palette() above — a lighter
+    # gray than the light theme's, so it stays legible against the dark
+    # 0x1E1E1E Base while still reading as dimmed rather than full Text.
+    p.setColor(QPalette.ColorRole.PlaceholderText,  QColor(0x9E9E9E))
     # Disabled colours
     p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(0x666666))
     p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor(0x666666))

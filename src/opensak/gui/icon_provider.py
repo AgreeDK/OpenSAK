@@ -34,6 +34,17 @@ _ASSETS_DIR = Path(__file__).parent.parent / "assets" / "icons"
 _CACHE_TYPES_DIR = _ASSETS_DIR / "cache_types"
 _CACHE_FOUND_DIR = _ASSETS_DIR / "cache_found"
 
+# Issue #519 follow-up: bundled offline HTML reference listing every custom
+# icon file name, recommended canvas size and tips (Inkscape, Plain SVG
+# export, etc.) — opened from Settings → Advanced via QDesktopServices, so
+# it must be a real file on disk rather than generated at runtime.
+_ICON_GUIDE_PATH = Path(__file__).parent.parent / "assets" / "icon_guide.html"
+
+
+def get_icon_guide_path() -> Path:
+    """Sti til den bundlede HTML icon-navngivnings-guide (issue #519 follow-up)."""
+    return _ICON_GUIDE_PATH
+
 
 # ── Mapping: intern nøgle → SVG filnavn (uden .svg) ──────────────────────────
 
@@ -58,31 +69,19 @@ _TYPE_FILE_MAP: dict[str, str] = {
     "geocaching_hq":         "geocaching_hq_cache",
     "geocaching_hq_celebration": "geocaching_hq_celebration",
     "geocaching_hq_block_party": "geocaching_hq_block_party",
-}
-
-# Mapping: intern nøgle → smiley farvenavn (svarer til filnavne i cache_found/)
-_FOUND_COLOR_MAP: dict[str, str] = {
-    "traditional":           "green",
-    "multi":                 "orange",
-    "mystery":               "dark_blue",
-    "letterbox":             "brown",
-    "wherigo":               "teal",
-    "earthcache":            "dark_green",
-    "virtual":               "purple",
-    "webcam":                "gray",
-    "event":                 "red",
-    "cito":                  "red",
-    "mega_event":            "red",
-    "giga_event":            "gold",
-    "lab_cache":             "light_blue",
-    "gps_adventures":        "navy_blue",
-    "community_celebration": "maroon",
-    "locationless":          "brown",
-    "project_ape":           "dark_green",
-    "geocaching_hq":         "dark_green",
-    "geocaching_hq_celebration": "dark_green",
-    "geocaching_hq_block_party": "dark_green",
-    "unknown":               "gray",
+    # Custom waypoint-typer (CUSTOM_WP_TYPES i utils/constants.py). Disse er
+    # ikke Groundspeak cache-typer, men brugerens egne waypoints (parkering,
+    # hotel osv. til fx en biltur) — separate filnavne så de kan overskrives
+    # uafhængigt af cache-type-ikonerne via samme bruger-icons/cache_types/
+    # mekanisme som issue #519.
+    "parking_area":          "parking_area",
+    "trailhead":             "trailhead",
+    "stage":                 "stage_waypoint",
+    "final_location":        "final_location",
+    "reference_point":       "reference_point",
+    "waypoint":              "waypoint",
+    "hotel_poi":             "hotel_poi",
+    "custom_wp":             "custom_waypoint",
 }
 
 
@@ -113,6 +112,17 @@ _DB_TYPE_KEY_MAP: dict[str, str] = {
     "geocaching hq cache":           "geocaching_hq",
     "geocaching hq celebration":     "geocaching_hq_celebration",
     "geocaching hq block party":     "geocaching_hq_block_party",
+    # CUSTOM_WP_TYPES (utils/constants.py) — explicit entries so e.g.
+    # "Hotel/POI" doesn't fall through _normalize_key() with a stray "/"
+    # left in the key (it only strips spaces and dashes).
+    "parking area":                  "parking_area",
+    "trailhead":                     "trailhead",
+    "stage":                         "stage",
+    "final location":                "final_location",
+    "reference point":               "reference_point",
+    "waypoint":                      "waypoint",
+    "hotel/poi":                     "hotel_poi",
+    "custom":                        "custom_wp",
 }
 
 
@@ -127,18 +137,74 @@ def _read_svg_file(path: Path) -> str | None:
         return None
 
 
+@lru_cache(maxsize=1)
+def _user_icons_dir() -> Path | None:
+    """
+    Sti til brugerens custom-icons mappe (issue #519), eller None ved fejl.
+
+    Issue #540: denne kaldes fra hvert eneste ikon-opslag (cache-type-ikon +
+    found-smiley pr. cache-række, plus de faste UI-ikoner) — dvs. potentielt
+    titusindvis af gange pr. tabel-refresh på en stor database. Uden caching
+    udløser hvert kald hele get_icons_dir() -> get_app_data_dir() ->
+    get_install_dir()-kæden, som laver en fil-eksistens-tjek, en JSON-læsning
+    OG fire separate mkdir()-kald PR. KALD. Det er normalt hurtigt på et
+    almindeligt filsystem, men bliver katastrofalt langsomt når hvert enkelt
+    filsystem-kald bliver opsnappet synkront af en antivirus-minifilter-driver
+    (meget almindeligt for netop mkdir/fil-læsning på Windows) — titusindvis
+    af kald á få millisekunder giver samlet set titusindvis af millisekunder,
+    uden at CPU eller diskaktivitet nogensinde ser høj ud i Task Manager
+    (matcher rapportøren i #540 præcist: lav CPU, lav disk, men alligevel
+    45-60 sekunders "Not Responding" ved skift til/filtrering af en stor
+    database — introduceret med #519, findes ikke i beta.5).
+
+    Mappen ændrer sig ikke i løbet af en kørende session, så det er sikkert
+    at cache resultatet — ligesom _read_svg_file() allerede gør nedenfor.
+    """
+    try:
+        from opensak.config import get_icons_dir
+        return get_icons_dir()
+    except Exception:
+        return None
+
+
+def _read_svg_with_user_override(filename: str, bundled_dir: Path, user_subdir: str) -> str | None:
+    """
+    Læs en SVG fil, med brugerens custom-icons mappe (issue #519) tjekket
+    FØRST, og fald tilbage til det bundlede asset hvis filen mangler eller
+    ikke kan parses. Filnavnet matcher 1:1 den bundlede asset-struktur, så
+    det matcher OpenSAK Custom Icons Guide.
+    """
+    user_dir = _user_icons_dir()
+    if user_dir is not None:
+        svg = _read_svg_file(user_dir / user_subdir / f"{filename}.svg")
+        if svg:
+            return svg
+    return _read_svg_file(bundled_dir / f"{filename}.svg")
+
+
+def _get_ui_icon_svg(filename: str, default_svg: str) -> str:
+    """
+    Hent SVG for et af de faste, enkeltstående UI-ikoner (Corrected
+    coordinates, Premium, Fav. points, Trackables — issue #519 follow-up).
+
+    Disse har intet bundlet asset-fil at falde tilbage til — kun en
+    hardkodet SVG-streng i denne fil — så opslags-rækkefølgen er:
+    brugerens icons/ui/<filename>.svg, ellers default_svg.
+    """
+    user_dir = _user_icons_dir()
+    if user_dir is not None:
+        svg = _read_svg_file(user_dir / "ui" / f"{filename}.svg")
+        if svg:
+            return svg
+    return default_svg
+
+
 def _get_type_svg(key: str) -> str | None:
-    """Hent SVG streng for en cache type fra disk."""
+    """Hent SVG streng for en cache type fra disk (bruger-override først)."""
     filename = _TYPE_FILE_MAP.get(key)
     if not filename:
         return None
-    return _read_svg_file(_CACHE_TYPES_DIR / f"{filename}.svg")
-
-
-def _get_found_svg(key: str) -> str | None:
-    """Hent smiley SVG streng for en fundet cache type fra disk."""
-    color = _FOUND_COLOR_MAP.get(key, "green")
-    return _read_svg_file(_CACHE_FOUND_DIR / f"found_cache_smiley_{color}.svg")
+    return _read_svg_with_user_override(filename, _CACHE_TYPES_DIR, "cache_types")
 
 
 # ── Internal helpers (fallback SVG strenge) ───────────────────────────────────
@@ -317,6 +383,71 @@ _FALLBACK_SVGS: dict[str, str] = {
         'fill="#7f8c8d" font-family="sans-serif">?</text>'
         '</svg>'
     ),
+    # ── Custom waypoint types (CUSTOM_WP_TYPES) ──────────────────────────────
+    "parking_area": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<rect x="4" y="4" width="24" height="24" rx="4" fill="#2563a8" stroke="#1a4c85" stroke-width="1.5"/>'
+        '<text x="16" y="23" text-anchor="middle" font-size="16" font-weight="700" '
+        'fill="white" font-family="sans-serif">P</text>'
+        '</svg>'
+    ),
+    "trailhead": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<rect x="14.5" y="6" width="3" height="24" rx="1" fill="#7b5e3b"/>'
+        '<polygon points="17,10 29,10 26,14 29,18 17,18" fill="#2e8b57" stroke="#1e5f3a" stroke-width="1"/>'
+        '<polygon points="15,20 3,20 6,24 3,28 15,28" fill="#e67e22" stroke="#ca6f1e" stroke-width="1"/>'
+        '</svg>'
+    ),
+    "stage": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<path d="M16,3 C10,3 6,7.5 6,13 C6,20 16,29 16,29 C16,29 26,20 26,13 C26,7.5 22,3 16,3 Z" '
+        'fill="#8e44ad" stroke="#6c3483" stroke-width="1"/>'
+        '<circle cx="16" cy="13" r="7" fill="white"/>'
+        '<text x="16" y="17" text-anchor="middle" font-size="10" font-weight="700" '
+        'fill="#8e44ad" font-family="sans-serif">S</text>'
+        '</svg>'
+    ),
+    "final_location": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<circle cx="16" cy="16" r="13" fill="#c0392b" stroke="#8e2418" stroke-width="1"/>'
+        '<circle cx="16" cy="16" r="9" fill="white"/>'
+        '<circle cx="16" cy="16" r="5" fill="#c0392b"/>'
+        '<circle cx="16" cy="16" r="1.8" fill="white"/>'
+        '</svg>'
+    ),
+    "reference_point": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<path d="M16,3 C10,3 6,7.5 6,13 C6,20 16,29 16,29 C16,29 26,20 26,13 C26,7.5 22,3 16,3 Z" '
+        'fill="#17a589" stroke="#117864" stroke-width="1"/>'
+        '<circle cx="16" cy="13" r="7" fill="white"/>'
+        '<text x="16" y="17" text-anchor="middle" font-size="10" font-weight="700" '
+        'fill="#17a589" font-family="sans-serif">R</text>'
+        '</svg>'
+    ),
+    "waypoint": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<path d="M16,3 C10,3 6,7.5 6,13 C6,20 16,29 16,29 C16,29 26,20 26,13 C26,7.5 22,3 16,3 Z" '
+        'fill="#5d6d7e" stroke="#34495e" stroke-width="1"/>'
+        '<circle cx="16" cy="13" r="5" fill="white"/>'
+        '</svg>'
+    ),
+    "hotel_poi": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<polygon points="16,4 28,14 24,14 24,28 8,28 8,14 4,14" fill="#e67e22" stroke="#ca6f1e" stroke-width="1"/>'
+        '<rect x="13" y="19" width="6" height="9" fill="white" opacity="0.9"/>'
+        '<rect x="10" y="15" width="4" height="4" fill="white" opacity="0.85"/>'
+        '<rect x="18" y="15" width="4" height="4" fill="white" opacity="0.85"/>'
+        '</svg>'
+    ),
+    "custom_wp": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+        '<path d="M16,3 C10,3 6,7.5 6,13 C6,20 16,29 16,29 C16,29 26,20 26,13 C26,7.5 22,3 16,3 Z" '
+        'fill="#616a6b" stroke="#424949" stroke-width="1"/>'
+        '<circle cx="16" cy="13" r="7" fill="white"/>'
+        '<polygon points="16,8 17.5,11.5 21.2,12 18.5,14.3 19.3,18 16,16 12.7,18 13.5,14.3 10.8,12 14.5,11.5" '
+        'fill="#616a6b"/>'
+        '</svg>'
+    ),
 }
 
 _CACHE_SIZE_SVGS: dict[str, str] = {
@@ -408,29 +539,21 @@ def _get_svg_for_key(key: str) -> str:
     return _FALLBACK_SVGS.get(key, _FALLBACK_SVGS["unknown"])
 
 
-def _get_found_svg_for_key(key: str) -> str:
-    """Hent smiley SVG for en fundet cache type. Prøver fil først, derefter fallback."""
-    svg = _get_found_svg(key)
-    if svg:
-        return svg
-    return _FALLBACK_SVGS.get("found", _FALLBACK_SVGS["unknown"])
-
-
 def _get_found_overlay_svg() -> str:
     """Gold smiley used as the fixed overlay for found caches (all types)."""
-    svg = _read_svg_file(_CACHE_FOUND_DIR / "found_cache_smiley_gold.svg")
+    svg = _read_svg_with_user_override("found_cache_smiley_gold", _CACHE_FOUND_DIR, "cache_found")
     return svg if svg else _FALLBACK_SVGS.get("found", _FALLBACK_SVGS["unknown"])
 
 
 def _get_dnf_overlay_svg() -> str:
     """Dark-blue smiley used as the fixed overlay for DNF caches (all types)."""
-    svg = _read_svg_file(_CACHE_FOUND_DIR / "found_cache_smiley_dark_blue.svg")
+    svg = _read_svg_with_user_override("found_cache_smiley_dark_blue", _CACHE_FOUND_DIR, "cache_found")
     return svg if svg else _FALLBACK_SVGS.get("found", _FALLBACK_SVGS["unknown"])
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_cache_type_icon(cache_type: str, size: int = 32, found: bool = False) -> QIcon:
+def get_cache_type_icon(cache_type: str, size: int = 32) -> QIcon:
     """
     Return QIcon for en cache type.
 
@@ -438,14 +561,9 @@ def get_cache_type_icon(cache_type: str, size: int = 32, found: bool = False) ->
     - En database streng som "Traditional Cache", "Multi-cache" osv.
     - En intern nøgle som "traditional", "multi" osv.
     - En status som "found", "dnf", "disabled", "archived"
-
-    Hvis found=True returneres smiley-ikonet for typen.
     """
     key = _db_type_to_key(cache_type)
-    if found:
-        svg = _get_found_svg_for_key(key)
-    else:
-        svg = _get_svg_for_key(key)
+    svg = _get_svg_for_key(key)
     return QIcon(_svg_to_pixmap(svg, size))
 
 
@@ -460,22 +578,32 @@ def get_cache_size_icon(cache_size: str, size: int = 32) -> QIcon:
     return QIcon(_svg_to_pixmap(svg, size))
 
 
-def get_cache_type_pixmap(cache_type: str, size: int = 32, found: bool = False) -> QPixmap:
+def get_cache_type_pixmap(cache_type: str, size: int = 32) -> QPixmap:
     """Return QPixmap for en cache type — nyttigt til composite map overlays."""
     key = _db_type_to_key(cache_type)
-    if found:
-        svg = _get_found_svg_for_key(key)
-    else:
-        svg = _get_svg_for_key(key)
+    svg = _get_svg_for_key(key)
     return _svg_to_pixmap(svg, size)
 
 
+@lru_cache(maxsize=256)
 def get_map_pin_html(cache_type: str, found: bool = False, dnf: bool = False) -> str:
     """
     Return HTML streng til en Leaflet divIcon map pin.
     Viser cache type ikon som base med smiley overlay i øverste højre hjørne:
       found=True → gold smiley; dnf=True (og ikke found) → dark-blue smiley.
     Bruger base64 <img> tag så SVG farver bevares korrekt i browser.
+
+    Issue #629: output afhænger udelukkende af (cache_type, found, dnf) —
+    et lille, begrænset antal kombinationer (reelt langt under 256 typer ×
+    2 statusflag). Uden caching gentages base64-encoding af den fulde SVG
+    for hver enkelt cache ved hver map-load, hvilket dominerer map-load-tid
+    på store databaser (se #627/#579-benchmark: ~38-40% af map-load-tiden).
+
+    Samme forudsætning som _read_svg_file()/_user_icons_dir() ovenfor:
+    ikon-filer ændrer sig ikke i løbet af en kørende session. Hvis
+    live-reload af brugerdefinerede ikoner (SVG icon editor, se roadmap)
+    nogensinde implementeres, skal ALLE disse lru_cache'ede funktioner
+    ryddes samlet (.cache_clear()) ved reload — ikke kun denne.
     """
     import base64
 
@@ -669,8 +797,9 @@ _CORRECTED_COORDS_SVG = (
 
 @lru_cache(maxsize=8)
 def get_corrected_coords_icon(size: int = 16) -> QIcon:
-    """Amber warning-triangle QIcon shown in the 'corrected' column when set (issue #354)."""
-    return QIcon(_svg_to_pixmap(_CORRECTED_COORDS_SVG, size))
+    """Amber warning-triangle QIcon shown in the 'corrected' column when set (issue #354).
+    Overridable via icons/ui/corrected_coords.svg (issue #519 follow-up)."""
+    return QIcon(_svg_to_pixmap(_get_ui_icon_svg("corrected_coords", _CORRECTED_COORDS_SVG), size))
 
 
 # ── Issue #489: GSAK-style icons for Found / Premium / Fav. points / Trackables columns ──
@@ -708,8 +837,9 @@ _PREMIUM_SVG = (
 @lru_cache(maxsize=8)
 def get_premium_icon(size: int = 16) -> QIcon:
     """Checkered circle with a small cache box — Premium-member-only marker
-    for the 'premium_only' column (issue #489)."""
-    return QIcon(_svg_to_pixmap(_PREMIUM_SVG, size))
+    for the 'premium_only' column (issue #489).
+    Overridable via icons/ui/premium.svg (issue #519 follow-up)."""
+    return QIcon(_svg_to_pixmap(_get_ui_icon_svg("premium", _PREMIUM_SVG), size))
 
 
 _FAVORITE_POINTS_SVG = (
@@ -725,8 +855,9 @@ _FAVORITE_POINTS_SVG = (
 
 @lru_cache(maxsize=8)
 def get_favorite_points_icon(size: int = 14) -> QIcon:
-    """Gold star-medal emblem for the 'Fav. points' column header (issue #489)."""
-    return QIcon(_svg_to_pixmap(_FAVORITE_POINTS_SVG, size))
+    """Gold star-medal emblem for the 'Fav. points' column header (issue #489).
+    Overridable via icons/ui/favorite_points.svg (issue #519 follow-up)."""
+    return QIcon(_svg_to_pixmap(_get_ui_icon_svg("favorite_points", _FAVORITE_POINTS_SVG), size))
 
 
 _TRACKABLE_SVG = (
@@ -747,5 +878,6 @@ _TRACKABLE_SVG = (
 
 @lru_cache(maxsize=8)
 def get_trackable_icon(size: int = 14) -> QIcon:
-    """Ladybug-style insect icon for the Trackables column header (issue #489/#491)."""
-    return QIcon(_svg_to_pixmap(_TRACKABLE_SVG, size))
+    """Ladybug-style insect icon for the Trackables column header (issue #489/#491).
+    Overridable via icons/ui/trackable.svg (issue #519 follow-up)."""
+    return QIcon(_svg_to_pixmap(_get_ui_icon_svg("trackable", _TRACKABLE_SVG), size))

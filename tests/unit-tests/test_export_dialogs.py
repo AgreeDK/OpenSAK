@@ -22,9 +22,12 @@ def _cache(gc_code="GC12345", latitude=55.0, longitude=12.0):
     return SimpleNamespace(
         id=1, gc_code=gc_code, name="Test", cache_type="Traditional Cache",
         latitude=latitude, longitude=longitude, difficulty=2.0, terrain=3.0,
-        placed_by="Owner", available=True, archived=False, country="Denmark",
+        placed_by="Owner", available=True, archived=False, country="Denmark", state=None,
         encoded_hints=None, hidden_date=None, logs=[], user_note=None,
-        container="Small", found=False, short_description="", waypoints=[],
+        container="Small", found=False,
+        short_description="", short_desc_html=False,
+        long_description=None, long_desc_html=False, attributes=[],
+        waypoints=[],
     )
 
 

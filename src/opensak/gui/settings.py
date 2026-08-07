@@ -242,6 +242,49 @@ class AppSettings:
     def distance_method(self, value: str) -> None:
         get_store().set("computation.distance_method", value)
 
+    # ── Sidst beregnede center for distance/bearing (per database) ────────────
+    # Bruges af recalculate_distances()/distances_up_to_date() (issue #579) til
+    # at afgøre om en fuld genberegning kan springes over ved opstart. Gemmes
+    # per database (samme mønster som home_lat/home_lon), da forskellige
+    # databaser kan være sidst genberegnet mod forskellige centre.
+
+    @property
+    def dist_calc_lat(self) -> float | None:
+        val = get_store().get(self._db_key("dist_calc_lat"))
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    @dist_calc_lat.setter
+    def dist_calc_lat(self, value: float) -> None:
+        get_store().set(self._db_key("dist_calc_lat"), value)
+
+    @property
+    def dist_calc_lon(self) -> float | None:
+        val = get_store().get(self._db_key("dist_calc_lon"))
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    @dist_calc_lon.setter
+    def dist_calc_lon(self, value: float) -> None:
+        get_store().set(self._db_key("dist_calc_lon"), value)
+
+    @property
+    def dist_calc_method(self) -> str | None:
+        val = get_store().get(self._db_key("dist_calc_method"))
+        return val if val in ("haversine", "vincenty") else None
+
+    @dist_calc_method.setter
+    def dist_calc_method(self, value: str) -> None:
+        get_store().set(self._db_key("dist_calc_method"), value)
+
     @property
     def use_miles(self) -> bool:
         val = get_store().get("display.use_miles", False)
@@ -252,6 +295,47 @@ class AppSettings:
     @use_miles.setter
     def use_miles(self, value: bool) -> None:
         get_store().set("display.use_miles", bool(value))
+
+    # ── Kort ──────────────────────────────────────────────────────────────────
+
+    @property
+    def map_enabled(self) -> bool:
+        """Issue #638: skip building/loading the map's marker data on every
+        refresh when disabled — map load is the single largest remaining
+        cost in "show me my caches" on a large database (see #627's
+        benchmarks). Defaults to True (opt-out, not opt-in) so this is a
+        zero-behavior-change default for anyone who never touches it.
+        Global (not per-database), matching use_miles above.
+        """
+        val = get_store().get("display.map_enabled", True)
+        if isinstance(val, bool):
+            return val
+        return str(val).lower() in ("true", "1", "yes")
+
+    @map_enabled.setter
+    def map_enabled(self, value: bool) -> None:
+        get_store().set("display.map_enabled", bool(value))
+
+    @property
+    def map_max_caches(self) -> int:
+        """Issue #639: cap the map to the nearest N caches from the active
+        home coordinate, rather than every filtered result. 0 means
+        unlimited (map behaves exactly as before #639). Default 2000 —
+        benchmarked (#639): with the SQL LIMIT push-down active, this costs
+        ~0.3-0.4s even on a 100,000+ cache database, generous enough to
+        feel comprehensive for typical local-area use, and Leaflet
+        clustering handles crowding at that count without trouble. Global
+        (not per-database), matching map_enabled above.
+        """
+        val = get_store().get("display.map_max_caches", 2000)
+        try:
+            return max(0, int(val))
+        except (TypeError, ValueError):
+            return 2000
+
+    @map_max_caches.setter
+    def map_max_caches(self, value: int) -> None:
+        get_store().set("display.map_max_caches", max(0, int(value)))
 
     # ── Koordinatformat ───────────────────────────────────────────────────────
 
@@ -311,6 +395,17 @@ class AppSettings:
             return f"https://www.google.com/maps?q={lat},{lon}"
 
     # ── Display ───────────────────────────────────────────────────────────────
+
+    @property
+    def default_decode_hints(self) -> bool:
+        val = get_store().get("display.default_decode_hints", False)
+        if isinstance(val, bool):
+            return val
+        return str(val).lower() in ("true", "1", "yes")
+
+    @default_decode_hints.setter
+    def default_decode_hints(self, value: bool) -> None:
+        get_store().set("display.default_decode_hints", bool(value))
 
     # ── Window state ──────────────────────────────────────────────────────────
 
@@ -516,6 +611,17 @@ class AppSettings:
     @updates_skipped_version.setter
     def updates_skipped_version(self, value: str) -> None:
         get_store().set("updates.skipped_version", value)
+
+    @property
+    def notify_about_betas(self) -> bool:
+        val = get_store().get("updates.notify_about_betas", False)
+        if isinstance(val, bool):
+            return val
+        return str(val).lower() in ("true", "1", "yes")
+
+    @notify_about_betas.setter
+    def notify_about_betas(self, value: bool) -> None:
+        get_store().set("updates.notify_about_betas", bool(value))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

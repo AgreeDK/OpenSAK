@@ -25,7 +25,7 @@ from opensak.coords import format_coords
 from opensak.gui.settings import get_settings
 from opensak.gui.icon_provider import get_cache_type_pixmap_composite, get_corrected_coords_icon
 from opensak.utils.types import DateFormat, TEXT_SIZE_MAP, norm_locale_date_fmt
-from opensak.hint_detect import split_hint
+from opensak.hint_detect import split_hint, render_hint_breaks
 
 
 def _format_date(d: datetime) -> str:
@@ -299,6 +299,15 @@ class CacheDetailPanel(QWidget):
         attr_layout.addWidget(self._attr_browser)
         self._tabs.addTab(attr_widget, tr("filter_tab_attributes"))
 
+        # ── Issue #538/#546: Trackables tab (name + clickable geocaching.com link) ──
+        tb_widget = QWidget()
+        tb_layout = QVBoxLayout(tb_widget)
+        tb_layout.setContentsMargins(0, 4, 0, 0)
+        self._tb_browser = QTextBrowser()
+        self._tb_browser.setOpenExternalLinks(True)
+        tb_layout.addWidget(self._tb_browser)
+        self._tabs.addTab(tb_widget, tr("col_trackables"))
+
         note_widget = QWidget()
         note_layout = QVBoxLayout(note_widget)
         note_layout.setContentsMargins(0, 4, 0, 0)
@@ -520,7 +529,9 @@ class CacheDetailPanel(QWidget):
         self._add_corrected_btn.setVisible(False)
         self._current_waypoints: list = []
         self._attr_browser.setPlainText("")
-        self._tabs.setTabVisible(5, False)
+        self._tb_browser.setPlainText("")
+        self._tabs.setTabText(5, tr("col_trackables"))
+        self._tabs.setTabVisible(6, False)
         self.waypoints_tab_hidden.emit()
 
     def show_cache(self, cache: Cache) -> None:
@@ -615,16 +626,29 @@ class CacheDetailPanel(QWidget):
         # Hint — issue #329: geocaching.com leverer hints i klartekst i
         # moderne PQ'er, men ældre GSAK-eksporter kan stadig indeholde ægte
         # ROT13-kodet tekst. split_hint() gætter hvilken er hvilken og vi
-        # viser altid den skjulte udgave som standard (spoiler-beskyttelse).
+        # viser som standard den skjulte udgave (spoiler-beskyttelse) —
+        # medmindre brugeren har slået "vis hints decoded som standard" til
+        # under Settings (issue #499).
         self._hint_plain, self._hint_cipher = split_hint(cache.encoded_hints or "")
-        self._hint_decoded = False
-        self._decode_btn.setText(tr("detail_decode_btn"))
-        self._hint_browser.setPlainText(
-            self._hint_cipher if self._hint_cipher else tr("detail_no_hint")
-        )
+        # Issue #595: [br] is geocaching.com's own "line break" markup, not
+        # part of the hint text itself — render it as one, in both the
+        # plain and the (still spoiler-hidden) cipher view.
+        self._hint_plain = render_hint_breaks(self._hint_plain)
+        self._hint_cipher = render_hint_breaks(self._hint_cipher)
+        self._hint_decoded = get_settings().default_decode_hints
+        if self._hint_decoded:
+            self._hint_browser.setPlainText(
+                self._hint_plain if self._hint_plain else tr("detail_no_hint")
+            )
+            self._decode_btn.setText(tr("detail_encode_btn"))
+        else:
+            self._hint_browser.setPlainText(
+                self._hint_cipher if self._hint_cipher else tr("detail_no_hint")
+            )
+            self._decode_btn.setText(tr("detail_decode_btn"))
 
         # Personal note
-        self._tabs.setTabVisible(5, True)
+        self._tabs.setTabVisible(6, True)
         self._note_editor.setPlainText(
             (cache.user_note.note or "") if cache.user_note else ""
         )
@@ -637,6 +661,9 @@ class CacheDetailPanel(QWidget):
 
         # Attributes
         self._render_attributes(cache)
+
+        # Trackables
+        self._render_trackables(cache)
 
     def _render_logs(self, cache: Cache) -> None:
         logs = sorted(
@@ -719,6 +746,29 @@ class CacheDetailPanel(QWidget):
                 f'<p><span style="color:{colour};font-weight:bold">{symbol}</span> {name}</p>'
             )
         self._attr_browser.setHtml("".join(html))
+
+    def _render_trackables(self, cache: Cache) -> None:
+        # Issue #538/#546: trackables imported via GSAK/GPX, shown with a
+        # clickable coord.info link — same short-link redirect already used
+        # for the GC-code link at the top of this panel.
+        trackables = sorted(cache.trackables, key=lambda t: t.name or "")
+        tab_idx = 5
+        if not trackables:
+            self._tabs.setTabText(tab_idx, tr("col_trackables"))
+            self._tb_browser.setPlainText(tr("detail_no_trackables"))
+            return
+        self._tabs.setTabText(
+            tab_idx, tr("detail_tab_trackables_count", count=len(trackables))
+        )
+        html = []
+        for t in trackables:
+            name = t.name or "?"
+            if t.ref:
+                link = f'<a href="https://coord.info/{t.ref}">{t.ref}</a>'
+                html.append(f'<p>🐛 {name} ({link})</p>')
+            else:
+                html.append(f'<p>🐛 {name}</p>')
+        self._tb_browser.setHtml("".join(html))
 
     def _on_tab_changed(self, idx: int) -> None:
         if idx == 3:

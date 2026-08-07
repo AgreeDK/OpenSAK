@@ -8,203 +8,892 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.15.0-beta.5] — 2026-07-05
+## [1.16.1] — 2026-07-30
 
-> **Beta release** — four quality-of-life fixes found during beta.4 testing.
-> No schema changes.
+> Small patch release for a splitter/layout regression reported on Facebook
+> right after 1.16.0.
 
 ### Fixed
 
-- **Deleting the active saved filter left it applied** (#491) — deleting a
-  filter profile only refreshed the "Set filter" dialog's own list; if the
-  deleted profile was the one currently active and the dialog was then
-  closed without pressing Apply, the stale filter stayed applied to the
-  waypoint list and the toolbar still showed the deleted name. Deleting a
-  profile now immediately clears the active filter (and refreshes the cache
-  table) if it was the one in use, regardless of how the dialog is
-  subsequently closed. Deleting a different, non-active profile only
-  refreshes the toolbar's profile list, and quick search text (GC code /
-  name) is left untouched either way.
-
-- **Flag and locked column icons distorted on found rows** (#509) — both
-  columns rendered their "set" state as plain emoji text ("🚩" / "🔒"). The
-  cache list italicizes every column on found-cache rows, and emoji glyphs
-  generally have no real italic form — some platforms (Windows' Segoe UI
-  Emoji in particular) synthesize one by shearing the glyph box, clipping
-  or distorting it. Both columns are now icon-only in both states, the same
-  treatment already used for Found/Premium/Corrected Coordinates: a new
-  solid red flag icon and solid closed-padlock icon when set, the existing
-  faint outline placeholders when unset. No text/font styling can touch
-  them anymore.
-
-- **File-mode GPS export silently overwrote existing files** (#501) —
-  exporting to a regular file (as opposed to syncing to a connected Garmin
-  device) reused the same default filename ("opensak") every time without
-  warning, so re-exporting could silently overwrite a previous export. The
-  export dialog now checks whether the target file already exists and, if
-  so, prompts for a new filename — pre-filled with the next available
-  suggestion (opensak, opensak1, opensak2, ...) so the common case is just
-  pressing OK. Re-prompts if the new name also collides, and cancels
-  cleanly without exporting if the user backs out. Device-mode exports are
-  unaffected — they intentionally keep syncing to the same canonical
-  Garmin/GPX path every time.
-
-- **Filters with zero matches emptied the cache list** (#444) — applying a
-  filter that didn't match any caches silently switched to an empty view,
-  requiring the red "clear filter" button and reopening "Set filter" from
-  scratch to recover. Matching GSAK's behavior, a filter matching zero
-  caches is no longer applied at all: a warning is shown, and "Set filter"
-  reopens with the same (rejected) criteria still filled in so they can be
-  adjusted, while the previous view and active filter stay untouched. Only
-  affects the advanced filter dialog — the quick-filter dropdown and name/
-  GC-code search fields are separate mechanisms where an empty result is
-  normal and unaffected.
+- **Status bar could disappear with no way to bring it back (#577)** —
+  dragging the main vertical splitter all the way down let the bottom
+  panel (info bar + detail/map) collapse fully to 0px, with the collapsed
+  position then persisted and restored on every subsequent launch. Both
+  the main and the detail/map splitter now refuse to collapse their
+  panels completely (`setChildrenCollapsible(False)`), and restoring a
+  previously-saved splitter ratio that would still leave either side
+  below a small minimum size now falls back to the default layout
+  instead of reproducing the stuck state.
 
 ---
 
-## [1.15.0-beta.4] — 2026-07-04
+## [1.16.0] — 2026-07-29
 
-> **Beta release** — a new Trackables column and GSAK-style icons for
-> Found/Premium/Fav. points, plus a batch of bugs found and fixed during
-> testing. Three of them were serious enough to also backport to stable
-> as v1.14.1 — noted individually below.
+> First stable release of the 1.16.0 cycle. Replaces the run of
+> `1.16.0-beta.2` … `1.16.0-beta.16` builds — see git history for the
+> detailed beta-by-beta log if needed. Headline of this cycle: a deep
+> investigation into why exported caches weren't showing up correctly on
+> Garmin handhelds ("Send to GPS"), plus a large-database performance
+> pass and several data-integrity fixes for GSAK/GPX imports.
 
 ### Added
 
-- **Trackables (travel bugs / geocoins) column** (#489) — a new opt-in
-  column (enable via Column Chooser) showing how many trackables are
-  logged in each cache, with an insect icon in the header. This builds
-  on the existing Trackable data model, which has quietly supported
-  import parsing and the "Has trackables" filter since v1.14.0 — only
-  the column itself was missing. The count is cached on the cache row
-  (same approach as the Last log column's log count), so displaying
-  and sorting it doesn't slow down large databases.
-
-- **GSAK-style icons for Found, Premium and Fav. points** (#489) — Found
-  and Premium now show an icon instead of plain text in the cache list
-  (a gold smiley reused from the map pins, and a checkered-circle-with-
-  cache icon for Premium), and Fav. points gets an emblem icon in its
-  header. All four new icon-only column headers — plus Trackables — get
-  the same icon-and-sort-arrow centering already introduced for
-  Corrected Coordinates in beta.2, so the pair stays together as the
-  column is resized.
-
-### Fixed
-
-- **Potential crash on databases with a "Favourite" (★) column enabled**
-  (#488) — a manual per-cache favourite flag with no GSAK equivalent had
-  shipped without a database migration, which could leave the column
-  missing entirely on some databases. Removed — GSAK only tracks the
-  community "Fav. points" count, which is unaffected. As a safety net,
-  the column list now also ignores any other stale column ID left over
-  from a future column removal, instead of rendering an empty,
-  untranslated column.
-
-- **"Has trackables" filter crashed on any database created before
-  v1.14.0** (#491) — the Trackable table itself was missing its
-  creation migration since the feature was first added. **Also included
-  in v1.14.1.**
-
-- **Map didn't update when correcting coordinates via the cache list's
-  right-click menu** (#474) — unlike the same action from the cache
-  detail panel, the context-menu path never told the map to refresh.
-  Fixed in three parts: the map now refreshes at all; it reveals the
-  pin from an unopened marker cluster when the new location is far from
-  the current view (previously this only worked if the cache was
-  already selected); and correcting a *different* cache than the one
-  currently selected no longer shifts focus away from it. **Also
-  included in v1.14.1.**
-
-- **SMALL row-height setting silently ignored on some systems** (#490)
-  — Qt's platform/font-derived minimum row height could be larger than
-  our 20px SMALL setting, silently overriding it without any visible
-  error. **Also included in v1.14.1.**
-
----
-
-## [1.15.0-beta.3] — 2026-07-02
-
-> **Beta release** — fixes two found-status bugs reported by the community
-> while testing beta.2.
-
-### Fixed
-
-- **Found date missing for webcam caches and events on import** (#457) —
-  `found_date` was derived only from "Found it" logs, so caches whose find
-  is logged under a different log type ended up with no found date on
-  import: webcam caches use "Webcam Photo Taken" and events use "Attended".
-  Reproduced with a real My Finds PQ. The cross-database found-status sync
-  tool had the same bug and is fixed too.
-
-- **FTF detection flagged logs that only mentioned "first to find" in
-  passing** (#458) — FTF was matched on free-text phrases (`ftf`,
-  `first to find`, `first finder`, `første til at finde`) anywhere in the
-  user's own found-log text, a heuristic introduced in 1.13.2. That flagged
-  logs which merely mentioned the concept without claiming it, e.g. a log
-  describing a *failed* attempt at being first finder. FTF is now matched
-  exclusively against ProjectGC's official tags — `{FTF}`, `{*FTF*}`,
-  `[FTF]` — the same tags most geocachers already use and that ProjectGC
-  itself requires. A tooltip on the FTF column header explains this.
-
----
-
-## [1.15.0-beta.2] — 2026-07-02
-
-> **Beta release** — fixes for issues reported by the community while
-> testing GGZ export in beta.1. Please keep testing, especially with
-> larger databases.
+- **Garmin "Send to GPS" — full content and correct recognition (#656,
+  #453, #454, #455, #502)** — a multi-stage investigation, working
+  directly from GGZ/GPX byte comparisons against GSAK's own export of
+  the same caches, found and fixed the actual root cause: OpenSAK
+  exported GPX 1.1 with `groundspeak:cache` wrapped in an `<extensions>`
+  element, while Garmin's on-device geocache parser is built around
+  GSAK's GPX 1.0 format, where `groundspeak:cache` is a direct child of
+  `<wpt>`. Export format now matches GSAK's exactly. Along the way,
+  several content gaps were found and fixed: missing
+  `groundspeak:attributes`, `short_description`/`long_description`, and
+  `state`; logs hardcoded to the last 5 with text truncated at 500
+  characters (now full history, no cap); and element order inside
+  `groundspeak:cache` corrected to match the official `cache.xsd`
+  sequence. Confirmed fixed by multiple testers across a GPSMAP 64s,
+  66s, 66sr, and Montana 700 — description, hint, and previous logs all
+  display correctly now, and exported files are correctly recognized as
+  geocache files (not plain waypoints) on-device.
+- **Custom Waypoints (Hotel/POI, Parking Area, Trailhead, etc.) get
+  proper icons, in both the app and on Garmin devices (#593, #660)** —
+  in-app, these now show their own distinct icon in the table, map, and
+  detail panel instead of a generic "unknown" icon. For Garmin export,
+  they're now written as plain GPX waypoints with a matching native
+  Garmin icon (e.g. "Parking Area", "Lodging", "Trail Head") instead of
+  showing up as an empty "fake geocache" with blank D/T stars.
+- **"Use database name as filename" for GPS export** — new checkbox in
+  the Send to GPS dialog (community suggestion — GSAK has an
+  equivalent), on by default, pre-fills the export filename from the
+  active database's name for both file-mode and device-mode exports.
+  Its on/off state is remembered between exports.
+- **Send to GPS collision handling** — device-mode exports ("Send to
+  GPS") now prompt before silently overwriting a same-named file on the
+  device, matching the protection file-mode export already had. The
+  "delete old files before upload" option now also covers GGZ exports
+  (previously GPX-only).
+- **Large-database performance** (#627 and its follow-ups) — a new
+  lightweight query path (`apply_filters_lightweight()`/
+  `apply_filters_auto()`) avoids ORM row-hydration cost with an
+  automatic, always-correct fallback to the full path whenever a filter
+  needs it; SQL pushdown extended to every remaining filter type; map
+  loading is dramatically faster via icon caching and bulk marker
+  loading; a "Max caches shown on map" setting and a "disable map
+  entirely" setting both target the same large-database load cost.
+  Measured on a 250,000-cache benchmark database: total time to show
+  all caches dropped by ~19% end-to-end, with individual steps (map
+  load, filtered queries) 2–48x faster depending on the scenario. A new
+  `scripts/benchmark_large_db.py` harness backs all of these numbers and
+  is available for future performance work too.
+- **Default Column View** (#607) — named, saveable column configurations
+  (visible columns, widths, container/type display), with a toolbar
+  quick-switch dropdown and a designated global default for new/
+  unconfigured databases, replacing the previous implicit "last used"
+  fallback.
+- **Vertical gridlines in the cache table** (#463), and a **center point
+  picker for the distance filter** (#511) — choose Home, a saved home
+  point, the selected cache, or a manual coordinate as the filter's
+  center, plus a matching right-click "Set as center point" action.
 
 ### Fixed
 
-- **GGZ export crash on databases with mixed dated/undated logs** (#348)
-  — exporting a database where at least one cache had a log without a
-  date crashed with `'<' not supported between instances of
-  'datetime.datetime' and 'int'`. Logs are now sorted safely regardless
-  of missing dates.
-
-- **GGZ files written to the wrong folder on the device** (#348) — GGZ
-  exports landed in `Garmin/GPX` instead of `Garmin/GGZ`, unlike GSAK's
-  GarminExport macro and what Garmin devices expect.
-
-- **Wrong dates inside exported .ggz files** (#348) — the ZIP directory
-  entries (`data/`, `index/`, etc.) always showed 1980-01-01 due to a
-  Python zipfile default; they now show the actual export time.
-
-- **Severe slowdown on large GGZ exports** (#466) — exporting several
-  thousand caches could take 50+ minutes and make the app unresponsive.
-  The byte-offset calculation for Garmin's index was accidentally O(n²);
-  it's now a single linear pass — 200–1000× faster depending on cache
-  count, with the gap widening for larger databases.
-
-- **Corrected Coordinates column icon inconsistency** (follow-up to
-  #354) — the "Choose columns" dialog still showed the old red pin
-  emoji instead of the warning-triangle icon used everywhere else in
-  the app. The column header's icon and sort arrow are now centered
-  together as a pair regardless of column width, and the per-row icon
-  in the column itself is centered instead of left-aligned.
+- **Cache distance not calculated after adding/editing a waypoint**
+  (#662) — a newly added cache (including Custom Waypoints) or one with
+  edited coordinates showed no distance and sorted to the bottom of the
+  list until the center/home point was switched away and back. Distance
+  and bearing are now recalculated immediately in both cases.
+- **Wrong attribute mappings from GSAK import** (#615) — 42 of 70
+  Groundspeak attribute IDs were mapped to the wrong attribute, also
+  silently affecting the attribute filter regardless of import source.
+- **Corrected-coordinate caches lost their original coordinates on GSAK
+  database import** (#614) — the original (pre-solve) position is now
+  read from GSAK's `Corrected` table instead of the already-corrected
+  `Latitude`/`Longitude` columns.
+- **Hidden date (and log dates) lost when importing Project-GC-style
+  GPX** (#617) — an explicit UTC-offset timestamp format
+  (`+00:00`) wasn't recognized by the old parser and silently came back
+  as `None`.
+- **Logs wiped on every re-import instead of accumulating** (#618) — a
+  partial GPX/PQ re-import now merges logs (update-in-place for a
+  matching ID, add new ones, keep existing ones not present in the
+  current file) instead of deleting and rebuilding from that file alone.
+- **Community Celebration Event caches imported as generic "Event
+  Cache"** (#591) — narrow name-based fallback for this un-typed,
+  time-limited Groundspeak program.
+- **New database didn't inherit column settings** (#606) — falls back to
+  the last-used configuration instead of hard-coded factory defaults.
+- **Redundant distance recalculation on every startup** (#579) — skipped
+  when nothing about the database or home point has changed since the
+  last run.
+- **Boolean filters bypassed their SQL indexes** (#628) — `IS true`/
+  `IS false` changed to the index-usable `= true`/`= false` form.
+- **Hint markup incorrectly ROT13-scrambled** (#595) — bracketed markup
+  like `[br]` is now left untouched by the hint cipher.
+- Several dark-theme/UI fixes: unreadable placeholder text (#624), an
+  unreadable Where-filter SQL error box (#613), and Country/Region/
+  County columns left-aligned instead of centered (#603).
+- Database dropdown/lists not sorted alphabetically (#531, #601), and a
+  misleading "database created" confirmation message (#464).
 
 ---
 
-## [1.15.0-beta.1] — 2026-07-01
+## [1.16.0-beta.16] — 2026-07-28
 
-> **Beta release** — start of the 1.15.0 testing period. Feedback especially
-> welcome on the new GGZ export.
+> **Beta release** — further "Send to GPS" polish following tester
+> feedback on beta.15, plus proper Garmin icons for Custom Waypoints
+> and Adventure Lab caches.
+
+### Fixed
+
+- **"Send to GPS" silently overwrote a same-named file on the device
+  with no warning (#656)** — reported by CheminerWill after testing
+  beta.15. The existing #501 fix only covered file-mode exports;
+  device-mode ("Send to GPS") now runs the same collision check: if a
+  file with the same name already exists in the device's Garmin/GPX or
+  Garmin/GGZ folder, you're prompted for a new name (with an
+  auto-suggested next-available name), unless "delete old files before
+  upload" is checked, in which case the old files are cleared first.
+  That checkbox now also works for GGZ exports (previously GPX-only).
+- **Custom Waypoints (Hotel/POI, Parking Area, Trailhead, etc.) showed
+  up on Garmin devices as empty "fake geocaches"** — with blank D/T
+  stars and `Size: (Not Chosen)` — instead of looking like the simple
+  waypoints they are. They're now exported as plain GPX waypoints with
+  a proper native Garmin icon (e.g. "Parking Area", "Lodging",
+  "Trail Head"). Confirmed fixed on a GPSMAP 64s via GPX import.
 
 ### Added
 
-- **Export to Garmin GGZ format** (closes #348) — the GPS export dialog now
+- **"Use database name as filename"** checkbox in the GPS export
+  dialog (community suggestion — GSAK has an equivalent), checked by
+  default, covering both file-mode and device-mode exports. Pre-fills
+  the export filename with the currently active database's name
+  instead of a fixed "opensak" default, reducing how often the
+  collision prompt above gets triggered in normal day-to-day use.
+
+### Notes
+
+- Adventure Lab stages were also given a distinct icon attempt
+  ("Flag, Blue" instead of the standard geocache icon) — this had no
+  visible effect on the tested GPSMAP 64s (device firmware appears to
+  always use its own icon for anything containing a full
+  `groundspeak:cache` block, regardless of the `sym` field). Left in
+  place since it's harmless and may help on other device/firmware
+  combinations; Lab stages keep their full description/D-T/hint
+  content either way, which was the more important fix.
+
+---
+
+## [1.16.0-beta.15] — 2026-07-28
+
+> **Beta release** — a cluster of fixes to GPX/GGZ export for Garmin
+> devices ("Send to GPS"), including the root cause of Garmin firmware
+> not recognizing exported files as geocaches at all.
+
+### Fixed
+
+- **GPX/GGZ export missing attributes, descriptions, state, and full log
+  history (#656)** — `generate_gpx()` (used by both GPX and GGZ export,
+  since GGZ embeds a generated GPX internally) never wrote
+  `groundspeak:attributes`, `groundspeak:short_description` /
+  `long_description`, or `groundspeak:state` at all, and hardcoded log
+  export to only the last 5 logs with text truncated to 500 characters.
+  Confirmed via a controlled side-by-side comparison against GSAK's
+  export of the same cache (GC.com direct download and GSAK both
+  included full attributes, description, and complete log history for
+  the same cache; OpenSAK's export was missing all of it). All of the
+  above is now exported in full, with no artificial limits.
+
+- **Garmin devices not recognizing OpenSAK's GPX/GGZ exports as geocaches
+  (#656)** — the underlying root cause of the above and of related
+  reports (#453, #454, #455, #502): OpenSAK exported GPX 1.1
+  (`xmlns=".../GPX/1/1"`) with `groundspeak:cache` wrapped inside a
+  GPX-1.1-style `<extensions>` element. GSAK exports GPX 1.0
+  (`xmlns=".../GPX/1/0"`) with `groundspeak:cache` as a *direct child* of
+  `<wpt>` — no `<extensions>` wrapper — which is what Garmin's on-device
+  geocache parser is built around. Export format now matches GSAK's
+  exactly, including declaring the `groundspeak` XML namespace locally
+  on the `<groundspeak:cache>` element itself rather than at the GPX
+  root. Confirmed fixed on a Garmin GPSMAP 64s: description, logs and
+  hint all now display correctly for an exported cache, where previously
+  only the hint displayed and description/logs did not.
+
+---
+
+## [1.16.0-beta.14] — 2026-07-26
+
+> **Beta release** — vertical gridlines in the database grid (#463).
+
+### Added
+
+- **Vertical gridlines in the cache table** (#463) — columns in the main
+  cache grid now have a thin vertical separator line at each column
+  boundary, in addition to the existing alternating row colours. The
+  line colour follows the active theme's palette (light/dark), so no
+  additional theme handling is needed. User-configurable colours,
+  independent show/hide toggles for horizontal vs. vertical lines, and
+  the proposed new Appearance settings tab remain out of scope for now —
+  basic functionality comes first, per the discussion on the issue.
+
+---
+
+## [1.16.0-beta.13] — 2026-07-26
+
+> **Beta release** — a new Default Column View system (named, saveable
+> column configurations with a toolbar quick-switch, replacing #606's
+> implicit "last used" fallback), plus three small UI fixes: centered
+> text columns, dark-theme placeholder text, and a readable Where-filter
+> error box in dark mode.
+
+### Fixed
+
+- **Country/Region/County columns left-aligned instead of centered (#603)**
+  — #431 centered "similar short-value columns" (Placed By, dates, etc.)
+  but missed Country, Region (state) and County. Centered here for the
+  same consistency #431 was going for.
+- **Placeholder/hint text invisible in Dark theme (#624)** — `QPalette`'s
+  `PlaceholderText` role wasn't set explicitly for either theme, so Qt
+  fell back to a derived default that was unreadable in dark mode. Both
+  palettes now set it explicitly to a legible, dimmed gray.
+- **Where-filter SQL error box unreadable in Windows dark mode (#613)** —
+  the error box used a hardcoded light-theme style (dark-red text on a
+  transparent background); in dark mode that rendered as dark-red-on-dark
+  gray. It now picks an explicit, theme-appropriate style via the
+  existing `effective_theme()` helper.
+
+### Added
+
+- **Default Column View (#607)** — the "Choose columns" dialog now supports
+  named, saveable "Column Views" (visible columns, widths, container/type
+  display), parallel to saved filter profiles. A saved view can be picked
+  from a dropdown, and one view can be marked as the global default via a
+  new "Set as Default" button (shown with a ★ in the dropdown). Any
+  database without its own explicit column configuration — including
+  brand-new databases — now falls back to the designated default view
+  instead of the hard-coded factory defaults. This replaces #606's
+  implicit "last used" fallback, which silently changed on every save
+  regardless of user intent; setting the default is now an explicit,
+  deliberate action and does not retroactively affect databases that
+  already have their own saved configuration. A quick-switch Column View
+  dropdown has also been added to the main toolbar, next to the existing
+  filter-profile dropdown, so a saved view can be applied to the active
+  database with one click, without opening the dialog.
+
+---
+
+## [1.16.0-beta.12] — 2026-07-26
+
+> **Beta release** — a cluster of GPX-import fixes reported by the
+> community: a lost hidden date from Project-GC exports, logs being wiped
+> on every re-import instead of accumulating, Community Celebration Event
+> caches showing the wrong type, and column settings not carrying over to
+> a new database.
+
+### Fixed
+
+- **Hidden date lost when importing a GPX file from Project-GC** (#617) —
+  `_parse_datetime()` only handled a bare or `Z`-suffixed ISO 8601
+  timestamp (geocaching.com's own format). Project-GC instead exports an
+  explicit UTC offset (`2026-03-16T00:00:00+00:00`), which matched none
+  of the old `strptime` patterns and silently came back as `None`,
+  dropping the hidden date entirely. Now tries `datetime.fromisoformat()`
+  first and converts properly to UTC (a `+02:00` offset is converted to
+  the correct UTC instant, not just relabelled), falling back to the
+  previous patterns for anything else. The same function also parses log
+  dates, so this fixes any log-date loss from Project-GC-style exports
+  too, not just hidden dates.
+
+- **Logs removed from one GPX import to another** (#618) — every
+  re-import (e.g. loading a new Pocket Query) deleted *all* of a cache's
+  existing logs and rebuilt them from that file alone. Since a single
+  GPX/PQ typically only carries a cache's most recent handful of logs,
+  this meant older logs not present in that particular file were
+  permanently lost on the next import — unlike GSAK, which lets logs
+  accumulate over time. Logs are now merged instead: a matching log ID is
+  updated in place (e.g. an edited log text), a new one is added, and any
+  existing log absent from the current file is left untouched.
+  `log_count`, `last_log_date`, and `dnf_date` are now derived from the
+  full merged set rather than just the current file's logs, so a partial
+  re-import can no longer move them backwards or silently clear them.
+
+- **Community Celebration Event caches imported as generic "Event
+  Cache"** (#591) — geocaching.com's own machine-readable
+  `<groundspeak:type>` field has no distinct value for Community
+  Celebration Events (a limited-run program, May 2020 – Dec 2021) — it's
+  always exported as plain "Event Cache". The actual event type only
+  survives in the free-text cache name (e.g. "Karlínská kasárna -
+  Community Celebration Event"). Added a narrow fallback: when
+  `groundspeak:type` is exactly "Event Cache" and the cache name contains
+  the literal phrase "Community Celebration Event", the cache is now
+  classified as such — using the dedicated type/icon that already existed
+  but was never being reached. Verified against a real-world GPX export
+  for the reported cache (GC8T83E); a plain Event Cache, or another type
+  merely mentioning the phrase in its name, is correctly left unchanged.
+
+- **Displayed field when importing .gpx not consistent with previous
+  settings** (#606) — column visibility and widths are saved per database
+  name, so a brand-new database had no saved key yet and fell straight
+  back to the hard-coded defaults, silently reverting any customisation
+  (e.g. an added Country/State/County column) already made in another
+  database. Added a global "last used" fallback key, updated on every
+  save, that a database with no settings of its own now falls back to
+  before the hard-coded defaults — so a new database inherits whatever
+  was last configured, anywhere.
+
+---
+
+## [1.16.0-beta.11] — 2026-07-22
+
+> **Beta release** — a setting to disable the map panel entirely (and a
+> visible "disabled" placeholder instead of an empty-looking map), plus a
+> setting to cap the map to the nearest N caches from your home
+> coordinate. Both target the same thing #627 already identified: map
+> load is the largest remaining cost in "show me my caches" on a large
+> database.
+
+### Added
+
+- **Limit map to nearest N caches from home coordinate** (#639) —
+  combines @nagisml's "max caches shown on the map" suggestion (on #638)
+  with sorting by distance from the active home coordinate, since a map
+  with hundreds of thousands of pins isn't very readable at normal zoom
+  anyway. New "Max caches shown on map" spinbox in the Map settings tab
+  (0 = unlimited), default 2000. The map now gets its **own** fetch,
+  independent of the table's — same active filterset, but sorted by
+  distance and limited — so the table's own result set and sort order
+  are completely unaffected either way.
+
+  Added `push_limit` to `apply_filters_lightweight()`/`apply_filters_auto()`
+  (default `False`, no behavior change for existing callers): when the
+  whole filterset is SQL-pushed *and* the sort field is SQL-sortable, the
+  limit is pushed into the SQL query itself (`LIMIT` after `ORDER BY`)
+  instead of fetching every filtered row and slicing in Python. Measured
+  directly (100,000-cache database, distance-sorted, no filter): the
+  existing Python-slice `limit` took ~3.0s regardless of requested size
+  (500 through 5000 all fetch and construct every row before slicing);
+  pushing a real SQL `LIMIT` took 0.31-0.56s, correctly scaling with the
+  requested size. Falls back to the existing (always-correct) Python-slice
+  behavior whenever those two conditions aren't both met — a SQL `LIMIT`
+  applied before a Python-only sort or Python-only filter pass would
+  silently return the wrong N rows, so this is deliberately conservative;
+  13 dedicated tests cover both the cases where it activates and the ones
+  where it correctly must not.
+
+  End-to-end confirmed (100,000-cache database, fetch + JSON payload
+  build): 4.65s (unlimited) → 0.46s (default limit of 2000) — ~10x
+  faster, with the JSON payload itself shrinking from ~195MB to ~3.9MB.
+
+- **Setting to disable the map panel** (#638) — new "Map" tab in the
+  Settings dialog (split out from General, so future map-specific
+  settings have a natural shared home) with a "Show map" checkbox,
+  defaulting to on (opt-out, zero behavior change for anyone who doesn't
+  touch it). When off, all three `mainwindow.py` refresh paths skip
+  building and loading the map's marker data entirely — since #627,
+  map load has been the single largest remaining cost in "show me my
+  caches" on a large database, bigger than the database query itself.
+  Measured directly: the map-load step (Python-side payload build) drops
+  from ~1.8s to effectively 0s on a 100,000-cache database when disabled.
+  Toggling the setting back on mid-session needs no special handling —
+  the existing Settings-dialog-close flow already calls
+  `_refresh_cache_list()` unconditionally, which now correctly re-populates
+  the map on the next call since the guard re-checks the setting fresh
+  every time. Table contents and sort order are completely unaffected
+  either way.
+
+  **Follow-up:** the map's own base tiles/zoom controls rendered
+  regardless of the setting — only the cache markers were actually
+  skipped — which looked like a stuck or empty map rather than an
+  intentional off state (reported after testing the initial version).
+  A `QStackedWidget` now swaps in a plain "Map disabled" placeholder page
+  instead, so the off state is visually unambiguous. Also skips the
+  map's own page reload (`reload_map()`) while disabled, since there's
+  no point refreshing tiles nobody's looking at — it reloads normally
+  the next time the setting is re-enabled. Translated to all 8 languages.
+
+---
+
+## [1.16.0-beta.10] — 2026-07-22
+
+> **Beta release** — SQL pushdown for the last group of filters that had
+> none at all, following up on #627's lightweight query path.
+
+### Added
+
+- **SQL pushdown for remaining scalar-column filters** (#633) —
+  `UserFlagFilter`, `LockedFilter`, `DnfFilter`, `FtfFilter`,
+  `FavoritePointsFilter`, `HasCorrectedFilter`/`NoCorrectedFilter`,
+  `FoundByMeDateFilter`, `DnfDateFilter`, and `LastLogDateFilter`
+  previously had no `apply_to_query()` at all, always falling back to a
+  full Python `matches()` scan. Under the ORM path this barely mattered
+  (#631 found the Python pass was only ~2% of `apply_filters()`'s time —
+  ORM hydration dominated regardless of whether a filter narrowed the SQL
+  query or not). Under the lightweight query path (beta.9) the picture is
+  different: without SQL pushdown, `apply_filters_lightweight()` must
+  still construct a `LightweightCache` for every single row before
+  Python-filtering it down, so a highly selective filter with no pushdown
+  costs almost as much as fetching the whole table. Measured directly on
+  a 100,000-cache database: `FtfFilter` (0.6% selectivity) went from
+  2.42s to 0.05s (~48x faster); `UserFlagFilter` (~5%) from 2.49s to
+  0.16s (~15x); `DnfFilter` (~7%) from 2.39s to 0.20s (~12x).
+
+  Each `apply_to_query()` mirrors its `matches()` counterpart exactly,
+  including NULL handling — `FoundByMeDateFilter`/`DnfDateFilter` treat a
+  NULL date as "include" (found/DNF but undated), while
+  `LastLogDateFilter` treats NULL as "exclude", and both are preserved
+  precisely in SQL. `HasCorrectedFilter`/`NoCorrectedFilter` use a
+  correlated `EXISTS`/`NOT EXISTS` against `user_notes`, which needed an
+  explicit `.correlate(Cache)` — without it, `apply_filters_lightweight()`
+  raised `InvalidRequestError` because its `select()` already outerjoins
+  `user_notes` for corrected-coordinate display, confusing SQLAlchemy's
+  auto-correlation. Only broke on the lightweight path, not the full ORM
+  path — caught by testing both, not just one.
+
+  25 new parity tests (including NULL edge cases for every field
+  involved) confirm every filter's SQL and Python forms agree exactly;
+  full unit-test suite (2136 tests) green, mypy clean.
+
+---
+
+## [1.16.0-beta.9] — 2026-07-22
+
+> **Beta release** — the lightweight query path (#627): large databases
+> load dramatically faster in both the cache table and the map, on top of
+> #628-#631's smaller fixes from the last two betas. This is a
+> default-behavior change for every install, not opt-in — see below for
+> why that's safe.
+
+### Added
+
+- **Lightweight query path** (#627) — `apply_filters_lightweight()`, a new
+  function in `filters/engine.py` alongside `apply_filters()`, fetches
+  cache rows via a SQLAlchemy Core `select()` instead of
+  `session.query(Cache)`, avoiding the ORM row-hydration cost already
+  identified as `apply_filters()`'s dominant expense (#631). Results come
+  back as `LightweightCache` objects — duck-typed to expose the same
+  attribute names as a real `Cache` for every column the table and map
+  actually use — with an automatic, transparent fallback to the existing
+  `apply_filters()` ORM path whenever a filter needs a relationship or one
+  of the three heavy/deferred text fields (`short_description`,
+  `long_description`, `encoded_hints`). That fallback means this is always
+  correct, never returning wrong or incomplete results — only sometimes
+  slower than it could be.
+
+  `mainwindow.py`'s table and map refresh now go through a single
+  `apply_filters_auto()` entry point that always attempts the lightweight
+  path. A thorough compatibility audit (`CacheTableModel`'s every column,
+  sort key, and tooltip; `map_widget.py`'s `_do_load_caches()`,
+  `_effective_coords()`, and pin-icon generation) found **zero** source
+  changes were needed in either consumer — both already only touch scalar
+  fields, cached count columns, or `.user_note`'s three attributes, never
+  a relationship collection directly. Row selection already reloads a
+  full `Cache` via the established `_load_full_cache(gc_code)` pattern
+  regardless of what's currently in the table.
+
+  Confirmed final numbers (250,000-cache database, via the real
+  `apply_filters_auto()` wiring):
+
+  | Scenario | `apply_filters` | `apply_filters_auto` | Speedup |
+  |---|---|---|---|
+  | No filter | 8.05s | 3.10s | ~2.6x faster |
+  | Exclude archived | 11.02s | 3.81s | ~2.9x faster |
+  | Within 50km | 1.52s | 0.97s | ~1.6x faster |
+  | `CacheTableModel.load()` | 0.198s | 0.027s | ~7.3x faster |
+
+  **Two real bugs were found and fixed during testing, before release:**
+  a `LightweightCache` design that eagerly copied every one of its ~52
+  fields at construction time fixed a table-load regression (delegating
+  every attribute through `__getattr__` was costing more than the
+  fetch-side win it was meant to complement) but overcorrected, nearly
+  erasing the fetch-side win in the process — the final design only
+  eagerly copies the three fields `CacheTableModel` touches
+  unconditionally on every row (`id`, `distance`, `bearing`), leaving
+  everything else lazy. Separately, `reload_caches_full()` — the helper
+  GPX/LOC/GGZ export, KML export, GPS-device export, and the trip planner
+  all use to reload full cache data before generating output — checked
+  `isinstance(c, Cache)`, which silently excluded every `LightweightCache`
+  row from its reload and would have crashed all four export paths the
+  moment they touched a deferred field; fixed by recognizing both types as
+  reloadable. Both were caught by the project's own test suite (the
+  second one by the e2e suite specifically) before ever reaching a tagged
+  release.
+
+  Confidence for shipping this as default (not opt-in) behavior comes
+  from: the lightweight path's own automatic per-filterset fallback to the
+  exact same full-ORM code path used today; full parity test coverage
+  (`test_filter_sql_parity.py`, `test_filter_lightweight.py`) proving
+  `apply_filters_lightweight()` never diverges from `apply_filters()`'s
+  result set across every filter type, NULL edge case, and composition;
+  dedicated compatibility audits and test suites for both the table and
+  the map with zero source changes needed in either; and a full pass of
+  the unit suite (2111 tests), the e2e suite (244 tests), and a
+  250,000-cache benchmark, all green.
+
+- **Benchmark harness measures the lightweight query path** (#628) —
+  `scripts/benchmark_large_db.py` now also runs its three `apply_filters`
+  scenarios through `apply_filters_auto()`, and runs the map/table-load
+  steps against both result sets, so a single report shows the full
+  before/after picture instead of requiring a separate isolated A/B
+  script. Fixed a measurement-fairness bug found while adding this: the
+  icon HTML `@lru_cache` (#629) meant whichever "Map load" measurement ran
+  first in the script paid the one-time cache-warming cost and the second
+  one benefited "for free" — fixed with an explicit warmup pass before
+  either timed measurement.
+
+---
+
+## [1.16.0-beta.8] — 2026-07-22
+
+> **Beta release** — a small, safe correctness fix in the filter engine's
+> SQL pushdown, spun off from the #627 large-database investigation.
+
+### Fixed
+
+- **Boolean filters silently bypassed their indexes** (#628, part of #627)
+  — `FoundFilter`, `ArchivedFilter`, `AvailableFilter`, `AvailabilityFilter`,
+  `PremiumFilter`, and `NonPremiumFilter` used `Cache.<col>.is_(True)` /
+  `.is_(False)` in their SQL pushdown, which compiles to `<col> IS true` /
+  `IS false`. SQLite's query planner cannot use an index for that form —
+  verified directly against SQLite 3.45 with `EXPLAIN QUERY PLAN` — even
+  though the functionally identical `<col> = true` / `= false` (what
+  `== True`/`== False` compiles to) is index-usable and the relevant
+  indexes have existed since #214. `.is_(None)` (NULL checks, e.g.
+  `DifficultyFilter`'s unknown-difficulty handling) was never affected and
+  is unchanged. Real-world impact is small at current database sizes —
+  isolated A/B testing showed ~0.11s either way for a selective filter on
+  100,000 caches, since raw SQL execution is dwarfed by ORM row hydration
+  (same finding as #631) — but this restores the indexing intent from
+  #214 at zero cost and zero risk.
+
+---
+
+## [1.16.0-beta.7] — 2026-07-22
+
+> **Beta release** — large-database performance work (see #627): map load
+> is dramatically faster on big databases thanks to icon caching and bulk
+> marker loading, plus a small, safe win in the filter engine. Includes a
+> new benchmark harness so every step here — and future ones — can be
+> measured instead of guessed at.
+>
+> Measured on a 250,000-cache synthetic benchmark database
+> (`scripts/benchmark_large_db.py`): map load dropped from 11.34s to 4.45s
+> (-61%), total time to show all caches dropped from 37.58s to 30.42s
+> (-19%). Full before/after table in #628.
+
+### Added
+
+- **Large-database benchmark harness** (#628, part of #627) —
+  `scripts/benchmark_large_db.py` generates a synthetic database at a
+  configurable scale (default 250,000 caches) and measures distance
+  recalculation, `apply_filters()`, map load, table load, and info-bar
+  update, printing a table (optionally markdown) for pasting into GitHub
+  issues. Every performance change in #627 is now measured against this
+  harness rather than eyeballed.
+
+### Improved
+
+- **Cache map pin HTML generation** (#629, part of #627) — `get_map_pin_html()`
+  now caches its output with `@lru_cache(maxsize=256)`. The HTML (including
+  base64-encoded SVG) only depends on `(cache_type, found, dnf)`, a small
+  bounded set of combinations, but was previously rebuilt from scratch for
+  every visible cache on every map load. On a 100,000-cache benchmark
+  database (see #628's `scripts/benchmark_large_db.py`), map load time
+  dropped from ~10.1s to ~3.2s (~68%).
+
+- **Bulk-load map markers with chunked clustering** (#630, part of #627) —
+  the map's `loadCaches()` called Leaflet.markercluster's `addLayer()` once
+  per cache, which rebuilds the library's spatial index on every single
+  call. It now builds all markers first and adds them in one
+  `addLayers()` bulk call, with `chunkedLoading: true` so the browser's UI
+  thread stays responsive while a large marker set loads. The post-load
+  pan/fit-bounds step is deferred until every chunk has actually been
+  added (via `chunkProgress`), so it still reflects the complete marker
+  set instead of a partially-loaded one.
+
+- **Skip redundant Python filter pass when fully SQL-pushed** (#631, part
+  of #627) — `apply_filters()` now skips its Python-level
+  `filterset.matches()` re-scan when every filter in the filterset was
+  already pushed into the SQL `WHERE` clause, since every row `query.all()`
+  returns already satisfies it. Measured impact is modest — the Python pass
+  itself is only ~2% of `apply_filters()`'s time even on a 100,000-cache
+  database with a large result set (~6.8s total, ~0.13s of which was the
+  redundant pass); ORM hydration dominates and is unaffected by this
+  change. Still a safe, zero-cost win, and it required introducing a new
+  `BaseFilter.sql_exact` flag: while implementing this, testing surfaced
+  that `DistanceFilter`'s SQL pushdown is a bounding-box *pre-narrowing*
+  only (not an exact translation — it ignores `min_km` entirely and
+  doesn't have the true circle shape), so the naive "non-None
+  `apply_to_query()` == fully handled" assumption would have silently
+  dropped the `min_km` check for distance-filtered results. `sql_exact`
+  lets a filter opt out of counting toward the skip decision while still
+  contributing its SQL pre-narrowing; `DistanceFilter` is the only filter
+  that needs it.
+
+---
+
+## [1.16.0-beta.6] — 2026-07-21
+
+> **Beta release** — two data-integrity fixes for GSAK-database imports:
+> attribute names and the attribute filter were often wrong, and corrected
+> (solved-puzzle) caches lost their original coordinates on import.
+
+### Fixed
+
+- **Wrong attribute settings from GSAK database import** (#615) — 42 of the
+  70 Groundspeak attribute IDs in OpenSAK's internal attribute table were
+  mapped to the wrong attribute (e.g. id 31 resolved to "Food nearby"
+  instead of "Camping available"). Beyond GSAK-database imports, this also
+  affected the attribute filter, which built its checkbox labels and
+  underlying filter values from the same table — so filtering by attribute
+  could silently return the wrong caches regardless of import source.
+  Rebuilt and verified against real GPX exports from geocaching.com.
+
+- **Caches with corrected coordinates lose the original coordinates when
+  importing GSAK database** (#614) — GSAK's own `Latitude`/`Longitude`
+  columns reflect the *corrected* position once a cache has been solved,
+  not the original/posted coordinates. OpenSAK imported these directly as
+  the cache's primary position, silently discarding the true original
+  location on every GSAK-database import of a solved cache. The original
+  position is now read from GSAK's `Corrected` table instead.
+
+---
+
+## [1.16.0-beta.5] — 2026-07-16
+
+> **Beta release** — startup no longer recalculates every cache's distance
+> unnecessarily, which should noticeably speed up launch on large databases.
+
+### Fixed
+
+- **Redundant distance recalculation on every startup** (#579) — the app
+  recalculated distance/bearing for every cache on every launch, even
+  though nothing about the database or home point had changed since the
+  last session. On large databases (100k+ caches) this made startup
+  noticeably slow with no visual indication of what was happening.
+  `recalculate_distances()` now persists the centre point and distance
+  method it was run with, and on startup the app checks this — plus a
+  cheap single-row spot-check against the database — before deciding
+  whether a full recalculation is actually needed. Normal startup now
+  skips it entirely; a database synced from another machine with a
+  different home point (or otherwise modified outside this OpenSAK
+  install) still triggers a full recalculation as before.
+
+---
+
+## [1.16.0-beta.4] — 2026-07-15
+
+> **Beta release** — the database list/dropdown is now alphabetically
+> sorted, plus a small message cleanup.
+
+### Fixed
+
+- **Database list/dropdown was not sorted alphabetically** (#531, #601) —
+  the toolbar database dropdown, the Manage Databases dialog, and the
+  database picker in Move Caches, GSAK import, and GPX/PQ import all
+  listed databases in the order they were added/imported instead of
+  alphabetically. All of these now show databases sorted alphabetically
+  (case-insensitive) by name, matching GSAK's behaviour.
+- **"Database created" message told the user to manually activate it**
+  (#464) — creating a new database already switches to it automatically,
+  but the confirmation dialog still said to click "Switch to this" to
+  activate it. The message now simply confirms the database was created
+  and is active.
+
+---
+
+## [1.16.0-beta.3] — 2026-07-15
+
+> **Beta release** — pick any cache, saved home point, or coordinate as the
+> distance filter's center (#511), plus two small bugfixes.
+
+### Added
+
+- **Center point picker for the distance filter** (#511) — the "Afstand"
+  filter no longer always centers on Home. Choose Home, any saved home
+  point, the currently selected cache, or a manually entered coordinate as
+  the center, and set an optional minimum distance alongside the existing
+  maximum (both were already supported by the filter engine; only the
+  maximum was previously exposed in the dialog). Built as a standalone,
+  reusable widget for future reuse (planned for #558).
+- **"Set as center point" (right-click)** (#511) — right-click any cache or
+  custom waypoint (e.g. a hotel added via Waypoint → Custom Waypoint) and
+  choose "Sæt som centerpunkt" to recompute the Distance column for every
+  cache from that point, exactly like switching Home. The chosen point's
+  GC code/name is shown in the info bar's "Centerpunkt" field and in the
+  Home dropdown until you pick a saved home point or another cache.
+
+### Fixed
+
+- **Hint markup was being ROT13-scrambled** (#595) — geocaching.com's own
+  hint markup (`[br]` for a line break, place-name tags like `[Étape]` in
+  French hints) was incorrectly rotated along with the rest of the hint
+  text, so `[br]` showed up as its ROT13'd form `[oe]` instead of a line
+  break. Bracketed markup is now left untouched by the ROT13
+  encode/decode, and `[br]` renders as an actual line break in both the
+  cache detail hint tab and KML export.
+- **Website: corrected GSAK's freeware date** (#589) — the landing page's
+  comparison table said GSAK became freeware in 2021; per research from a
+  long-time GSAK user (French GSAK user since 2011), the free v9.0.0
+  shipped in 2019, with the last forum-provided patch dating from 2022.
+
+---
+
+## [1.16.0-beta.2] — 2026-07-15
+
+> **Beta release** — custom waypoint types get their own icons, and the
+> found-smiley icon set is simplified (#593).
+
+### Added
+
+- **Custom waypoint types now have their own icons** — Parking Area,
+  Trailhead, Stage, Final Location, Reference Point, Waypoint, Hotel/POI
+  and Custom each get a distinct icon in the table, map and detail panel,
+  instead of all sharing the generic "unknown" (?) icon. Overridable via
+  the same `icons/cache_types/` user-icon mechanism as #519.
+
+### Changed
+
+- **Simplified the found-smiley icon set** (#593) — removed the 12 unused
+  colour variants and the per-type colour-selection code behind them.
+  Only `gold` (Found overlay + "Found" column) and `dark_blue` (DNF
+  overlay) were ever actually shown in the app; the rest was dead
+  code/assets. Reported by a community member in the OpenSAK Facebook
+  group.
+
+---
+
+## [1.15.0] — 2026-07-14
+
+> First stable release of the 1.15.0 cycle. Replaces the run of
+> `1.15.0-beta.1` … `1.15.0-beta.16` builds — see git history for the
+> detailed beta-by-beta log if needed.
+
+### Added
+
+- **Direct GSAK database import** (#469) — import an entire GSAK
+  `sqlite.db3` file straight into an OpenSAK database, without going via
+  GPX first. Reads caches, waypoints, attributes, logs (full history, not
+  capped like GPX/PQ exports), corrected coordinates, personal notes and
+  trackables directly from the GSAK schema. Confirmed against several
+  independent real-world GSAK databases during development, including a
+  1.1M-log-row one. GSAK custom fields, the Ignore list are out of scope
+  for this first pass (tracked separately in #473).
+- **Export to Garmin GGZ format** (#348) — the GPS export dialog now
   offers a GPX/GGZ format choice. GGZ packs the exported caches (unlimited
   count, unlike GPX-based transfers) directly into a ZIP structure Garmin
   devices read natively, matching GSAK's GGZ layout byte-for-byte.
+- **User-replaceable icon packs** (#519) — custom cache-type and found-
+  smiley icons can now be dropped into a new `icons/` folder (Settings →
+  Advanced → "Open icons folder") without touching any code or rebuilding
+  the app. The folder lives alongside `opensak.json`, so it survives app
+  updates/reinstalls. Also covers the fixed, single-instance UI icons
+  (Corrected coordinates, Premium, Fav. points, Trackables) via an
+  `icons/ui/` subfolder. A bundled, offline "View icon naming guide"
+  button lists every file name and recommended canvas size.
+- **Trackables (travel bugs / geocoins) column and tab** (#489, #538) — an
+  opt-in column showing how many trackables are logged in each cache, and
+  a new Trackables tab on the cache detail panel listing each one with a
+  clickable `coord.info` link.
+- **GSAK-style icons for Found, Premium and Fav. points** (#489) — icons
+  instead of plain text/numbers in the cache list, matching GSAK's own
+  look.
+- **Double-click a cache row to open it on geocaching.com** (#471) —
+  matches GSAK's behaviour.
+- **Option to show hints decoded by default** (#499) — new checkbox under
+  Settings → Display. Off by default.
+- **"Support OpenSAK"** — now that the project is fiscally hosted by Open
+  Source Collective, a Help menu entry, README/website badges, and a
+  button right on the update-available dialog all link to
+  `opencollective.com/opensak`.
 
 ### Fixed
 
-- **Corrected Coordinates icon visibility** (closes #354) — the small red pin
-  emoji used to mark caches with corrected coordinates was hard to see or
-  missing entirely on some systems. Replaced everywhere (table column,
-  column header, right-click menu, and the cache detail panel) with a
-  consistent SVG warning-triangle icon, in the same style GSAK uses for the
-  same purpose.
+- **Changing the install/database folder via the setup wizard didn't
+  move anything** (#562) — re-running the setup wizard with a different
+  install and/or database folder only updated the stored *pointers*,
+  never the actual files, which could silently reset all settings or
+  leave existing databases behind. Settings, custom icon packs, and the
+  Geocaching.com OAuth token now move with the install folder (with a
+  clear warning on collision instead of failing silently); changing the
+  database folder now offers to move existing databases along; moving/
+  deleting the active database no longer crashes with "Database not
+  initialised"; the "New Database" dialog now defaults to the right
+  folder; and old, now-empty folders (including nested ones) are cleaned
+  up automatically.
+- **"Access is denied" crash saving settings on Windows** (#574) —
+  happened right after a reboot or update, when antivirus/indexing/
+  roaming-profile sync briefly held `opensak.json` open during the
+  atomic save. The write now retries a few times before giving up.
+- **Filter window always opened on the primary monitor** (#580) on
+  multi-monitor setups, regardless of which screen OpenSAK itself was
+  running on. Now opens on the same monitor as the main window.
+- **A cleared filter silently came back when returning to a database** —
+  clicking the red ✕, choosing "None" from the filter dropdown, pressing
+  Escape, or clicking "All" in the status bar reset the filter in the
+  current view but never persisted that per-database, so switching away
+  and back reapplied the filter you'd just cleared.
+- **Beta users never discovered a newer stable release** — the update
+  checker only ever compared a running beta against other betas, so
+  beta.16 users wouldn't have been notified that this stable release
+  existed.
+- **Critical: severe UI freeze switching to or filtering a large
+  database** (#540) — the icon-override folder was being resolved from
+  scratch (file check + JSON read + several `mkdir()` calls) for every
+  single icon lookup, per row — commonly intercepted synchronously by
+  antivirus on Windows, compounding into 45-60 second freezes on large
+  databases. Now resolved once per session.
+- **Dynamic map zoomed out to show the whole world** for caches with
+  hidden-coordinate (0/0) waypoints (#546), e.g. a finale left hidden
+  after a GSAK import.
+- **Clear-filter button (✕) had no hover highlight** (#559), looking
+  non-interactive compared to the rest of the toolbar.
+- A batch of GSAK Database Import fixes found during real-world testing:
+  waypoints sharing a name but not a code were silently dropped (#536);
+  renaming a database didn't move the underlying file, so a new database
+  under the freed name silently reopened the old one (#539); a leftover
+  `favorite_point` column crashed inserts on some databases (#530);
+  non-UTF-8 text fields aborted the entire import instead of falling
+  back gracefully; Adventure Lab and five other cache types imported as
+  "Unknown Cache" (#532); county wasn't imported from GSAK-exported GPX
+  (#521); trackables and premium status weren't imported (#538, #541);
+  and the "New Database" default folder pointed at the install folder
+  instead of the configured database folder.
+- **Distance column could show stale values after editing a home point**
+  (#522) — only switching center points via the toolbar recalculated
+  distances; editing a home point's coordinates in Settings didn't.
+- **"Has trackables" filter crashed** on any database created before
+  v1.14.0 (#491) — a missing table-creation migration.
+- **Map didn't update when correcting coordinates via the cache list's
+  right-click menu** (#474), unlike the same action from the detail panel.
+- **SMALL row-height setting silently ignored** on some systems (#490).
+- **Potential crash on databases with a "Favourite" (★) column enabled**
+  (#488) — removed; GSAK only tracks community Fav. points.
+- **Found date missing for webcam caches and events on import** (#457) —
+  `found_date` was derived only from "Found it" logs.
+- **FTF detection flagged logs that only mentioned "first to find" in
+  passing** (#458) — now matched exclusively against ProjectGC's official
+  tags.
+- Several GGZ export bugs (#348): a crash on databases with mixed dated/
+  undated logs; files written to the wrong device folder; wrong dates
+  inside the exported ZIP; and a severe slowdown on large exports (#466),
+  200-1000× faster after fixing an accidentally-quadratic offset
+  calculation.
+- **Corrected Coordinates icon inconsistency** (follow-up to #354) — a
+  consistent SVG warning-triangle icon everywhere, replacing a hard-to-see
+  emoji.
+- **Found count under the grid counted found caches, not found logs**
+  (#552) — a relocatable/multi-visit cache found several times only ever
+  contributed 1 to the total.
+- **Filter couldn't be cleared via the toolbar "None" dropdown**, plus a
+  new configurable Escape shortcut to clear the active filter (#553).
+- **Large Text setting not applied consistently** — the GC Code column
+  stood out at the wrong size (#547).
+- **Deleting the active saved filter left it applied** until the next
+  unrelated action (#491).
+- **Flag and locked column icons distorted on found-cache rows** (#509) —
+  emoji glyphs don't have a real italic form on some platforms.
+- **File-mode GPS export silently overwrote existing files** (#501) — now
+  prompts for a new filename if the target already exists.
+- **Filters with zero matches emptied the cache list** (#444) — now
+  rejected with a warning instead, matching GSAK's behaviour.
 
 ---
 
