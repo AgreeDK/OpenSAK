@@ -51,6 +51,9 @@ class MapBridge(QObject):
     cache_clicked = Signal(str)   # gc_code
     # Signal afsendt når brugeren højreklikker på kortet (ikke på en pin)
     map_right_clicked = Signal(float, float)   # lat, lon
+    # Signals for map control buttons (maximize / pop-out)
+    maximize_clicked = Signal()
+    popout_clicked = Signal()
 
     @Slot(str)
     def on_cache_clicked(self, gc_code: GcCode) -> None:
@@ -61,6 +64,16 @@ class MapBridge(QObject):
     def on_map_right_click(self, lat: float, lon: float) -> None:
         """Kaldes fra JavaScript når brugeren højreklikker på kortet."""
         self.map_right_clicked.emit(lat, lon)
+
+    @Slot()
+    def on_maximize_clicked(self) -> None:
+        """Kaldes fra JavaScript når maximize-knappen klikkes."""
+        self.maximize_clicked.emit()
+
+    @Slot()
+    def on_popout_clicked(self) -> None:
+        """Kaldes fra JavaScript når pop-out-knappen klikkes."""
+        self.popout_clicked.emit()
 
 
 # ── HTML template med Leaflet.js ──────────────────────────────────────────────
@@ -116,6 +129,25 @@ MAP_HTML = """<!DOCTYPE html>
     text-align: center;
     line-height: 22px;
   }
+  .leaflet-control-mapactions a {
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    font-size: 16px;
+    display: block;
+    text-decoration: none;
+    color: #333;
+    background: #fff;
+    border-bottom: 1px solid #ccc;
+    cursor: pointer;
+  }
+  .leaflet-control-mapactions a:hover {
+    background: #f4f4f4;
+  }
+  .leaflet-control-mapactions a:last-child {
+    border-bottom: none;
+  }
 </style>
 </head>
 <body>
@@ -169,6 +201,41 @@ map.on('contextmenu', function(e) {
         bridge.on_map_right_click(e.latlng.lat, e.latlng.lng);
     }
 });
+
+// ── Map action buttons (maximize / pop-out) ──────────────────────────────────
+L.Control.MapActions = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function(map) {
+        var container = L.DomUtil.create('div', 'leaflet-control-mapactions leaflet-bar');
+
+        var maxBtn = L.DomUtil.create('a', '', container);
+        maxBtn.innerHTML = '⛶';
+        maxBtn.title = 'MAP_TIP_MAXIMIZE';
+        maxBtn.href = '#';
+        maxBtn.setAttribute('role', 'button');
+        L.DomEvent.disableClickPropagation(maxBtn);
+        L.DomEvent.on(maxBtn, 'click', function(e) {
+            L.DomEvent.preventDefault(e);
+            if (bridge) bridge.on_maximize_clicked();
+        });
+
+        if (MAP_POPOUT_ENABLED) {
+            var popBtn = L.DomUtil.create('a', '', container);
+            popBtn.innerHTML = '⧉';
+            popBtn.title = 'MAP_TIP_POPOUT';
+            popBtn.href = '#';
+            popBtn.setAttribute('role', 'button');
+            L.DomEvent.disableClickPropagation(popBtn);
+            L.DomEvent.on(popBtn, 'click', function(e) {
+                L.DomEvent.preventDefault(e);
+                if (bridge) bridge.on_popout_clicked();
+            });
+        }
+
+        return container;
+    }
+});
+new L.Control.MapActions().addTo(map);
 
 // ── Hjælpefunktioner ──────────────────────────────────────────────────────────
 function makePinIcon(pinHtml, found, corrected) {
@@ -399,6 +466,8 @@ class MapWidget(QWidget):
 
     cache_selected = Signal(str)   # gc_code
     set_corrected_requested = Signal(str, float, float)  # gc_code, lat, lon
+    maximize_requested = Signal()
+    popout_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -429,6 +498,8 @@ class MapWidget(QWidget):
             self._channel = None
             self._bridge = MapBridge()
             self._bridge.cache_clicked.connect(self.cache_selected)
+            self._bridge.maximize_clicked.connect(self.maximize_requested)
+            self._bridge.popout_clicked.connect(self.popout_requested)
             self._ready = False
             layout.addWidget(QLabel("Map disabled (headless test mode)"))
             return
@@ -451,6 +522,8 @@ class MapWidget(QWidget):
         self._bridge = MapBridge()
         self._bridge.cache_clicked.connect(self.cache_selected)
         self._bridge.map_right_clicked.connect(self._on_map_right_click)
+        self._bridge.maximize_clicked.connect(self.maximize_requested)
+        self._bridge.popout_clicked.connect(self.popout_requested)
         self._channel.registerObject("bridge", self._bridge)
         self._page.setWebChannel(self._channel)
 
@@ -462,9 +535,7 @@ class MapWidget(QWidget):
         s = get_settings()
         init_lat = s.home_lat
         init_lon = s.home_lon
-        html = MAP_HTML.replace("INIT_LAT", str(init_lat))
-        html = html.replace("INIT_LON", str(init_lon))
-        html = html.replace("INIT_ZOOM", "12")
+        html = self._render_map_html(init_lat, init_lon)
         self._page.setHtml(html, QUrl(f"qrc:///{int(time.time())}"))
 
         layout.addWidget(self._view)
@@ -505,6 +576,18 @@ class MapWidget(QWidget):
             cb = self._pending_refresh
             self._pending_refresh = None
             cb()
+
+    @staticmethod
+    def _render_map_html(lat: float, lon: float) -> str:
+        """Render MAP_HTML template with dynamic values and localized tooltips."""
+        import opensak.utils.flags as flags
+        html = MAP_HTML.replace("INIT_LAT", str(lat))
+        html = html.replace("INIT_LON", str(lon))
+        html = html.replace("INIT_ZOOM", "12")
+        html = html.replace("MAP_TIP_MAXIMIZE", tr("toolbar_maximize_map_tooltip"))
+        html = html.replace("MAP_TIP_POPOUT", tr("toolbar_popout_map_tooltip"))
+        html = html.replace("MAP_POPOUT_ENABLED", "true" if flags.map_popout else "false")
+        return html
 
     def _run_js(self, js: str) -> None:
         """Kør JavaScript i kortvisningen."""
@@ -632,9 +715,7 @@ class MapWidget(QWidget):
         s = get_settings()
         init_lat = s.home_lat
         init_lon = s.home_lon
-        html = MAP_HTML.replace("INIT_LAT", str(init_lat))
-        html = html.replace("INIT_LON", str(init_lon))
-        html = html.replace("INIT_ZOOM", "12")
+        html = self._render_map_html(init_lat, init_lon)
         self._ready = False
         self._page.setHtml(html, QUrl(f"qrc:///{int(time.time())}"))
 

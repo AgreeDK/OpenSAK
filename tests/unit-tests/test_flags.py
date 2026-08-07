@@ -10,6 +10,7 @@ class TestLoad:
     def test_absent_file_returns_release_defaults(self, no_features_file):
         assert flags_module._flags == {
             "reverse-geocoding": False,
+            "map-popout": True,
         }
 
     def test_present_file_overrides_defaults(self, patch_features_file):
@@ -23,6 +24,7 @@ class TestLoad:
         result = flags_module._load()
         assert result == {
             "reverse-geocoding": False,
+            "map-popout": True,
         }
 
     def test_unknown_keys_in_file_are_ignored(self, patch_features_file):

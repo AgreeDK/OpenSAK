@@ -438,6 +438,14 @@ class AppSettings:
     def bottom_splitter_ratio_left(self, value: float) -> None:
         get_store().set("window.bottom_splitter_ratio_left", float(value))
 
+    @property
+    def map_popout_geometry(self):
+        return get_store().get("window.map_popout_geometry", None)
+
+    @map_popout_geometry.setter
+    def map_popout_geometry(self, value) -> None:
+        get_store().set("window.map_popout_geometry", value)
+
     # ── Search thresholds ─────────────────────────────────────────────────────
 
     @property

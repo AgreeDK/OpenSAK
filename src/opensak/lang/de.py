@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Filter einstellen…",
     "action_clear_filter":          "❌  &Filter löschen",
     "action_columns":               "&Spalten wählen…",
+    "action_maximize_map":          "⛶  &Karte maximieren",
+    "action_restore_map":           "◻  &Panels wiederherstellen",
+    "toolbar_maximize_map_tooltip": "Karte maximieren (F11)",
+    "toolbar_restore_map_tooltip":  "Panels wiederherstellen (F11)",
+    "action_popout_map":            "⧉  &Karte ablösen",
+    "action_dock_map":              "↩  &Karte zurückholen",
+    "toolbar_popout_map_tooltip":   "Karte in eigenes Fenster (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Karte zurück ins Hauptfenster (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Karte",
 
     # Tools menu
     "action_settings":              "&Einstellungen…",
@@ -105,6 +114,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Tourenplaner",
     "shortcut_coord_converter":     "Koordinatenkonverter",
     "shortcut_projection":          "Koordinatenprojektion",
+    "shortcut_maximize_map":        "Karte maximieren",
+    "shortcut_popout_map":          "Karte ablösen",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Tools",

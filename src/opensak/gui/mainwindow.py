@@ -198,6 +198,11 @@ class MainWindow(QMainWindow):
         self._active_filter_name = ""
         self._trip_planner_win: TripPlannerDialog | None = None
         self._db_count: int = 0
+        self._map_maximized: bool = False
+        self._pre_maximize_splitter_sizes: list[int] | None = None
+        self._pre_maximize_bottom_sizes: list[int] | None = None
+        self._map_popped_out: bool = False
+        self._map_popout_window = None
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._refresh_cache_list)
@@ -269,6 +274,8 @@ class MainWindow(QMainWindow):
         self._map_widget = MapWidget()
         self._map_widget.cache_selected.connect(self._on_map_cache_selected)
         self._map_widget.set_corrected_requested.connect(self._on_set_corrected_from_map)
+        self._map_widget.maximize_requested.connect(self._toggle_maximize_map)
+        self._map_widget.popout_requested.connect(self._toggle_popout_map)
         self._detail_panel.waypoints_tab_shown.connect(self._map_widget.show_waypoint_markers)
         self._detail_panel.waypoints_tab_hidden.connect(self._map_widget.clear_waypoint_markers)
         self._map_widget.setMinimumWidth(300)
@@ -406,6 +413,20 @@ class MainWindow(QMainWindow):
         act_columns = QAction(tr("action_columns"), self)
         act_columns.triggered.connect(self._open_column_chooser)
         view_menu.addAction(act_columns)
+
+        view_menu.addSeparator()
+
+        self._act_maximize_map = QAction(tr("action_maximize_map"), self)
+        self._act_maximize_map.setShortcut(QKeySequence("F11"))
+        self._act_maximize_map.triggered.connect(self._toggle_maximize_map)
+        view_menu.addAction(self._act_maximize_map)
+
+        import opensak.utils.flags as flags
+        self._act_popout_map = QAction(tr("action_popout_map"), self)
+        self._act_popout_map.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self._act_popout_map.triggered.connect(self._toggle_popout_map)
+        self._act_popout_map.setVisible(flags.map_popout)
+        view_menu.addAction(self._act_popout_map)
 
         # ── Funktioner ────────────────────────────────────────────────────────
         tools_menu = menubar.addMenu(tr("menu_tools"))
@@ -634,6 +655,20 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
+        # Maksimér kort
+        self._act_tb_maximize_map = QAction("⛶", self)
+        self._act_tb_maximize_map.setToolTip(tr("toolbar_maximize_map_tooltip"))
+        self._act_tb_maximize_map.triggered.connect(self._toggle_maximize_map)
+        tb.addAction(self._act_tb_maximize_map)
+
+        # Pop-out kort (feature-gated)
+        import opensak.utils.flags as flags
+        self._act_tb_popout_map = QAction("⧉", self)
+        self._act_tb_popout_map.setToolTip(tr("toolbar_popout_map_tooltip"))
+        self._act_tb_popout_map.triggered.connect(self._toggle_popout_map)
+        self._act_tb_popout_map.setVisible(flags.map_popout)
+        tb.addAction(self._act_tb_popout_map)
+
         # Indstillinger — kun ikon
         settings_act = QAction("⚙", self)
         settings_act.setToolTip(tr("action_settings").replace("&", "").replace("…", ""))
@@ -836,7 +871,112 @@ class MainWindow(QMainWindow):
         if total_h > 0:
             s.bottom_splitter_ratio_left = sizes_h[0] / total_h
 
+    def _toggle_maximize_map(self) -> None:
+        """Toggle map between maximized (full window) and normal panel layout."""
+        if self._map_maximized:
+            # Restore previous layout
+            self._cache_table.setVisible(True)
+            self._info_bar.setVisible(True)
+            self._detail_panel.setVisible(True)
+            if self._pre_maximize_splitter_sizes:
+                self._splitter.setSizes(self._pre_maximize_splitter_sizes)
+            if self._pre_maximize_bottom_sizes:
+                self._bottom_splitter.setSizes(self._pre_maximize_bottom_sizes)
+            self._map_maximized = False
+            self._act_maximize_map.setText(tr("action_maximize_map"))
+            self._act_tb_maximize_map.setText("⛶")
+            self._act_tb_maximize_map.setToolTip(tr("toolbar_maximize_map_tooltip"))
+        else:
+            # Save current sizes and maximize map
+            self._pre_maximize_splitter_sizes = self._splitter.sizes()
+            self._pre_maximize_bottom_sizes = self._bottom_splitter.sizes()
+            self._cache_table.setVisible(False)
+            self._info_bar.setVisible(False)
+            self._detail_panel.setVisible(False)
+            total_v = sum(self._splitter.sizes())
+            self._splitter.setSizes([0, total_v])
+            total_h = sum(self._bottom_splitter.sizes())
+            self._bottom_splitter.setSizes([0, total_h])
+            self._map_maximized = True
+            self._act_maximize_map.setText(tr("action_restore_map"))
+            self._act_tb_maximize_map.setText("◻")
+            self._act_tb_maximize_map.setToolTip(tr("toolbar_restore_map_tooltip"))
+
+    def _toggle_popout_map(self) -> None:
+        """Pop out the map to its own floating window, or dock it back."""
+        if self._map_popped_out:
+            self._dock_map_back()
+        else:
+            self._popout_map()
+
+    def _popout_map(self) -> None:
+        """Move the map widget into a separate floating window."""
+        # Guard against double-invocation (e.g. rapid double-click)
+        if self._map_popped_out:
+            return
+        # If map is maximized, restore first
+        if self._map_maximized:
+            self._toggle_maximize_map()
+
+        from opensak.gui.map_popout import MapPopoutWindow
+        self._map_popout_window = MapPopoutWindow(self)
+        self._map_popout_window.closed.connect(self._on_popout_closed)
+
+        # Reparent map widget into the pop-out window
+        self._map_popout_window.take_widget(self._map_widget)
+        self._map_popout_window.show()
+
+        self._map_popped_out = True
+        self._act_popout_map.setText(tr("action_dock_map"))
+        self._act_tb_popout_map.setText("↩")
+        self._act_tb_popout_map.setToolTip(tr("toolbar_dock_map_tooltip"))
+        # Disable maximize while popped out
+        self._act_maximize_map.setEnabled(False)
+        self._act_tb_maximize_map.setEnabled(False)
+
+    def _dock_map_back(self) -> None:
+        """Return the map widget to the main window's bottom splitter."""
+        # Guard against re-entrant calls (closeEvent → closed signal → here again)
+        if not self._map_popped_out:
+            return
+
+        self._map_popped_out = False
+
+        if self._map_popout_window:
+            # Save geometry once (only here, not in closeEvent to avoid duplication)
+            self._map_popout_window.save_geometry_to_settings()
+            get_settings().sync()
+            # Disconnect before closing to prevent re-entrant closed signal
+            self._map_popout_window.closed.disconnect(self._on_popout_closed)
+
+        # Reparent map widget back into the bottom splitter at position 1 (right)
+        self._bottom_splitter.insertWidget(1, self._map_widget)
+        self._map_widget.setMinimumWidth(300)
+        self._map_widget.show()
+
+        if self._map_popout_window:
+            self._map_popout_window.close()
+            self._map_popout_window.deleteLater()
+            self._map_popout_window = None
+
+        self._act_popout_map.setText(tr("action_popout_map"))
+        self._act_tb_popout_map.setText("⧉")
+        self._act_tb_popout_map.setToolTip(tr("toolbar_popout_map_tooltip"))
+        # Re-enable maximize
+        self._act_maximize_map.setEnabled(True)
+        self._act_tb_maximize_map.setEnabled(True)
+
+    def _on_popout_closed(self) -> None:
+        """Handle the user closing the pop-out window via its close button."""
+        self._dock_map_back()
+
     def closeEvent(self, event) -> None:
+        # Restore normal layout before saving so ratios reflect the user's
+        # intended panel sizes, not the maximized state.
+        if self._map_popped_out:
+            self._dock_map_back()
+        if self._map_maximized:
+            self._toggle_maximize_map()
         s = get_settings()
         s.window_geometry = self.saveGeometry()
         s.window_state    = self.saveState(2)
@@ -1256,6 +1396,8 @@ class MainWindow(QMainWindow):
             ("trip_planner",      "shortcut_trip_planner",      [self._act_trip_planner]),
             ("coord_converter",   "shortcut_coord_converter",   [self._act_coord_converter]),
             ("projection",        "shortcut_projection",        [self._act_projection]),
+            ("maximize_map",      "shortcut_maximize_map",      [self._act_maximize_map]),
+            ("popout_map",        "shortcut_popout_map",        [self._act_popout_map]),
         ]
 
     def _apply_saved_shortcuts(self) -> None:

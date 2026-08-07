@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Sæt filter…",
     "action_clear_filter":          "❌  &Nulstil filter",
     "action_columns":               "&Vælg kolonner…",
+    "action_maximize_map":          "⛶  &Maksimér kort",
+    "action_restore_map":           "◻  &Gendan paneler",
+    "toolbar_maximize_map_tooltip": "Maksimér kort (F11)",
+    "toolbar_restore_map_tooltip":  "Gendan paneler (F11)",
+    "action_popout_map":            "⧉  &Pop kort ud",
+    "action_dock_map":              "↩  &Dok kort tilbage",
+    "toolbar_popout_map_tooltip":   "Pop kort ud i eget vindue (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Dok kort tilbage i hovedvinduet (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Kort",
 
     # Funktioner-menu
     "action_settings":              "&Indstillinger…",
@@ -105,6 +114,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Turplanlægger",
     "shortcut_coord_converter":     "Koordinatkonverter",
     "shortcut_projection":          "Koordinatprojektion",
+    "shortcut_maximize_map":        "Maksimér kort",
+    "shortcut_popout_map":          "Pop kort ud",
 
     # ── Geocaching Værktøjer-menu ─────────────────────────────────────────────
     "menu_gc_tools":                "&Værktøjer",

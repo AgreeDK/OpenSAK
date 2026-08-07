@@ -29,6 +29,7 @@ _FEATURES_FILE: Path = Path(__file__).parent.parent.parent.parent / "features.js
 
 _RELEASE_DEFAULTS: dict[str, bool] = {
     "reverse-geocoding": False,
+    "map-popout": True,
 }
 
 
@@ -70,3 +71,4 @@ _flags = _load()
 # ── Public flag attributes ────────────────────────────────────────────────────
 
 reverse_geocoding: bool    = _flags["reverse-geocoding"]
+map_popout: bool           = _flags["map-popout"]
