@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Sätt filter…",
     "action_clear_filter":          "❌  &Rensa filter",
     "action_columns":               "&Välj kolumner…",
+    "action_maximize_map":          "⛶  &Maximera karta",
+    "action_restore_map":           "◻  &Återställ paneler",
+    "toolbar_maximize_map_tooltip": "Maximera karta (F11)",
+    "toolbar_restore_map_tooltip":  "Återställ paneler (F11)",
+    "action_popout_map":            "⧉  &Koppla loss karta",
+    "action_dock_map":              "↩  &Docka tillbaka karta",
+    "toolbar_popout_map_tooltip":   "Koppla loss kartan till eget fönster (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Docka tillbaka kartan (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Karta",
 
     # Tools menu
     "action_settings":              "&Inställningar…",
@@ -107,6 +116,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Reseplanerare",
     "shortcut_coord_converter":     "Koordinatomvandlare",
     "shortcut_projection":          "Koordinatprojektion",
+    "shortcut_maximize_map":        "Maximera karta",
+    "shortcut_popout_map":          "Koppla loss karta",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Verktyg",

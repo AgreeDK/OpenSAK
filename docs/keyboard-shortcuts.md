@@ -32,6 +32,8 @@ This same list is also available inside the app: **Help â†’ Keyboard Shortcutsâ€
 | Shortcut | Action |
 |---|---|
 | `Ctrl+F` | Open filter dialog |
+| `F11` | Maximize map / Restore panels |
+| `Ctrl+Shift+M` | Pop out map / Dock map back |
 
 ---
 

@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Définir le filtre…",
     "action_clear_filter":          "❌  &Effacer le filtre",
     "action_columns":               "&Choisir les colonnes…",
+    "action_maximize_map":          "⛶  &Agrandir la carte",
+    "action_restore_map":           "◻  &Restaurer les panneaux",
+    "toolbar_maximize_map_tooltip": "Agrandir la carte (F11)",
+    "toolbar_restore_map_tooltip":  "Restaurer les panneaux (F11)",
+    "action_popout_map":            "⧉  &Détacher la carte",
+    "action_dock_map":              "↩  &Réintégrer la carte",
+    "toolbar_popout_map_tooltip":   "Détacher la carte (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Réintégrer la carte (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Carte",
 
     # Tools menu
     "action_settings":              "&Paramètres…",
@@ -107,6 +116,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Planificateur de voyage",
     "shortcut_coord_converter":     "Convertisseur de coordonnées",
     "shortcut_projection":          "Projection de coordonnées",
+    "shortcut_maximize_map":        "Agrandir la carte",
+    "shortcut_popout_map":          "Détacher la carte",
 
     # ── Menu Outils de géocaching ─────────────────────────────────────────────
     "menu_gc_tools":                "&Outils géo",

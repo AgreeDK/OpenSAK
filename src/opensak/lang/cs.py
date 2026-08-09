@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Nastavit filtr…",
     "action_clear_filter":          "❌  &Zrušit filtr",
     "action_columns":               "&Vybrat sloupce…",
+    "action_maximize_map":          "⛶  &Maximalizovat mapu",
+    "action_restore_map":           "◻  &Obnovit panely",
+    "toolbar_maximize_map_tooltip": "Maximalizovat mapu (F11)",
+    "toolbar_restore_map_tooltip":  "Obnovit panely (F11)",
+    "action_popout_map":            "⧉  &Odpojit mapu",
+    "action_dock_map":              "↩  &Připojit mapu zpět",
+    "toolbar_popout_map_tooltip":   "Odpojit mapu do vlastního okna (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Připojit mapu zpět (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Mapa",
 
     # Tools menu
     "action_settings":              "&Nastavení…",
@@ -107,6 +116,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Plánování trasy",
     "shortcut_coord_converter":     "Převodník souřadnic",
     "shortcut_projection":          "Projekce souřadnic",
+    "shortcut_maximize_map":        "Maximalizovat mapu",
+    "shortcut_popout_map":          "Odpojit mapu",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Nástroje",
