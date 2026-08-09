@@ -994,6 +994,8 @@ class MainWindow(QMainWindow):
 
     def _toggle_maximize_map(self) -> None:
         """Toggle map between maximized (full window) and normal panel layout."""
+        if self._map_popped_out:
+            return
         if self._map_maximized:
             # Restore previous layout
             self._cache_table.setVisible(True)
@@ -1048,6 +1050,8 @@ class MainWindow(QMainWindow):
         self._map_popout_window.show()
 
         self._map_popped_out = True
+        # Hide the map stack so the detail panel expands to fill the bottom
+        self._map_stack.hide()
         self._act_popout_map.setText(tr("action_dock_map"))
         self._act_tb_popout_map.setText("↩")
         self._act_tb_popout_map.setToolTip(tr("toolbar_dock_map_tooltip"))
@@ -1071,9 +1075,11 @@ class MainWindow(QMainWindow):
             self._map_popout_window.closed.disconnect(self._on_popout_closed)
 
         # Reparent map widget back into the bottom splitter at position 1 (right)
-        self._bottom_splitter.insertWidget(1, self._map_widget)
+        self._map_stack.insertWidget(0, self._map_widget)
+        self._update_map_visibility()
         self._map_widget.setMinimumWidth(300)
         self._map_widget.show()
+        self._map_stack.show()
 
         if self._map_popout_window:
             self._map_popout_window.close()

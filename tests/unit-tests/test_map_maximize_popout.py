@@ -212,8 +212,8 @@ class TestPopoutMap:
 
         assert window._map_popped_out is False
         assert window._map_popout_window is None
-        # Map should be back in the bottom splitter (index 1)
-        assert window._bottom_splitter.indexOf(window._map_widget) == 1
+        # Map stack should be back in the bottom splitter (index 1)
+        assert window._bottom_splitter.indexOf(window._map_stack) == 1
 
     def test_dock_back_updates_menu_text(self, window):
         window._toggle_popout_map()
@@ -256,7 +256,7 @@ class TestPopoutMap:
         window._on_popout_closed()
 
         assert window._map_popped_out is False
-        assert window._bottom_splitter.indexOf(window._map_widget) == 1
+        assert window._bottom_splitter.indexOf(window._map_stack) == 1
 
     def test_close_event_docks_if_popped_out(self, window):
         window._toggle_popout_map()
@@ -319,6 +319,33 @@ class TestPopoutMap:
         window._dock_map_back()
         window._dock_map_back()  # should not raise
         assert window._map_popped_out is False
+
+    def test_popout_hides_map_stack(self, window):
+        assert window._map_stack.isVisible()
+
+        window._toggle_popout_map()
+
+        assert not window._map_stack.isVisible()
+
+    def test_dock_back_shows_map_stack(self, window):
+        window._toggle_popout_map()
+        assert not window._map_stack.isVisible()
+
+        window._toggle_popout_map()  # dock back
+
+        assert window._map_stack.isVisible()
+
+    def test_maximize_is_noop_while_popped_out(self, window):
+        window._toggle_popout_map()
+        assert window._map_popped_out is True
+
+        # Attempt to maximize — should be a no-op
+        window._toggle_maximize_map()
+
+        assert window._map_maximized is False
+        assert window._cache_table.isVisible()
+        assert window._info_bar.isVisible()
+        assert window._detail_panel.isVisible()
 
 
 # ── MapPopoutWindow unit tests ────────────────────────────────────────────────
@@ -510,7 +537,7 @@ class TestFeatureFlag:
         window._toggle_popout_map()
         window._toggle_popout_map()  # dock back
 
-        assert window._bottom_splitter.indexOf(window._map_widget) == 1
+        assert window._bottom_splitter.indexOf(window._map_stack) == 1
 
     def test_popout_window_has_parent(self, window):
         window._toggle_popout_map()
