@@ -8,6 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [v1.17.0-beta.3] - 2026-08-09
+
+### Fixed
+- Fixed layout issue where docking the map back after using fullscreen/popout
+  would leave the map view split incorrectly (#696)
+
+### Added
+- Full screen and popout map support — pop the map out to its own window or
+  monitor, or maximize it within the app (#696, thanks @blazerat!)
+
+---
+
 ## [1.17.0-beta.2] — 2026-08-02
 
 ### Fixed
