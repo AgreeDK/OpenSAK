@@ -2440,9 +2440,23 @@ class MainWindow(QMainWindow):
         caches = [c for c in caches if c is not None]
         # show() i stedet for exec() — ikke-modal så kortvinduet kan få fokus
         self._trip_planner_win = TripPlannerDialog(self, caches=caches)
+        # Issue #676: TripPlannerDialog sætter WA_DeleteOnClose, så det
+        # underliggende C++-objekt destrueres asynkront (næste event-loop-
+        # iteration) efter close(). Uden dette ryddede _trip_planner_win
+        # ikke sig selv, så et senere isVisible()-kald (i
+        # _trip_planner_active() ovenfor, eller direkte her) kunne ramme
+        # en allerede-destrueret C++ wrapper og kaste en RuntimeError —
+        # "sometimes", fordi det kun sker hvis event-loopet har nået at
+        # køre den udskudte sletning inden brugeren prøver at genåbne.
+        # destroyed() fyrer pålideligt uanset hvornår/hvordan objektet går
+        # væk, så det er det rigtige sted at nulstille referencen.
+        self._trip_planner_win.destroyed.connect(self._on_trip_planner_destroyed)
         self._trip_planner_win.show()
         self._trip_planner_win.raise_()
         self._trip_planner_win.activateWindow()
+
+    def _on_trip_planner_destroyed(self) -> None:
+        self._trip_planner_win = None
 
     def _open_found_updater(self) -> None:
         if self._trip_planner_active():
