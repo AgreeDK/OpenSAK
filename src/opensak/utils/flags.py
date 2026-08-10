@@ -2,8 +2,8 @@
 src/opensak/utils/flags.py — Feature flags for in-development functionality.
 
 Flags are read from *features.json* at the project root.  That file is never
-included in PyInstaller bundles, so release builds always see all flags as
-False.  Developers edit features.json locally to turn features on.
+included in PyInstaller bundles, so release builds fall back to the built-in
+_RELEASE_DEFAULTS below.  Developers edit features.json locally to override them.
 
 CLI overrides (highest priority, useful for one-off testing):
 
@@ -28,7 +28,7 @@ from pathlib import Path
 _FEATURES_FILE: Path = Path(__file__).parent.parent.parent.parent / "features.json"
 
 _RELEASE_DEFAULTS: dict[str, bool] = {
-    "reverse-geocoding": False,
+    "reverse-geocoding": True,
     "map-popout": True,
 }
 
