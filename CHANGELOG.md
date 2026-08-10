@@ -8,6 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.4] — 2026-08-10
+
+> Folds the v1.16.2 stable hotfix (7 bugs) back into `beta`. No other
+> beta-only changes in this release — see v1.16.2 below for details.
+
+---
+
 ## [1.16.2] — 2026-08-10
 
 > Bugfix release — no new features. Seven issues reported by urs-beeli and
