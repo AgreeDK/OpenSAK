@@ -279,6 +279,15 @@ STRINGS: dict[str, str] = {
     "gps_no_dest":                  "Please select a destination first.",
     "gps_file_exists_title":        "File already exists",
     "gps_file_exists_prompt":       "\"{filename}\" already exists in this location. Enter a different filename:",
+    "gps_error_permission":         "Access denied — is the GPS device write-protected?",
+    "gps_error_file":               "File error: {error}",
+    "gps_error_unexpected":         "Unexpected error: {error}",
+    "gps_result_exported":          "✓ {count} caches exported",
+    "gps_result_device":            "Device",
+    "gps_result_file":              "File",
+    "gps_result_no_files":          "No files found on the device",
+    "gps_result_deleted":           "{count} file(s) deleted from the device",
+    "gps_result_delete_failed":     "{count} file(s) could not be deleted:",
 
     # ── Settings dialog ───────────────────────────────────────────────────────
     "settings_dialog_title":        "Settings",

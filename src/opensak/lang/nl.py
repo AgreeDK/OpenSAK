@@ -282,6 +282,15 @@ STRINGS: dict[str, str] = {
     "gps_no_dest":                  "Selecteer eerst een bestemming.",
     "gps_file_exists_title":        "Bestand bestaat al",
     "gps_file_exists_prompt":       "\"{filename}\" bestaat al op deze locatie. Voer een andere bestandsnaam in:",
+    "gps_error_permission":         "Toegang geweigerd — is het GPS-apparaat schrijfbeveiligd?",
+    "gps_error_file":               "Bestandsfout: {error}",
+    "gps_error_unexpected":         "Onverwachte fout: {error}",
+    "gps_result_exported":          "✓ {count} caches geëxporteerd",
+    "gps_result_device":            "Apparaat",
+    "gps_result_file":              "Bestand",
+    "gps_result_no_files":          "Geen bestanden gevonden op het apparaat",
+    "gps_result_deleted":           "{count} bestand(en) verwijderd van het apparaat",
+    "gps_result_delete_failed":     "{count} bestand(en) konden niet worden verwijderd:",
 
     # ── Settings dialog ───────────────────────────────────────────────────────
     "settings_dialog_title":        "Instellingen",

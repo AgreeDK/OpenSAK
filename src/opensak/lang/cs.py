@@ -279,6 +279,15 @@ STRINGS: dict[str, str] = {
     "gps_no_dest":                  "Nejprve prosím vyberte cíl.",
     "gps_file_exists_title":        "Soubor již existuje",
     "gps_file_exists_prompt":       "\"{filename}\" na tomto místě již existuje. Zadejte jiný název souboru:",
+    "gps_error_permission":         "Přístup odepřen — je GPS zařízení chráněno proti zápisu?",
+    "gps_error_file":               "Chyba souboru: {error}",
+    "gps_error_unexpected":         "Neočekávaná chyba: {error}",
+    "gps_result_exported":          "✓ Exportováno {count} keší",
+    "gps_result_device":            "Zařízení",
+    "gps_result_file":              "Soubor",
+    "gps_result_no_files":          "Na zařízení nebyly nalezeny žádné soubory",
+    "gps_result_deleted":           "Smazáno {count} soubor(ů) ze zařízení",
+    "gps_result_delete_failed":     "{count} soubor(ů) se nepodařilo smazat:",
 
     # ── Settings dialog ───────────────────────────────────────────────────────
     "settings_dialog_title":        "Nastavení",

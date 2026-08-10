@@ -34,6 +34,18 @@ from opensak.gps.garmin import (
 )
 
 
+# ── Sprog ─────────────────────────────────────────────────────────────────────
+# ExportResult/DeleteResult.__str__ er oversat via tr() (issue #675). Testene
+# nedenfor tjekker den byggede tekst, så vi låser eksplicit til engelsk her,
+# uafhængigt af hvilket sprog andre testfiler måtte have indlæst globalt
+# (fx test_app.py, test_lang_modules.py m.fl. kalder alle load_language()).
+@pytest.fixture(autouse=True)
+def _fixed_language():
+    from opensak.lang import load_language
+    load_language("en")
+    yield
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _cache(
@@ -789,7 +801,7 @@ class TestDeleteResult:
 
     def test_str_no_files(self):
         r = DeleteResult()
-        assert "Ingen" in str(r)
+        assert "ℹ️" in str(r)
 
     def test_str_with_deleted_files(self):
         r = DeleteResult()
@@ -1036,7 +1048,7 @@ class TestErrorPaths:
         )
         result = delete_gpx_files(tmp_path)
         assert result.success is False
-        assert "fejl" in result.error.lower()
+        assert "boom" in result.error.lower()
 
     def test_export_to_device_error(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
