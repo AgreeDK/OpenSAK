@@ -90,9 +90,9 @@ class TestWorkers:
 # ── construction (covers the three tab builders + _load) ──────────────────────
 
 class TestConstruction:
-    def test_builds_four_tabs(self, dlg):
-        # General, Map (#638), Geocaching.com, Advanced.
-        assert dlg._tabs.count() == 4
+    def test_builds_five_tabs(self, dlg):
+        # General, Map (#638), Geocaching.com, PQ Email (#443), Advanced.
+        assert dlg._tabs.count() == 5
 
     def test_load_reflects_settings(self, qtbot, settings):
         settings.gc_username = "preset"

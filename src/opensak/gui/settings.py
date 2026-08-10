@@ -216,6 +216,40 @@ class AppSettings:
         except Exception:
             return None
 
+    # ── PQ e-mail (issue #443) ────────────────────────────────────────────────
+    # Generic IMAP + app-password connection settings. The password itself is
+    # deliberately NOT stored here — see opensak.email.credentials, which uses
+    # the OS keyring instead of the plain-text opensak.json settings file.
+
+    @property
+    def email_pq_server(self) -> str:
+        return str(get_store().get("email_pq.server", ""))
+
+    @email_pq_server.setter
+    def email_pq_server(self, value: str) -> None:
+        get_store().set("email_pq.server", value.strip())
+
+    @property
+    def email_pq_port(self) -> int:
+        from opensak.email.get_pq.connection import DEFAULT_IMAP_PORT
+        val = get_store().get("email_pq.port", DEFAULT_IMAP_PORT)
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return DEFAULT_IMAP_PORT
+
+    @email_pq_port.setter
+    def email_pq_port(self, value: int) -> None:
+        get_store().set("email_pq.port", int(value))
+
+    @property
+    def email_pq_username(self) -> str:
+        return str(get_store().get("email_pq.username", ""))
+
+    @email_pq_username.setter
+    def email_pq_username(self, value: str) -> None:
+        get_store().set("email_pq.username", value.strip())
+
     # ── Theme / appearance ────────────────────────────────────────────────────
 
     @property

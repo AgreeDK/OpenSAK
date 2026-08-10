@@ -58,6 +58,24 @@ class _ProfileWorker(QThread):
             self.error.emit(str(exc))
 
 
+class _EmailTestWorker(QThread):
+    """Tester IMAP-forbindelse (generic IMAP + app-password) i baggrundstråd
+    (issue #443), så GUI ikke fryser mens Test-knappen kører."""
+    finished = Signal(object)  # ConnectionTestResult
+
+    def __init__(self, server: str, port: int, username: str, password: str, parent=None):
+        super().__init__(parent)
+        self._server = server
+        self._port = port
+        self._username = username
+        self._password = password
+
+    def run(self) -> None:
+        from opensak.email.get_pq.connection import check_connection
+        result = check_connection(self._server, self._port, self._username, self._password)
+        self.finished.emit(result)
+
+
 # ── Hoved-dialog ──────────────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
@@ -67,6 +85,7 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(520)
         self._oauth_worker        = None
         self._profile_worker      = None
+        self._email_test_worker   = None
         self._editing_original_name: str | None = None   # Issue #157
         self._setup_ui()
         self._load()
@@ -80,6 +99,7 @@ class SettingsDialog(QDialog):
         self._tabs.addTab(self._build_general_tab(),   tr("settings_tab_general"))
         self._tabs.addTab(self._build_map_tab(),        tr("settings_tab_map"))
         self._tabs.addTab(self._build_gc_tab(),         tr("settings_tab_geocaching"))
+        self._tabs.addTab(self._build_email_tab(),      tr("settings_tab_email"))
         self._tabs.addTab(self._build_advanced_tab(),   tr("settings_tab_advanced"))
 
         layout.addWidget(self._tabs)
@@ -821,6 +841,111 @@ class SettingsDialog(QDialog):
         else:
             self._update_gc_ui_logged_out()
 
+    # ── PQ e-mail (issue #443) ─────────────────────────────────────────────────
+
+    def _build_email_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        intro = QLabel(tr("email_intro"))
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        form_group = QGroupBox(tr("email_group_connection"))
+        form = QFormLayout(form_group)
+
+        self._email_server = QLineEdit()
+        self._email_server.setPlaceholderText("imap.gmail.com")
+        form.addRow(tr("email_server_label"), self._email_server)
+
+        from opensak.email.get_pq.connection import DEFAULT_IMAP_PORT
+        self._email_port = QSpinBox()
+        self._email_port.setRange(1, 65535)
+        self._email_port.setValue(DEFAULT_IMAP_PORT)
+        form.addRow(tr("email_port_label"), self._email_port)
+
+        self._email_username = QLineEdit()
+        self._email_username.setPlaceholderText("you@gmail.com")
+        form.addRow(tr("email_username_label"), self._email_username)
+
+        self._email_password = QLineEdit()
+        self._email_password.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow(tr("email_password_label"), self._email_password)
+
+        layout.addWidget(form_group)
+
+        app_pw_note = QLabel(tr("email_help_app_password"))
+        app_pw_note.setWordWrap(True)
+        app_pw_note.setStyleSheet(
+            "color: #b07800; font-size: 10px; padding: 4px;"
+            "background: #fff8e1; border-radius: 4px;"
+        )
+        layout.addWidget(app_pw_note)
+
+        outlook_note = QLabel(tr("email_help_no_outlook"))
+        outlook_note.setWordWrap(True)
+        outlook_note.setStyleSheet("color: gray; font-size: 10px; padding: 4px;")
+        layout.addWidget(outlook_note)
+
+        test_row = QHBoxLayout()
+        self._email_test_btn = QPushButton(tr("email_test_btn"))
+        self._email_test_btn.setMinimumWidth(140)
+        self._email_test_btn.clicked.connect(self._on_email_test)
+        test_row.addWidget(self._email_test_btn)
+
+        self._email_status_label = QLabel(tr("email_status_untested"))
+        self._email_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        test_row.addWidget(self._email_status_label)
+        test_row.addStretch()
+        layout.addLayout(test_row)
+
+        layout.addStretch()
+        return tab
+
+    def _on_email_test(self) -> None:
+        """Test IMAP-login med de aktuelle felt-værdier — kræver ikke at
+        indstillingerne er gemt med OK/Save først."""
+        server   = self._email_server.text().strip()
+        port     = self._email_port.value()
+        username = self._email_username.text().strip()
+        password = self._email_password.text()
+
+        if not password:
+            # Intet nyt tastet ind — prøv den gemte adgangskode for dette
+            # brugernavn, hvis der er en.
+            from opensak.email.credentials import load_password
+            password = load_password(username) or ""
+
+        if not server or not username or not password:
+            self._email_status_label.setText(tr("email_status_missing_fields"))
+            self._email_status_label.setStyleSheet("color: #c62828; font-size: 10px;")
+            return
+
+        self._email_test_btn.setEnabled(False)
+        self._email_status_label.setText(tr("email_status_testing"))
+        self._email_status_label.setStyleSheet("color: gray; font-size: 10px;")
+
+        self._email_test_worker = _EmailTestWorker(server, port, username, password, self)
+        self._email_test_worker.finished.connect(self._on_email_test_finished)
+        self._email_test_worker.start()
+
+    def _on_email_test_finished(self, result) -> None:
+        self._email_test_btn.setEnabled(True)
+        if result.success:
+            self._email_status_label.setText(tr("email_status_success"))
+            self._email_status_label.setStyleSheet("color: #2e7d32; font-size: 10px;")
+        elif result.kind == "auth_error":
+            self._email_status_label.setText(tr("email_status_auth_error"))
+            self._email_status_label.setStyleSheet("color: #c62828; font-size: 10px;")
+        elif result.kind == "network_error":
+            self._email_status_label.setText(tr("email_status_network_error"))
+            self._email_status_label.setStyleSheet("color: #c62828; font-size: 10px;")
+        else:
+            self._email_status_label.setText(tr("email_status_unknown_error"))
+            self._email_status_label.setStyleSheet("color: #c62828; font-size: 10px;")
+
     # ── Hjemmepunkter — hjælpefunktioner ──────────────────────────────────────
 
     def _reload_points_table(self) -> None:
@@ -1064,6 +1189,19 @@ class SettingsDialog(QDialog):
         # Opdater GC-status
         self._refresh_gc_status_on_open()
 
+        # PQ e-mail (issue #443)
+        self._email_server.setText(s.email_pq_server)
+        self._email_port.setValue(s.email_pq_port)
+        self._email_username.setText(s.email_pq_username)
+        self._email_password.clear()
+        from opensak.email.credentials import has_password
+        if s.email_pq_username and has_password(s.email_pq_username):
+            self._email_password.setPlaceholderText(tr("email_password_placeholder_saved"))
+        else:
+            self._email_password.setPlaceholderText(tr("email_password_placeholder_new"))
+        self._email_status_label.setText(tr("email_status_untested"))
+        self._email_status_label.setStyleSheet("color: gray; font-size: 10px;")
+
     def _save(self) -> None:
         # Auto-commit any in-progress home-point edit when the user clicks OK
         if self._editing_original_name is not None:
@@ -1106,6 +1244,30 @@ class SettingsDialog(QDialog):
         s.updates_check_enabled = self._update_check_cb.isChecked()
         s.notify_about_betas = self._notify_betas_cb.isChecked()
         s.distance_method = self._distance_method_combo.currentData()
+
+        # PQ e-mail (issue #443) — password only touched if the field was
+        # actually filled in; an empty field means "keep the saved one".
+        from opensak.email import credentials as email_credentials
+        old_email_username = s.email_pq_username
+        new_email_username = self._email_username.text().strip()
+        new_email_password = self._email_password.text()
+
+        s.email_pq_server   = self._email_server.text()
+        s.email_pq_port     = self._email_port.value()
+        s.email_pq_username = new_email_username
+
+        if new_email_password and new_email_username:
+            try:
+                email_credentials.save_password(new_email_username, new_email_password)
+            except Exception:
+                QMessageBox.warning(
+                    self, tr("email_save_error_title"), tr("email_save_error_msg")
+                )
+            else:
+                if old_email_username and old_email_username != new_email_username:
+                    email_credentials.delete_password(old_email_username)
+            self._email_password.clear()
+
         s.sync()
 
         # Database-mappe — kun gem og advar hvis brugeren faktisk har ændret den
