@@ -150,25 +150,29 @@ class ReverseGeocodeWorker(QThread):
             self.cancelled.emit(result)
             return
 
-        # Phase 2 — bulk write in one transaction (single IN query, no per-row SELECT)
+        # Phase 2 — bulk write in one transaction, no per-row SELECT. The IN query
+        # is chunked to stay under SQLite's bound-parameter limit (large DBs).
         resolved_map = {row.gc_code: (row, loc) for row, loc in resolved}
+        gc_codes = list(resolved_map)
         try:
             with get_session() as session:
-                caches = (
-                    session.query(Cache)
-                    .filter(Cache.gc_code.in_(list(resolved_map)))
-                    .all()
-                )
-                for cache in caches:
-                    row, loc = resolved_map[cache.gc_code]
-                    cache.country          = loc.country
-                    cache.state            = loc.state
-                    cache.county           = loc.county
-                    cache.location_source  = "boundary"
-                    cache.location_basis   = row.basis
-                    cache.location_updated = now
-                    cache.location_dataset = dataset
-                    result.updated += 1
+                for i in range(0, len(gc_codes), 500):
+                    chunk = gc_codes[i:i + 500]
+                    caches = (
+                        session.query(Cache)
+                        .filter(Cache.gc_code.in_(chunk))
+                        .all()
+                    )
+                    for cache in caches:
+                        row, loc = resolved_map[cache.gc_code]
+                        cache.country          = loc.country
+                        cache.state            = loc.state
+                        cache.county           = loc.county
+                        cache.location_source  = "boundary"
+                        cache.location_basis   = row.basis
+                        cache.location_updated = now
+                        cache.location_dataset = dataset
+                        result.updated += 1
         except Exception as exc:
             result.errors += 1
             self.row_done.emit("", tr("update_loc_row_error", gc_code="batch", msg=str(exc)))
