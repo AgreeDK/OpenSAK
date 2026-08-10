@@ -207,6 +207,10 @@ class FilterDialog(QDialog):
     filter_applied = Signal(object, object, str)  # FilterSet, SortSpec, profile_name
     profile_deleted = Signal(str)  # profile_name — fires immediately on delete (issue #491),
                                     # independent of whether the dialog is later applied or closed
+    profile_saved = Signal(str)    # profile_name — fires immediately on save (issue #682),
+                                    # same reasoning as profile_deleted above: the toolbar
+                                    # dropdown must refresh even if the user saves a profile
+                                    # and then closes the dialog without clicking Apply.
 
     def __init__(self, parent=None, current_filterset: Optional[FilterSet] = None,
                  last_profile_name: str = "", current_cache=None):
@@ -1373,6 +1377,10 @@ class FilterDialog(QDialog):
             if self._profile_combo.itemText(i) == name.strip():
                 self._profile_combo.setCurrentIndex(i)
                 break
+        # issue #682: rapportér straks til MainWindow at en ny profil er
+        # gemt, uanset om dialogen bagefter lukkes med Apply eller bare
+        # med Close/Escape — samme mønster som profile_deleted (#491).
+        self.profile_saved.emit(name.strip())
         QMessageBox.information(self, tr("filter_saved_title"), tr("filter_saved_msg", name=name))
 
     def _delete_profile(self) -> None:

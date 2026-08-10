@@ -1627,7 +1627,7 @@ class CacheTableView(QTableView):
     def _save_corrected(self, cache: Cache, lat, lon) -> None:
         from opensak.db.database import get_session
         from opensak.db.models import UserNote, Cache as CacheModel
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
         with get_session() as session:
             cache_row = session.query(CacheModel).options(
                 joinedload(CacheModel.user_note)
@@ -1649,9 +1649,9 @@ class CacheTableView(QTableView):
         with get_session() as session:
             fresh = session.query(CacheModel).options(
                 joinedload(CacheModel.user_note),
-                joinedload(CacheModel.waypoints),
-                joinedload(CacheModel.attributes),
-                joinedload(CacheModel.trackables),
+                selectinload(CacheModel.waypoints),
+                selectinload(CacheModel.attributes),
+                selectinload(CacheModel.trackables),
             ).filter_by(gc_code=cache.gc_code).first()
             if fresh is None:
                 return
@@ -1745,14 +1745,14 @@ class CacheTableView(QTableView):
         """
         from opensak.db.database import get_session
         from opensak.db.models import Cache as CacheModel
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
 
         with get_session() as session:
             fresh = session.query(CacheModel).options(
                 joinedload(CacheModel.user_note),
-                joinedload(CacheModel.waypoints),
-                joinedload(CacheModel.attributes),
-                joinedload(CacheModel.trackables),
+                selectinload(CacheModel.waypoints),
+                selectinload(CacheModel.attributes),
+                selectinload(CacheModel.trackables),
             ).filter_by(gc_code=gc_code).first()
             if fresh is None:
                 return

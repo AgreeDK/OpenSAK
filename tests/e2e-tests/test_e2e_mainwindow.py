@@ -1033,7 +1033,7 @@ class TestFilters:
     def test_open_filter_dialog(self, seeded_window, monkeypatch):
         monkeypatch.setattr(
             "opensak.gui.dialogs.filter_dialog.FilterDialog",
-            fake_dialog(signals=("filter_applied", "profile_deleted")))
+            fake_dialog(signals=("filter_applied", "profile_deleted", "profile_saved")))
         seeded_window._open_filter_dialog()
 
     def test_open_filter_blocked_by_trip(self, seeded_window):
@@ -1316,6 +1316,7 @@ class TestTripPlanner:
         class FakeTrip:
             def __init__(self, *a, **k):
                 self._visible = False
+                self.destroyed = _Sig()
 
             def show(self):
                 self._visible = True
