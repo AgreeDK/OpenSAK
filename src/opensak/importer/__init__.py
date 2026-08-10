@@ -480,6 +480,7 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
 
     return {
         "gc_code":           gc_code,
+        "gc_cache_id":       gs_id,
         "name":              name,
         "cache_type":        cache_type,
         "container":         container,
@@ -720,6 +721,7 @@ def _parse_loc_waypoint(wpt_el) -> Optional[dict]:
 
     return {
         "gc_code":           gc_code,
+        "gc_cache_id":       None,   # .loc files carry no Groundspeak data
         "name":              cache_name,
         "cache_type":        "Traditional Cache",   # .loc has no type info
         "container":         None,
@@ -867,6 +869,17 @@ def _upsert_cache(
             "encoded_hints",
         ):
             setattr(cache, field, data.get(field))
+
+    # Issue #695: the real Geocaching.com numeric cache ID (used e.g. in
+    # GPX/GGZ export). Historically parsed from the GPX but never stored,
+    # so every OpenSAK GPX export wrote the internal DB row id instead of
+    # the real ID. Not user-editable data, so backfilled regardless of the
+    # locked flag — but only when the source actually provided one, so we
+    # never clobber an existing value (e.g. from an earlier GSAK import,
+    # which already populates this same field) with an empty one from a
+    # source that doesn't carry it (.loc files, some GPX variants).
+    if data.get("gc_cache_id"):
+        cache.gc_cache_id = data["gc_cache_id"]
 
     cache.source_file = source_file
 

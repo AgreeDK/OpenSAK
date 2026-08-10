@@ -347,7 +347,15 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
             # declaration is local to this element, matching GSAK's exact
             # convention.
             gs_cache = SubElement(wpt, "groundspeak:cache")
-            gs_cache.set("id", str(cache.id))
+            # Issue #695: this used to be cache.id — the internal SQLAlchemy
+            # auto-increment primary key, not the real Geocaching.com
+            # numeric cache ID. cache.gc_cache_id holds the actual ID
+            # (parsed from the source GPX/GSAK database). Caches imported
+            # before this fix won't have it populated yet until re-imported
+            # — "0" is used as a visibly-fake placeholder in that case,
+            # rather than risk exporting another cache's (or an arbitrary
+            # small) real-looking-but-wrong ID.
+            gs_cache.set("id", str(cache.gc_cache_id) if cache.gc_cache_id else "0")
             gs_cache.set("available", "True" if cache.available else "False")
             gs_cache.set("archived", "True" if cache.archived else "False")
             gs_cache.set("xmlns:groundspeak", "http://www.groundspeak.com/cache/1/0/1")
@@ -357,6 +365,17 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
 
             gs_placed = SubElement(gs_cache, "groundspeak:placed_by")
             gs_placed.text = cache.placed_by or ""
+
+            # Issue #695: groundspeak:owner was missing entirely from the
+            # export, even though cache.owner_name/owner_id are already
+            # populated by the importer. Only written when we actually
+            # have an owner id, matching the source GPX's own convention
+            # (the id attribute is how GSAK/geocaching.com distinguish
+            # this from placed_by, which is free text and always present).
+            if cache.owner_id:
+                gs_owner = SubElement(gs_cache, "groundspeak:owner")
+                gs_owner.set("id", str(cache.owner_id))
+                gs_owner.text = cache.owner_name or cache.placed_by or ""
 
             gs_type = SubElement(gs_cache, "groundspeak:type")
             gs_type.text = cache.cache_type or "Traditional Cache"
@@ -439,6 +458,13 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
                     gs_ltype = SubElement(gs_log, "groundspeak:type")
                     gs_ltype.text = log.log_type or ""
                     gs_finder = SubElement(gs_log, "groundspeak:finder")
+                    # Issue #695: the id attribute was missing entirely,
+                    # even though log.finder_id is already populated by
+                    # the importer (and used elsewhere to auto-detect the
+                    # user's own account). Only written when known, same
+                    # reasoning as groundspeak:owner above.
+                    if log.finder_id:
+                        gs_finder.set("id", str(log.finder_id))
                     gs_finder.text = log.finder or ""
                     gs_text = SubElement(gs_log, "groundspeak:text")
                     gs_text.set("encoded", "False")
