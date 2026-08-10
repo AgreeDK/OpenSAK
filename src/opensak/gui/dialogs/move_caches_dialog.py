@@ -48,7 +48,7 @@ class _MoveWorker(QThread):
         from opensak.db.models import (
             Cache, Log, Attribute, Trackable, Waypoint, UserNote,
         )
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
 
         try:
             # ── 1. Load full caches from source DB ────────────────────────
@@ -58,10 +58,10 @@ class _MoveWorker(QThread):
                 caches = (
                     session.query(Cache)
                     .options(
-                        joinedload(Cache.logs),
-                        joinedload(Cache.attributes),
-                        joinedload(Cache.waypoints),
-                        joinedload(Cache.trackables),
+                        selectinload(Cache.logs),
+                        selectinload(Cache.attributes),
+                        selectinload(Cache.waypoints),
+                        selectinload(Cache.trackables),
                         joinedload(Cache.user_note),
                     )
                     .filter(Cache.gc_code.in_(self.gc_codes))

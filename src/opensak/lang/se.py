@@ -279,6 +279,15 @@ STRINGS: dict[str, str] = {
     "gps_no_dest":                  "Välj en måldestination först.",
     "gps_file_exists_title":        "Filen finns redan",
     "gps_file_exists_prompt":       "\"{filename}\" finns redan på denna plats. Ange ett annat filnamn:",
+    "gps_error_permission":         "Åtkomst nekad — är GPS enheten skrivskyddad?",
+    "gps_error_file":               "Filfel: {error}",
+    "gps_error_unexpected":         "Oväntat fel: {error}",
+    "gps_result_exported":          "✓ {count} cacher exporterade",
+    "gps_result_device":            "Enhet",
+    "gps_result_file":              "Fil",
+    "gps_result_no_files":          "Inga filer hittades på enheten",
+    "gps_result_deleted":           "{count} fil(er) borttagna från enheten",
+    "gps_result_delete_failed":     "{count} fil(er) kunde inte tas bort:",
 
     # ── Settings dialog ───────────────────────────────────────────────────────
     "settings_dialog_title":        "Inställningar",

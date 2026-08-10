@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from opensak.lang import tr
 from opensak.utils.constants import CUSTOM_WP_TYPES
 
 
@@ -823,11 +824,11 @@ def export_ggz_to_device(
         result.cache_count = len([c for c in caches if c.latitude is not None])
 
     except PermissionError:
-        result.error = "Adgang nægtet — er GPS enheden skrivebeskyttet?"
+        result.error = tr("gps_error_permission")
     except OSError as e:
-        result.error = f"Fil fejl: {e}"
+        result.error = tr("gps_error_file", error=str(e))
     except Exception as e:
-        result.error = f"Uventet fejl: {e}"
+        result.error = tr("gps_error_unexpected", error=str(e))
 
     return result
 
@@ -880,14 +881,14 @@ class DeleteResult:
 
     def __str__(self) -> str:
         if not self.success:
-            return f"✗ Fejl ved sletning: {self.error}"
+            return f"✗ {tr('error')}: {self.error}"
         if self.deleted_count == 0:
-            return "ℹ️  Ingen filer fundet på enheden"
-        lines = [f"🗑️  {self.deleted_count} fil(er) slettet fra enheden"]
+            return f"ℹ️  {tr('gps_result_no_files')}"
+        lines = [f"🗑️  {tr('gps_result_deleted', count=self.deleted_count)}"]
         for f in self.deleted_files:
             lines.append(f"   - {f.name}")
         if self.failed_count:
-            lines.append(f"⚠️  {self.failed_count} fil(er) kunne ikke slettes:")
+            lines.append(f"⚠️  {tr('gps_result_delete_failed', count=self.failed_count)}")
             for f in self.failed_files:
                 lines.append(f"   - {f.name}")
         return "\n".join(lines)
@@ -928,11 +929,11 @@ def delete_gpx_files(
                 result.failed_files.append(f)
 
     except PermissionError:
-        result.error = "Adgang nægtet — er GPS enheden skrivebeskyttet?"
+        result.error = tr("gps_error_permission")
     except OSError as e:
-        result.error = f"Fil fejl: {e}"
+        result.error = tr("gps_error_file", error=str(e))
     except Exception as e:
-        result.error = f"Uventet fejl: {e}"
+        result.error = tr("gps_error_unexpected", error=str(e))
 
     return result
 
@@ -954,12 +955,14 @@ class ExportResult:
 
     def __str__(self) -> str:
         if self.success:
-            return (
-                f"✓ {self.cache_count} caches eksporteret\n"
-                f"  Enhed: {self.device}\n"
-                f"  Fil: {self.file_path.name if self.file_path else ''}"
+            lines = [tr("gps_result_exported", count=self.cache_count)]
+            if self.device is not None:
+                lines.append(f"  {tr('gps_result_device')}: {self.device}")
+            lines.append(
+                f"  {tr('gps_result_file')}: {self.file_path.name if self.file_path else ''}"
             )
-        return f"✗ Fejl: {self.error}"
+            return "\n".join(lines)
+        return f"✗ {tr('error')}: {self.error}"
 
 
 def export_to_device(
@@ -988,11 +991,11 @@ def export_to_device(
         result.cache_count = len([c for c in caches if c.latitude is not None])
 
     except PermissionError:
-        result.error = "Adgang nægtet — er GPS enheden skrivebeskyttet?"
+        result.error = tr("gps_error_permission")
     except OSError as e:
-        result.error = f"Fil fejl: {e}"
+        result.error = tr("gps_error_file", error=str(e))
     except Exception as e:
-        result.error = f"Uventet fejl: {e}"
+        result.error = tr("gps_error_unexpected", error=str(e))
 
     return result
 

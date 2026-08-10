@@ -543,6 +543,20 @@ class TestProfiles:
             dlg._delete_profile()
         assert blocker.args == ["Del"]
 
+    def test_save_profile_emits_profile_saved_signal(self, dlg, monkeypatch, qtbot):
+        # issue #682: saving a profile must report the name immediately,
+        # regardless of whether the dialog is later applied or just closed
+        # (mirrors test_delete_profile_emits_profile_deleted_signal / #491).
+        # Without this, the toolbar's saved-filter dropdown only refreshed
+        # when a filter was applied, so a newly saved-but-not-applied
+        # profile never appeared until something else happened to trigger
+        # a refresh.
+        monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("MyProfile", True))
+        monkeypatch.setattr(fd.FilterProfile, "save", lambda self, *a, **k: None)
+        with qtbot.waitSignal(dlg.profile_saved, timeout=1000) as blocker:
+            dlg._save_profile()
+        assert blocker.args == ["MyProfile"]
+
 
 # ── default button / Enter key (#370) ──────────────────────────────────────────
 
