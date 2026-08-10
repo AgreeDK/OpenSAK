@@ -146,6 +146,33 @@ class TestReverseGeocodeWorker:
                 assert c.country == "DK"
                 assert c.state == "ZL"
 
+    def test_run_chunks_large_bulk_write(self, db, geo_mocks, monkeypatch):
+        # Regression (#60): a large DB overflowed SQLite's bound-parameter limit
+        # because the bulk write bound every gc_code in one IN(...). The write is
+        # chunked so no single IN exceeds 500 codes.
+        with get_session() as s:
+            for i in range(3, 1103):
+                s.add(Cache(gc_code=f"GC{i}", name="x",
+                            cache_type="Traditional Cache",
+                            latitude=55.0, longitude=12.0))
+        rows = [_CacheRow(f"GC{i}", 55.0, 12.0) for i in range(1, 1103)]
+
+        sizes = []
+        real_in = type(Cache.gc_code).in_
+        def spy(self, other):
+            other = list(other)
+            sizes.append(len(other))
+            return real_in(self, other)
+        monkeypatch.setattr(type(Cache.gc_code), "in_", spy)
+
+        w = ReverseGeocodeWorker(rows)
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+
+        assert done[0].updated == 1102
+        assert sizes and max(sizes) <= 500
+
     def test_default_basis_is_posted(self):
         row = _CacheRow("GC1", 55.0, 12.0)
         assert row.basis == "posted"
