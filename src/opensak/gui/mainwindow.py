@@ -530,22 +530,6 @@ class MainWindow(QMainWindow):
         # ── Vis-dropdown i menulinjen ─────────────────────────────────────────
         menubar.addSeparator()
 
-        # Vis-dropdown
-        self._quick_filter = QComboBox()
-        self._quick_filter.setFixedWidth(140)
-        self._quick_filter.addItems([
-            tr("quick_all"),
-            tr("quick_not_found"),
-            tr("quick_found"),
-            tr("quick_available"),
-            tr("quick_traditional_easy"),
-            tr("quick_archived"),
-        ])
-        self._quick_filter.currentIndexChanged.connect(self._on_quick_filter_changed)
-        filter_action = QWidgetAction(self)
-        filter_action.setDefaultWidget(self._quick_filter)
-        menubar.addAction(filter_action)
-
         # Aktivt filter label
         self._filter_lbl = QLabel("")
         self._filter_lbl.setStyleSheet("color: #e65100; font-style: italic; padding: 0 4px;")
@@ -604,7 +588,12 @@ class MainWindow(QMainWindow):
 
         # Filter
         self._act_filter = QAction(f"🔍  {tr('toolbar_filter')}", self)
-        self._act_filter.setShortcut("Ctrl+F")
+        # Bemærk: INGEN setShortcut() her. _act_filter_menu (View-menuen)
+        # ejer Ctrl+F. To QAction'er med identisk genvej på samme vindue
+        # giver en "ambiguous shortcut" i Qt, som stille ignoreres — det
+        # var årsagen til issue #678 (Ctrl+F virkede slet ikke). Genvejen
+        # virker stadig globalt i vinduet via _act_filter_menu, uanset
+        # hvilket widget der har fokus (standard WindowShortcut-context).
         self._act_filter.setToolTip(tr("toolbar_filter") + " (Ctrl+F)")
         self._act_filter.triggered.connect(self._open_filter_dialog)
         tb.addAction(self._act_filter)
@@ -646,6 +635,27 @@ class MainWindow(QMainWindow):
             self._on_filter_profile_combo_changed
         )
         self._populate_filter_profile_combo()
+
+        # Vis-dropdown (issue #681: flyttet hertil fra menulinjen — en
+        # QWidgetAction/QComboBox placeret direkte på QMenuBar render'er
+        # upålideligt på Windows' native menulinje-styling og var derfor
+        # usynlig for brugere på Windows, selvom den fungerede fint på
+        # Linux. Værktøjslinjen har ikke dette problem, jf. filter-profil-
+        # dropdownen ovenfor som allerede sad her uden problemer.)
+        self._quick_filter = QComboBox()
+        self._quick_filter.setFixedWidth(140)
+        self._quick_filter.addItems([
+            tr("quick_all"),
+            tr("quick_not_found"),
+            tr("quick_found"),
+            tr("quick_available"),
+            tr("quick_traditional_easy"),
+            tr("quick_archived"),
+        ])
+        self._quick_filter.currentIndexChanged.connect(self._on_quick_filter_changed)
+        quick_filter_action = QWidgetAction(self)
+        quick_filter_action.setDefaultWidget(self._quick_filter)
+        tb.addAction(quick_filter_action)
 
         tb.addSeparator()
 
@@ -1440,6 +1450,18 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcut_registry(self) -> None:
         # Each entry: (settings_key, label_lang_key, [actions sharing this shortcut])
+        #
+        # IMPORTANT (issue #678): each settings_key must map to exactly ONE
+        # QAction. Qt cannot disambiguate two QActions in the same window
+        # holding an identical QKeySequence — it silently does nothing and
+        # logs "Ambiguous shortcut overload" instead of picking one. The
+        # "filter" key used to list both the View-menu and toolbar filter
+        # actions here so they'd stay visually in sync, but that recreated
+        # the ambiguous-shortcut condition every time a custom shortcut was
+        # saved/applied (_apply_saved_shortcuts() / _open_shortcuts() below
+        # loop over ALL actions in the list). _act_filter (toolbar) no
+        # longer carries a live shortcut at all — see _setup_toolbar() —
+        # so only _act_filter_menu is listed here.
         self._shortcut_registry: list[tuple[str, str, list[QAction]]] = [
             ("manage_databases",  "shortcut_manage_databases",  [self._act_db_manager]),
             ("import",            "shortcut_import",            [self._act_import]),
@@ -1448,7 +1470,7 @@ class MainWindow(QMainWindow):
             ("edit_cache",        "shortcut_edit_cache",        [self._act_wp_edit]),
             ("delete_cache",      "shortcut_delete_cache",      [self._act_wp_delete]),
             ("refresh",           "shortcut_refresh",           [self._act_refresh]),
-            ("filter",            "shortcut_filter",            [self._act_filter_menu, self._act_filter]),
+            ("filter",            "shortcut_filter",            [self._act_filter_menu]),
             ("clear_filter",      "shortcut_clear_filter",      [self._act_clear_filter]),
             ("settings",          "shortcut_settings",          [self._act_settings]),
             ("gps_export",        "shortcut_gps_export",        [self._act_gps_export]),
@@ -2020,6 +2042,7 @@ class MainWindow(QMainWindow):
         )
         dlg.filter_applied.connect(self._on_filter_applied)
         dlg.profile_deleted.connect(self._on_profile_deleted)
+        dlg.profile_saved.connect(self._on_profile_saved)
         dlg.exec()
 
     def _on_filter_applied(self, filterset, sort, profile_name: str) -> None:
@@ -2057,6 +2080,17 @@ class MainWindow(QMainWindow):
             self._count_lbl.setText(tr("count_caches", count=count))
         self._statusbar.showMessage(tr("status_filter_result", count=count), 3000)
         self._update_info_bar()
+
+    def _on_profile_saved(self, name: str) -> None:
+        """Reagér på at en ny filter-profil er gemt i "Set filter"-dialogen.
+
+        Fires uanset om dialogen efterfølgende lukkes med Apply eller bare
+        Close/Escape (issue #682), samme mønster som _on_profile_deleted
+        (#491). Opdaterer kun toolbar-dropdownen, så den nye profil
+        dukker op med det samme — rører ikke det aktive filter/cache-listen,
+        da et gem ikke i sig selv skal anvende profilen.
+        """
+        self._populate_filter_profile_combo(select_name=self._active_filter_name or None)
 
     def _on_profile_deleted(self, name: str) -> None:
         """Reagér på at en gemt filter-profil er slettet i "Set filter"-dialogen.
