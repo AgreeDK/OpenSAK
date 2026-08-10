@@ -291,6 +291,15 @@ STRINGS: dict[str, str] = {
     "gps_no_dest":                  "Vælg en destination først.",
     "gps_file_exists_title":        "Filen findes allerede",
     "gps_file_exists_prompt":       "\"{filename}\" findes allerede på denne placering. Angiv et andet filnavn:",
+    "gps_error_permission":         "Adgang nægtet — er GPS enheden skrivebeskyttet?",
+    "gps_error_file":               "Fil fejl: {error}",
+    "gps_error_unexpected":         "Uventet fejl: {error}",
+    "gps_result_exported":          "✓ {count} caches eksporteret",
+    "gps_result_device":            "Enhed",
+    "gps_result_file":              "Fil",
+    "gps_result_no_files":          "Ingen filer fundet på enheden",
+    "gps_result_deleted":           "{count} fil(er) slettet fra enheden",
+    "gps_result_delete_failed":     "{count} fil(er) kunne ikke slettes:",
 
     # ── Indstillinger dialog ──────────────────────────────────────────────────
     "settings_dialog_title":        "Indstillinger",

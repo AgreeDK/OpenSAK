@@ -551,22 +551,6 @@ class MainWindow(QMainWindow):
         # ── Vis-dropdown i menulinjen ─────────────────────────────────────────
         menubar.addSeparator()
 
-        # Vis-dropdown
-        self._quick_filter = QComboBox()
-        self._quick_filter.setFixedWidth(140)
-        self._quick_filter.addItems([
-            tr("quick_all"),
-            tr("quick_not_found"),
-            tr("quick_found"),
-            tr("quick_available"),
-            tr("quick_traditional_easy"),
-            tr("quick_archived"),
-        ])
-        self._quick_filter.currentIndexChanged.connect(self._on_quick_filter_changed)
-        filter_action = QWidgetAction(self)
-        filter_action.setDefaultWidget(self._quick_filter)
-        menubar.addAction(filter_action)
-
         # Aktivt filter label
         self._filter_lbl = QLabel("")
         self._filter_lbl.setStyleSheet("color: #e65100; font-style: italic; padding: 0 4px;")
@@ -625,7 +609,12 @@ class MainWindow(QMainWindow):
 
         # Filter
         self._act_filter = QAction(f"🔍  {tr('toolbar_filter')}", self)
-        self._act_filter.setShortcut("Ctrl+F")
+        # Bemærk: INGEN setShortcut() her. _act_filter_menu (View-menuen)
+        # ejer Ctrl+F. To QAction'er med identisk genvej på samme vindue
+        # giver en "ambiguous shortcut" i Qt, som stille ignoreres — det
+        # var årsagen til issue #678 (Ctrl+F virkede slet ikke). Genvejen
+        # virker stadig globalt i vinduet via _act_filter_menu, uanset
+        # hvilket widget der har fokus (standard WindowShortcut-context).
         self._act_filter.setToolTip(tr("toolbar_filter") + " (Ctrl+F)")
         self._act_filter.triggered.connect(self._open_filter_dialog)
         tb.addAction(self._act_filter)
@@ -667,6 +656,27 @@ class MainWindow(QMainWindow):
             self._on_filter_profile_combo_changed
         )
         self._populate_filter_profile_combo()
+
+        # Vis-dropdown (issue #681: flyttet hertil fra menulinjen — en
+        # QWidgetAction/QComboBox placeret direkte på QMenuBar render'er
+        # upålideligt på Windows' native menulinje-styling og var derfor
+        # usynlig for brugere på Windows, selvom den fungerede fint på
+        # Linux. Værktøjslinjen har ikke dette problem, jf. filter-profil-
+        # dropdownen ovenfor som allerede sad her uden problemer.)
+        self._quick_filter = QComboBox()
+        self._quick_filter.setFixedWidth(140)
+        self._quick_filter.addItems([
+            tr("quick_all"),
+            tr("quick_not_found"),
+            tr("quick_found"),
+            tr("quick_available"),
+            tr("quick_traditional_easy"),
+            tr("quick_archived"),
+        ])
+        self._quick_filter.currentIndexChanged.connect(self._on_quick_filter_changed)
+        quick_filter_action = QWidgetAction(self)
+        quick_filter_action.setDefaultWidget(self._quick_filter)
+        tb.addAction(quick_filter_action)
 
         tb.addSeparator()
 
@@ -1310,15 +1320,26 @@ class MainWindow(QMainWindow):
         apply_filters() bruger noload() på logs/waypoints/user_note for
         performance ved store databaser. Denne hjælper bruges når brugeren
         vælger en cache, så detaljepanelet altid får komplette data.
+
+        Bruger selectinload() (ikke joinedload()) på de fire samtidige
+        one-to-many collections (logs/attributes/waypoints/trackables).
+        joinedload() på flere collections samtidig giver et enkelt
+        multi-JOIN-query, hvor SQLAlchemy skal deduplikere et cartesian
+        produkt af rækkerne (fx 200 logs × 10 attributter × 3 waypoints ×
+        7 trackables = titusindvis af rækker for én enkelt cache) — det
+        var årsagen til issue #685's flere-sekunders forsinkelse ved valg
+        af caches med mange relaterede rækker. selectinload() udsteder i
+        stedet ét separat "WHERE cache_id IN (...)"-query pr. collection,
+        uden multiplikation.
         """
         from opensak.db.models import Cache as CacheModel
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
         with get_session() as session:
             return session.query(CacheModel).options(
-                joinedload(CacheModel.logs),
-                joinedload(CacheModel.attributes),
-                joinedload(CacheModel.waypoints),
-                joinedload(CacheModel.trackables),
+                selectinload(CacheModel.logs),
+                selectinload(CacheModel.attributes),
+                selectinload(CacheModel.waypoints),
+                selectinload(CacheModel.trackables),
                 joinedload(CacheModel.user_note),
             ).filter_by(gc_code=gc_code).first()
 
@@ -1575,6 +1596,18 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcut_registry(self) -> None:
         # Each entry: (settings_key, label_lang_key, [actions sharing this shortcut])
+        #
+        # IMPORTANT (issue #678): each settings_key must map to exactly ONE
+        # QAction. Qt cannot disambiguate two QActions in the same window
+        # holding an identical QKeySequence — it silently does nothing and
+        # logs "Ambiguous shortcut overload" instead of picking one. The
+        # "filter" key used to list both the View-menu and toolbar filter
+        # actions here so they'd stay visually in sync, but that recreated
+        # the ambiguous-shortcut condition every time a custom shortcut was
+        # saved/applied (_apply_saved_shortcuts() / _open_shortcuts() below
+        # loop over ALL actions in the list). _act_filter (toolbar) no
+        # longer carries a live shortcut at all — see _setup_toolbar() —
+        # so only _act_filter_menu is listed here.
         self._shortcut_registry: list[tuple[str, str, list[QAction]]] = [
             ("manage_databases",  "shortcut_manage_databases",  [self._act_db_manager]),
             ("import",            "shortcut_import",            [self._act_import]),
@@ -1583,7 +1616,7 @@ class MainWindow(QMainWindow):
             ("edit_cache",        "shortcut_edit_cache",        [self._act_wp_edit]),
             ("delete_cache",      "shortcut_delete_cache",      [self._act_wp_delete]),
             ("refresh",           "shortcut_refresh",           [self._act_refresh]),
-            ("filter",            "shortcut_filter",            [self._act_filter_menu, self._act_filter]),
+            ("filter",            "shortcut_filter",            [self._act_filter_menu]),
             ("clear_filter",      "shortcut_clear_filter",      [self._act_clear_filter]),
             ("settings",          "shortcut_settings",          [self._act_settings]),
             ("gps_export",        "shortcut_gps_export",        [self._act_gps_export]),
@@ -2157,6 +2190,7 @@ class MainWindow(QMainWindow):
         )
         dlg.filter_applied.connect(self._on_filter_applied)
         dlg.profile_deleted.connect(self._on_profile_deleted)
+        dlg.profile_saved.connect(self._on_profile_saved)
         dlg.exec()
 
     def _on_filter_applied(self, filterset, sort, profile_name: str) -> None:
@@ -2194,6 +2228,17 @@ class MainWindow(QMainWindow):
             self._count_lbl.setText(tr("count_caches", count=count))
         self._statusbar.showMessage(tr("status_filter_result", count=count), 3000)
         self._update_info_bar()
+
+    def _on_profile_saved(self, name: str) -> None:
+        """Reagér på at en ny filter-profil er gemt i "Set filter"-dialogen.
+
+        Fires uanset om dialogen efterfølgende lukkes med Apply eller bare
+        Close/Escape (issue #682), samme mønster som _on_profile_deleted
+        (#491). Opdaterer kun toolbar-dropdownen, så den nye profil
+        dukker op med det samme — rører ikke det aktive filter/cache-listen,
+        da et gem ikke i sig selv skal anvende profilen.
+        """
+        self._populate_filter_profile_combo(select_name=self._active_filter_name or None)
 
     def _on_profile_deleted(self, name: str) -> None:
         """Reagér på at en gemt filter-profil er slettet i "Set filter"-dialogen.
@@ -2543,9 +2588,23 @@ class MainWindow(QMainWindow):
         caches = [c for c in caches if c is not None]
         # show() i stedet for exec() — ikke-modal så kortvinduet kan få fokus
         self._trip_planner_win = TripPlannerDialog(self, caches=caches)
+        # Issue #676: TripPlannerDialog sætter WA_DeleteOnClose, så det
+        # underliggende C++-objekt destrueres asynkront (næste event-loop-
+        # iteration) efter close(). Uden dette ryddede _trip_planner_win
+        # ikke sig selv, så et senere isVisible()-kald (i
+        # _trip_planner_active() ovenfor, eller direkte her) kunne ramme
+        # en allerede-destrueret C++ wrapper og kaste en RuntimeError —
+        # "sometimes", fordi det kun sker hvis event-loopet har nået at
+        # køre den udskudte sletning inden brugeren prøver at genåbne.
+        # destroyed() fyrer pålideligt uanset hvornår/hvordan objektet går
+        # væk, så det er det rigtige sted at nulstille referencen.
+        self._trip_planner_win.destroyed.connect(self._on_trip_planner_destroyed)
         self._trip_planner_win.show()
         self._trip_planner_win.raise_()
         self._trip_planner_win.activateWindow()
+
+    def _on_trip_planner_destroyed(self) -> None:
+        self._trip_planner_win = None
 
     def _open_found_updater(self) -> None:
         if self._trip_planner_active():

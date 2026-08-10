@@ -473,9 +473,7 @@ class GpsExportDialog(QDialog):
         max_caches: int,
     ) -> None:
         """Kaldt når sletning er færdig — fortsæt med export."""
-        self._log.setPlainText(
-            str(delete_result) + "\n\nEksporterer caches…"
-        )
+        self._log.setPlainText(str(delete_result) + "\n")
         self._run_export(dest, filename, max_caches)
 
     def _prompt_new_filename(self, target: Path) -> tuple[str, bool]:
@@ -536,4 +534,4 @@ class GpsExportDialog(QDialog):
     def _on_error(self, msg: str) -> None:
         self._progress.setVisible(False)
         self._export_btn.setEnabled(True)
-        self._log.setPlainText(f"✗ Fejl:\n{msg}")
+        self._log.setPlainText(f"✗ {tr('error')}:\n{msg}")

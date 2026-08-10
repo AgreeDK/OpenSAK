@@ -8,6 +8,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.2] — 2026-08-10
+
+> Bugfix release — no new features. Seven issues reported by urs-beeli and
+> pjacklam, all fixed and verified.
+
+### Fixed
+
+- **GPX/GGZ export: wrong/missing cache and finder IDs (#695)** — the
+  exported `groundspeak:cache id` was the internal database row ID
+  instead of the real Geocaching.com numeric cache ID (the GPX importer
+  parsed this value but never stored it). The `groundspeak:owner` element
+  and each log's `groundspeak:finder` id attribute were also missing
+  entirely, despite the underlying data already being present in the
+  database. All three now export correctly. Caches imported before this
+  fix will need a re-import (GPX or Pocket Query) to pick up the correct
+  ID — until then, export falls back to a visible `id="0"` placeholder
+  rather than the old misleading value.
+- **Cache selection could take several seconds on large databases (#685)**
+  — caches with many logs/attributes/waypoints/trackables (e.g. a
+  well-logged cache with several trackables) triggered a SQLAlchemy query
+  that joined multiple collections at once, multiplying out to tens of
+  thousands of rows internally before deduplication. Fixed in four
+  places: cache selection, corrected-coordinates reload, and bulk
+  database moves. Up to ~500x faster in testing on worst-case data.
+- **Ctrl+F did nothing (#678)** — the View-menu and toolbar filter
+  actions both held the same keyboard shortcut, which Qt silently
+  refuses to resolve when two actions on the same window collide. Also
+  fixed a related sync issue in the customizable-shortcuts feature that
+  could re-introduce the conflict after saving a custom shortcut.
+- **Quick Filter dropdown not visible on Windows (#681)** — a combo box
+  added directly to the menu bar rendered unreliably on Windows' native
+  menu styling. Moved to the toolbar, next to the saved-filter dropdown,
+  which doesn't have this problem.
+- **Newly saved filter profile didn't appear in the toolbar dropdown
+  until a filter was applied (#682)**.
+- **Trip Planner could sometimes not be reopened after closing it (#676)**
+  — an intermittent timing issue in Qt's deferred window cleanup.
+- **GPS export status log showed Danish text regardless of UI language
+  (#675)**.
+
+Thanks to urs-beeli and pjacklam for the detailed bug reports that made
+this release possible.
+
+---
+
 ## [v1.17.0-beta.3] - 2026-08-09
 
 ### Fixed
@@ -49,6 +94,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   splitter ratio that would still leave either side below a small
   minimum size now falls back to the default layout instead of
   reproducing the stuck state.
+
+---
+
 
 ---
 
