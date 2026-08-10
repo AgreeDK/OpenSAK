@@ -86,9 +86,10 @@ def test_personal_note_survives_gpx_roundtrip(tmp_path):
     # Build a minimal cache stub with a personal note attached.
     note = SimpleNamespace(is_corrected=False, corrected_lat=None, corrected_lon=None, note="My field note")
     cache = SimpleNamespace(
-        id=1, gc_code="GCNOTE1", name="Note Cache", cache_type="Traditional Cache",
+        id=1, gc_code="GCNOTE1", gc_cache_id=None, name="Note Cache", cache_type="Traditional Cache",
         latitude=55.0, longitude=12.0, difficulty=1.5, terrain=2.0,
-        placed_by="Owner", available=True, archived=False, country="Denmark", state=None,
+        placed_by="Owner", owner_name=None, owner_id=None,
+        available=True, archived=False, country="Denmark", state=None,
         encoded_hints=None, hidden_date=None, logs=[], user_note=note, container="Regular",
         short_description=None, short_desc_html=False,
         long_description=None, long_desc_html=False,

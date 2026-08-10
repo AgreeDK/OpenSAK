@@ -72,10 +72,14 @@ def _cache(
     long_description=None,
     long_desc_html=False,
     attributes=None,
+    gc_cache_id=None,
+    owner_name=None,
+    owner_id=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=cache_id,
         gc_code=gc_code,
+        gc_cache_id=gc_cache_id,
         name=name,
         cache_type=cache_type,
         latitude=latitude,
@@ -83,6 +87,8 @@ def _cache(
         difficulty=difficulty,
         terrain=terrain,
         placed_by=placed_by,
+        owner_name=owner_name,
+        owner_id=owner_id,
         available=available,
         archived=archived,
         country=country,
@@ -108,11 +114,12 @@ def _attribute(attribute_id=32, name="Bicycles", is_on=True):
     )
 
 
-def _log(log_id="1", log_type="Found it", finder="Tester", text="TFTC", log_date=None):
+def _log(log_id="1", log_type="Found it", finder="Tester", finder_id=None, text="TFTC", log_date=None):
     return SimpleNamespace(
         log_id=log_id,
         log_type=log_type,
         finder=finder,
+        finder_id=finder_id,
         text=text,
         log_date=log_date or datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
@@ -523,11 +530,11 @@ class TestGenerateGpx:
         # "'<' not supported between instances of 'datetime.datetime' and 'int'"
         # because None fell back to int 0 instead of a comparable datetime.
         dated = SimpleNamespace(
-            log_id="1", log_type="Found it", finder="Alice", text="TFTC",
+            log_id="1", log_type="Found it", finder="Alice", finder_id=None, text="TFTC",
             log_date=datetime(2026, 5, 1, tzinfo=timezone.utc),
         )
         undated = SimpleNamespace(
-            log_id="2", log_type="Write note", finder="Bob", text="No date",
+            log_id="2", log_type="Write note", finder="Bob", finder_id=None, text="No date",
             log_date=None,
         )
         result = generate_gpx([_cache(logs=[undated, dated])])

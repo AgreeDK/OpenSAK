@@ -20,9 +20,10 @@ from opensak.gui.dialogs.kml_export_dialog import _ExportWorker as KmlWorker
 
 def _cache(gc_code="GC12345", latitude=55.0, longitude=12.0):
     return SimpleNamespace(
-        id=1, gc_code=gc_code, name="Test", cache_type="Traditional Cache",
+        id=1, gc_code=gc_code, gc_cache_id=None, name="Test", cache_type="Traditional Cache",
         latitude=latitude, longitude=longitude, difficulty=2.0, terrain=3.0,
-        placed_by="Owner", available=True, archived=False, country="Denmark", state=None,
+        placed_by="Owner", owner_name=None, owner_id=None,
+        available=True, archived=False, country="Denmark", state=None,
         encoded_hints=None, hidden_date=None, logs=[], user_note=None,
         container="Small", found=False,
         short_description="", short_desc_html=False,
