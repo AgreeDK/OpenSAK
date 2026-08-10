@@ -8,6 +8,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.16.3] — 2026-08-10
+
+> Corrects a mistake in v1.16.2: the #695 fix (GPX/GGZ export IDs) was
+> investigated and tested during that cycle but never actually committed,
+> despite the v1.16.2 release notes below stating it was fixed. Apologies
+> for the confusion — it's properly fixed now, verified end-to-end
+> against the original bug report's GPX file.
+
+### Fixed
+
+- **GPX/GGZ export: wrong/missing cache and finder IDs (#695)** — the
+  exported `groundspeak:cache id` was the internal database row ID
+  instead of the real Geocaching.com numeric cache ID (the GPX importer
+  parsed this value but never stored it). The `groundspeak:owner` element
+  and each log's `groundspeak:finder` id attribute were also missing
+  entirely. All three now export correctly. Caches imported before this
+  fix will need a re-import (GPX or Pocket Query) to pick up the correct
+  ID — until then, export falls back to a visible `id="0"` placeholder.
+
+Thanks to urs-beeli, pjacklam, and Allyn56 for the reports and for
+re-testing after the first fix didn't actually land.
+
+---
+
 ## [1.16.2] — 2026-08-XX
 
 > Bugfix release — no new features. Seven issues reported by urs-beeli and
