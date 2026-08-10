@@ -1164,15 +1164,26 @@ class MainWindow(QMainWindow):
         apply_filters() bruger noload() på logs/waypoints/user_note for
         performance ved store databaser. Denne hjælper bruges når brugeren
         vælger en cache, så detaljepanelet altid får komplette data.
+
+        Bruger selectinload() (ikke joinedload()) på de fire samtidige
+        one-to-many collections (logs/attributes/waypoints/trackables).
+        joinedload() på flere collections samtidig giver et enkelt
+        multi-JOIN-query, hvor SQLAlchemy skal deduplikere et cartesian
+        produkt af rækkerne (fx 200 logs × 10 attributter × 3 waypoints ×
+        7 trackables = titusindvis af rækker for én enkelt cache) — det
+        var årsagen til issue #685's flere-sekunders forsinkelse ved valg
+        af caches med mange relaterede rækker. selectinload() udsteder i
+        stedet ét separat "WHERE cache_id IN (...)"-query pr. collection,
+        uden multiplikation.
         """
         from opensak.db.models import Cache as CacheModel
-        from sqlalchemy.orm import joinedload
+        from sqlalchemy.orm import joinedload, selectinload
         with get_session() as session:
             return session.query(CacheModel).options(
-                joinedload(CacheModel.logs),
-                joinedload(CacheModel.attributes),
-                joinedload(CacheModel.waypoints),
-                joinedload(CacheModel.trackables),
+                selectinload(CacheModel.logs),
+                selectinload(CacheModel.attributes),
+                selectinload(CacheModel.waypoints),
+                selectinload(CacheModel.trackables),
                 joinedload(CacheModel.user_note),
             ).filter_by(gc_code=gc_code).first()
 
