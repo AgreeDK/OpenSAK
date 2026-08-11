@@ -748,6 +748,10 @@ STRINGS: dict[str, str] = {
     "col_source":            "Kilde",
     "col_url":               "Url",
     "col_watch":              "Overvågning",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Senest fundet",
+    "col_last_gpx_update":   "Seneste GPX-opdatering",
+    "col_last_four_logs":    "Seneste fire logs",
 
     # ── Højreklik kontekstmenu ────────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Åbn på geocaching.com",

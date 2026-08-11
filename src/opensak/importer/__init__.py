@@ -975,6 +975,31 @@ def _upsert_cache(
     log_dates = [_as_aware_utc(lg.log_date) for lg in existing_logs_by_id.values() if lg.log_date]
     cache.last_log_date = max(log_dates) if log_dates else None
 
+    # ── Issue #716: last_found_date (most recent found-type log by ANY
+    # finder, unlike found_date which is the current user's own log) ───────
+    found_log_dates = [
+        _as_aware_utc(lg.log_date)
+        for lg in existing_logs_by_id.values()
+        if lg.log_type in FOUND_LOG_TYPES and lg.log_date
+    ]
+    cache.last_found_date = max(found_log_dates) if found_log_dates else None
+
+    # ── Issue #716: last_four_logs (cached summary — logs relationship is
+    # noload'ed in the grid, same reasoning as last_log_date above) ────────
+    _recent = sorted(
+        (lg for lg in existing_logs_by_id.values() if lg.log_date),
+        key=lambda lg: _as_aware_utc(lg.log_date), reverse=True,
+    )[:4]
+    cache.last_four_logs = "\n".join(
+        f"{_as_aware_utc(lg.log_date).strftime('%Y-%m-%dT%H:%M:%S')}\t{lg.log_type}\t{lg.finder or ''}"
+        for lg in _recent
+    ) or None
+
+    # ── Issue #716: last_gpx_update — local timestamp of this import pass,
+    # set unconditionally (even for locked caches — it reflects import
+    # activity, not listing content, same as source_file above) ───────────
+    cache.last_gpx_update = datetime.now(timezone.utc)
+
     # Trackables
     for tb in data.get("trackables", []):
         session.add(Trackable(cache=cache, ref=tb["ref"], name=tb["name"]))

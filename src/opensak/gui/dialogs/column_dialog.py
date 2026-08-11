@@ -82,6 +82,10 @@ _ALL_COLUMNS_DEF = [
     ("source",         "col_source",       120, False),
     ("url",            "col_url",          160, False),
     ("watch",          "col_watch",         55, False),
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    ("last_found_date", "col_last_found_date", 90, False),
+    ("last_gpx_update", "col_last_gpx_update", 90, False),
+    ("last_four_logs",  "col_last_four_logs", 70, False),
 ]
 
 def get_all_columns():

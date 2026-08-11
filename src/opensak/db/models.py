@@ -221,6 +221,28 @@ class Cache(Base):
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     source_file: Mapped[Optional[str]] = mapped_column(String(512))  # which GPX this came from
 
+    # ── Issue #716: additional GSAK-compatible derived columns ──────────────
+    # Date of the most recent "Found it"-type log by ANY finder — unlike
+    # found_date above, which is specifically the CURRENT USER's own found
+    # log. Derived from the merged log set on every import, same pattern as
+    # dnf_date/last_log_date above.
+    last_found_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Local timestamp of the most recent import that touched this cache
+    # row — distinct from imported_at (fires once, on first creation only)
+    # and from last_updated (the GC.com-side "changed" listing date, parsed
+    # from the source file). Set unconditionally on every import pass, even
+    # for locked caches, since it reflects import activity, not listing
+    # content.
+    last_gpx_update: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=_utcnow)
+
+    # Cached summary of the 4 most recent logs (any type), so the "Last
+    # four logs" column can display them without loading the noload'ed
+    # logs relationship. One log per line, tab-separated
+    # "ISO8601 date\tlog type\tfinder", most recent first. Updated on
+    # import from the same merged log set as last_log_date.
+    last_four_logs: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     waypoints: Mapped[List["Waypoint"]] = relationship(
         "Waypoint", back_populates="cache", cascade="all, delete-orphan"

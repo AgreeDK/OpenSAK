@@ -19,11 +19,13 @@ from opensak.db.database import (
 _OLD_SCHEMA = [
     "CREATE TABLE caches (id INTEGER PRIMARY KEY AUTOINCREMENT, gc_code TEXT, cache_type TEXT, "
     "container TEXT, difficulty REAL, terrain REAL, hidden_date DATETIME, found_date DATETIME, "
-    "found BOOLEAN, archived BOOLEAN, available BOOLEAN, latitude REAL, longitude REAL)",
+    "found BOOLEAN, archived BOOLEAN, available BOOLEAN, latitude REAL, longitude REAL, "
+    "imported_at DATETIME)",
     "CREATE TABLE waypoints (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, prefix TEXT, "
     "wp_type TEXT, name TEXT, description TEXT, comment TEXT, latitude REAL, longitude REAL)",
     "CREATE TABLE user_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER)",
-    "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, log_date DATETIME)",
+    "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, log_date DATETIME, "
+    "log_type TEXT, finder TEXT)",
 ]
 
 
@@ -102,10 +104,13 @@ def test_old_schema_runs_every_migration(tmp_path):
             c.execute(text(ddl))
         # Rows that trigger the data-normalisation migrations (5 and 7).
         c.execute(text(
-            "INSERT INTO caches (gc_code, cache_type, container) "
-            "VALUES ('GC1', 'gps adventures exhibit', 'Nano')"
+            "INSERT INTO caches (gc_code, cache_type, container, imported_at) "
+            "VALUES ('GC1', 'gps adventures exhibit', 'Nano', '2023-01-01 00:00:00')"
         ))
-        c.execute(text("INSERT INTO logs (cache_id, log_date) VALUES (1, '2024-01-01')"))
+        c.execute(text(
+            "INSERT INTO logs (cache_id, log_date, log_type, finder) "
+            "VALUES (1, '2024-01-01', 'Found it', 'Someone')"
+        ))
         c.execute(text("PRAGMA user_version = 0"))
         c.commit()
 
@@ -120,12 +125,17 @@ def test_old_schema_runs_every_migration(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='waypoints'"
         ))}
         row = c.execute(text("SELECT cache_type, container FROM caches WHERE gc_code='GC1'")).first()
+        found_row = c.execute(text(
+            "SELECT last_found_date, last_gpx_update, last_four_logs FROM caches WHERE gc_code='GC1'"
+        )).first()
         version = c.execute(text("PRAGMA user_version")).scalar()
 
     for col in ("county", "log_count", "parent_gc_code", "owner_name", "last_log_date",
                 "dnf_date", "favorite_points", "distance", "bearing", "waypoint_count",
                 "locked", "gc_note", "url", "elevation", "color", "guid", "watch",
-                "gc_cache_id", "find_count"):
+                "gc_cache_id", "find_count",
+                # Issue #716
+                "last_found_date", "last_gpx_update", "last_four_logs"):
         assert col in cache_cols
     assert "is_corrected" in note_cols
     # The waypoints rebuild (migration 2, later replaced by migration 21)
@@ -140,6 +150,13 @@ def test_old_schema_runs_every_migration(tmp_path):
         assert col in wpt_cols
     for col in ("latitude", "longitude", "logged_by_owner"):
         assert col in log_cols
+
+    # Issue #716: Migration 23 backfill actually populated the new columns
+    # from the single "Found it" log inserted above.
+    assert found_row is not None
+    assert found_row[0] is not None and found_row[0].startswith("2024-01-01")  # last_found_date
+    assert found_row[1] is not None  # last_gpx_update (backfilled from imported_at)
+    assert found_row[2] == "2024-01-01T00:00:00\tFound it\tSomeone"  # last_four_logs
 
     assert version == SCHEMA_VERSION
 

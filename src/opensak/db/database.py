@@ -63,7 +63,7 @@ _migrated_paths: set = set()  # undgår at køre migrationer to gange på samme 
 # bumped to the highest migration number whenever a new migration is added
 # below — _run_migrations() skips the whole block when the database already
 # reports this version, so a stale constant means new migrations never run.
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 
 def init_db(db_path: Path | None = None) -> Engine:
@@ -772,6 +772,85 @@ def _run_migrations(engine: Engine) -> None:
                     "Migration: tilføjede caches.found_log_count "
                     "(intet gc_username/gc_finder_id sat — springer backfill over)"
                 )
+
+        # ── Migration 23: last_found_date, last_gpx_update, last_four_logs
+        # (issue #716) ─────────────────────────────────────────────────────
+        # Follow-up to #658's GSAK-compatible columns. Unlike those (which
+        # just exposed existing data), these 3 are genuinely new derived
+        # data, so a fresh column needs a one-off backfill from what's
+        # already in the database — new values are populated on every
+        # import from here on (see _upsert_cache() in importer/__init__.py
+        # and gsak_importer.py).
+        existing_caches_23 = [
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
+        ]
+        added_23 = []
+
+        if "last_found_date" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_found_date DATETIME"
+            ))
+            # Most recent "Found it"-type log by ANY finder — same
+            # FOUND_LOG_TYPES set used everywhere else in the codebase
+            # (see opensak.utils.constants.FOUND_LOG_TYPES).
+            conn.execute(text("""
+                UPDATE caches
+                SET last_found_date = (
+                    SELECT MAX(log_date)
+                    FROM logs
+                    WHERE logs.cache_id = caches.id
+                      AND logs.log_type IN ('Found it', 'Attended', 'Webcam Photo Taken')
+                )
+            """))
+            added_23.append("last_found_date")
+
+        if "last_gpx_update" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_gpx_update DATETIME"
+            ))
+            # No historical import-timestamp data exists yet — imported_at
+            # (set once, on first creation) is the best available proxy
+            # until the next real import sets this properly.
+            conn.execute(text(
+                "UPDATE caches SET last_gpx_update = imported_at"
+            ))
+            added_23.append("last_gpx_update")
+
+        if "last_four_logs" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_four_logs TEXT"
+            ))
+            # One line per log ("ISO date<TAB>log type<TAB>finder"), most
+            # recent first, matching the format _upsert_cache() writes on
+            # import (see importer/__init__.py). The inner derived table's
+            # ORDER BY + LIMIT 4 fixes the row order group_concat sees —
+            # SQLite doesn't reshuffle rows for an aggregate with no GROUP
+            # BY, so this reliably comes out newest-first without needing
+            # window functions.
+            conn.execute(text("""
+                UPDATE caches
+                SET last_four_logs = (
+                    SELECT group_concat(line, char(10))
+                    FROM (
+                        SELECT (
+                            strftime('%Y-%m-%dT%H:%M:%S', log_date) || char(9) ||
+                            log_type || char(9) || COALESCE(finder, '')
+                        ) AS line
+                        FROM logs
+                        WHERE logs.cache_id = caches.id
+                          AND log_date IS NOT NULL
+                        ORDER BY log_date DESC
+                        LIMIT 4
+                    )
+                )
+                WHERE EXISTS (SELECT 1 FROM logs WHERE logs.cache_id = caches.id)
+            """))
+            added_23.append("last_four_logs")
+
+        if added_23:
+            conn.commit()
+            print(f"Migration: tilføjede caches.{', caches.'.join(added_23)}")
 
         # ── Stamp the schema version so the next launch skips the probes ─────
         # PRAGMA does not accept bind parameters; SCHEMA_VERSION is a trusted

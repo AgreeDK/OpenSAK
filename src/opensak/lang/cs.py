@@ -749,6 +749,10 @@ STRINGS: dict[str, str] = {
     "col_source":            "Zdroj",
     "col_url":               "Url",
     "col_watch":              "Sledování",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Naposledy nalezeno",
+    "col_last_gpx_update":   "Poslední aktualizace GPX",
+    "col_last_four_logs":    "Poslední čtyři logy",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Otevřít na geocaching.com",

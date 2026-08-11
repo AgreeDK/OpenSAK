@@ -748,6 +748,10 @@ STRINGS: dict[str, str] = {
     "col_source":            "Quelle",
     "col_url":               "Url",
     "col_watch":              "Beobachtung",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Zuletzt gefunden",
+    "col_last_gpx_update":   "Letzte GPX-Aktualisierung",
+    "col_last_four_logs":    "Letzte vier Logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Auf geocaching.com öffnen",

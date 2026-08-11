@@ -750,6 +750,10 @@ STRINGS: dict[str, str] = {
     "col_source":            "Bron",
     "col_url":               "Url",
     "col_watch":              "Volgen",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Laatst gevonden",
+    "col_last_gpx_update":   "Laatste GPX-update",
+    "col_last_four_logs":    "Laatste vier logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Openen op geocaching.com",

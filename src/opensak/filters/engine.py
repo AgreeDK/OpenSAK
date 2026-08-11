@@ -1499,6 +1499,10 @@ SORT_FIELDS: dict[str, Any] = {
     "source":          lambda c: 0,
     "url":             lambda c: 0,
     "watch":           lambda c: 0,
+    # ── Issue #716: last_found_date, last_gpx_update, last_four_logs ────
+    "last_found_date": lambda c: 0,
+    "last_gpx_update": lambda c: 0,
+    "last_four_logs":  lambda c: 0,
 }
 
 
@@ -1943,6 +1947,8 @@ _LIGHTWEIGHT_COLUMNS = [
     Cache.locked, Cache.location_source, Cache.location_basis,
     Cache.location_updated, Cache.location_dataset, Cache.imported_at,
     Cache.source_file,
+    # Issue #716
+    Cache.last_found_date, Cache.last_gpx_update, Cache.last_four_logs,
 ]
 
 
