@@ -7,6 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ---
+
+## [1.17.0-beta.6] — 2026-08-11
+
+### Changed
+
+- **Offline reverse-geocoding (Country/State/County) enabled by default (#60)** —
+  the feature is now on out of the box instead of requiring manual opt-in.
+
+### Fixed
+
+- **Reverse-geocode bulk write could crash on large databases (#710)** — the
+  bulk write hit SQLite's parameter limit on very large databases,
+  producing a "too many SQL variables" error. The write is now chunked,
+  so it works regardless of database size.
+
+---
+
 ## [1.17.0-beta.5] — 2026-08-10
 
 > Folds the v1.16.3 stable hotfix (#695 re-fix) back into `beta`. No
