@@ -734,6 +734,21 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Uživatelská data 4",
     "col_favorite_points":   "Obl. body",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Datum změny",
+    "col_creation_date":     "Datum vytvoření",
+    "col_elevation":         "Nadmořská výška",
+    "col_find_count":        "Počet nálezů",
+    "col_gc_note":           "Poznámka GC.com",
+    "col_guid":              "Guid",
+    "col_hints":             "Nápovědy",
+    "col_notes":             "Poznámka",
+    "col_owner_id":          "ID vlastníka",
+    "col_owner_name":        "Jméno vlastníka",
+    "col_source":            "Zdroj",
+    "col_url":               "Url",
+    "col_watch":              "Sledování",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Otevřít na geocaching.com",

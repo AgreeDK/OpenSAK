@@ -1164,7 +1164,10 @@ class MainWindow(QMainWindow):
             fs = quick_fs
 
         with get_session() as session:
-            caches = apply_filters_auto(session, fs, self._current_sort)
+            caches = apply_filters_auto(
+                session, fs, self._current_sort,
+                columns=self._visible_table_columns(),
+            )
 
         self._cache_table.load_caches(caches)
         if get_settings().map_enabled:
@@ -1519,7 +1522,10 @@ class MainWindow(QMainWindow):
         """Reload cache-tabellen uden at opdatere kortet. Bruges efter import."""
         fs = self._build_current_filterset()
         with get_session() as session:
-            caches = apply_filters_auto(session, fs, self._current_sort)
+            caches = apply_filters_auto(
+                session, fs, self._current_sort,
+                columns=self._visible_table_columns(),
+            )
         self._cache_table.load_caches(caches)
         count = self._cache_table.row_count()
         if count == 1:
@@ -1529,6 +1535,14 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage(
             tr("import_table_loaded", count=count), 5000
         )
+
+    def _visible_table_columns(self) -> frozenset:
+        """Issue #658: currently visible column IDs, passed to
+        apply_filters_auto() so it can decide whether "Hints"/"Notes"
+        columns need the full ORM path instead of the lightweight one (see
+        apply_filters_lightweight()'s docstring)."""
+        from opensak.gui.dialogs.column_dialog import get_visible_columns
+        return frozenset(get_visible_columns())
 
     def _fetch_map_caches(self, fs, table_caches: list) -> list:
         """Issue #639: the map shows the nearest N caches (from the active
@@ -2195,7 +2209,10 @@ class MainWindow(QMainWindow):
 
     def _on_filter_applied(self, filterset, sort, profile_name: str) -> None:
         with get_session() as session:
-            caches = apply_filters_auto(session, filterset, sort)
+            caches = apply_filters_auto(
+                session, filterset, sort,
+                columns=self._visible_table_columns(),
+            )
 
         if not caches:
             # Issue #444: match GSAK's behavior — warn instead of silently
@@ -2398,7 +2415,10 @@ class MainWindow(QMainWindow):
         self._filter_lbl.setText(f"🔍 {profile.name}")
         self._quick_filter.setCurrentIndex(0)
         with get_session() as session:
-            caches = apply_filters_auto(session, profile.filterset, profile.sort)
+            caches = apply_filters_auto(
+                session, profile.filterset, profile.sort,
+                columns=self._visible_table_columns(),
+            )
         self._cache_table.load_caches(caches)
         if get_settings().map_enabled:
             self._map_widget.load_caches(self._fetch_map_caches(profile.filterset, caches))
@@ -2423,6 +2443,19 @@ class MainWindow(QMainWindow):
         self._populate_column_view_combo()
         if accepted:
             self._cache_table.reload_columns()
+            # Issue #658 follow-up: reload_columns() only swaps which
+            # columns are drawn — it reuses whatever cache objects are
+            # already in the model. If the user just turned on "Hints" or
+            # "Notes" and the currently loaded rows are LightweightCache
+            # (the fast path used whenever those columns were off), the
+            # very next repaint crashes with AttributeError (encoded_hints/
+            # user_note.note aren't carried — see LightweightCache's
+            # docstring). Re-query only when that's actually the case, so
+            # the common case (resizing/reordering/hiding columns) doesn't
+            # pay for an extra DB round trip it doesn't need.
+            if (self._visible_table_columns() & {"hints", "notes"}
+                    and self._cache_table._model.has_lightweight_caches()):
+                self._refresh_table_only()
 
     def _populate_column_view_combo(self) -> None:
         """Genindlæs alle gemte Column Views i toolbar-dropdown (#607).
@@ -2509,6 +2542,13 @@ class MainWindow(QMainWindow):
         set_container_display(view.container_display)
         set_type_display(view.type_display)
         self._cache_table.reload_columns()
+        # Issue #658 follow-up — same reasoning as _open_column_chooser():
+        # reload_columns() doesn't refetch data, so a view that turns on
+        # Hints/Notes over currently-loaded LightweightCache rows needs an
+        # explicit re-query to avoid an AttributeError on the next repaint.
+        if (self._visible_table_columns() & {"hints", "notes"}
+                and self._cache_table._model.has_lightweight_caches()):
+            self._refresh_table_only()
         self._statusbar.showMessage(
             tr("status_column_view_applied", name=view.name), 3000
         )

@@ -733,6 +733,21 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Brugerdata 4",
     "col_favorite_points":   "Fav. point",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Ændringsdato",
+    "col_creation_date":     "Oprettelsesdato",
+    "col_elevation":         "Højde",
+    "col_find_count":        "Antal fundet",
+    "col_gc_note":           "GC.com-note",
+    "col_guid":              "Guid",
+    "col_hints":             "Hints",
+    "col_notes":             "Notat",
+    "col_owner_id":          "Ejer-ID",
+    "col_owner_name":        "Ejernavn",
+    "col_source":            "Kilde",
+    "col_url":               "Url",
+    "col_watch":              "Overvågning",
 
     # ── Højreklik kontekstmenu ────────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Åbn på geocaching.com",

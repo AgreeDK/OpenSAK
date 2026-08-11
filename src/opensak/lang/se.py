@@ -733,6 +733,21 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Användardata 4",
     "col_favorite_points":   "Fav.-poäng",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache-Id",
+    "col_changed_date":      "Ändringsdatum",
+    "col_creation_date":     "Skapandedatum",
+    "col_elevation":         "Höjd",
+    "col_find_count":        "Antal funna",
+    "col_gc_note":           "GC.com-anteckning",
+    "col_guid":              "Guid",
+    "col_hints":             "Ledtrådar",
+    "col_notes":             "Anteckning",
+    "col_owner_id":          "Ägar-ID",
+    "col_owner_name":        "Ägarnamn",
+    "col_source":            "Källa",
+    "col_url":               "Url",
+    "col_watch":              "Bevakning",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Öppna hos geocaching.com",

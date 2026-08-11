@@ -735,6 +735,21 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Gebruikersdata 4",
     "col_favorite_points":   "Fav. punten",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Wijzigingsdatum",
+    "col_creation_date":     "Aanmaakdatum",
+    "col_elevation":         "Hoogte",
+    "col_find_count":        "Aantal gevonden",
+    "col_gc_note":           "GC.com-notitie",
+    "col_guid":              "Guid",
+    "col_hints":             "Hints",
+    "col_notes":             "Notitie",
+    "col_owner_id":          "Eigenaar-ID",
+    "col_owner_name":        "Eigenaarnaam",
+    "col_source":            "Bron",
+    "col_url":               "Url",
+    "col_watch":              "Volgen",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Openen op geocaching.com",

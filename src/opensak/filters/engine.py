@@ -1477,6 +1477,28 @@ SORT_FIELDS: dict[str, Any] = {
     "user_data_2":     lambda c: (c.user_data_2 or "").lower(),
     "user_data_3":     lambda c: (c.user_data_3 or "").lower(),
     "user_data_4":     lambda c: (c.user_data_4 or "").lower(),
+    # ── Issue #658: additional GSAK-compatible columns — placeholders, same
+    # reasoning as log_count/last_log/corrected above: real sorting happens
+    # in CacheTableModel.sort() when the user clicks the column header.
+    # These entries exist only so SortSpec(field) validates and a
+    # remembered/restored sort on one of these columns doesn't crash at
+    # startup (#658 follow-up — caught in Allan's manual test after the
+    # first delivery: SortSpec's own field whitelist is separate from
+    # CacheTableModel.sort()'s dispatch and had been missed).
+    "gc_cache_id":     lambda c: 0,
+    "changed_date":    lambda c: 0,
+    "creation_date":   lambda c: 0,
+    "elevation":       lambda c: 0,
+    "find_count":      lambda c: 0,
+    "gc_note":         lambda c: 0,
+    "guid":            lambda c: 0,
+    "hints":           lambda c: 0,
+    "notes":           lambda c: 0,
+    "owner_id":        lambda c: 0,
+    "owner_name":      lambda c: 0,
+    "source":          lambda c: 0,
+    "url":             lambda c: 0,
+    "watch":           lambda c: 0,
 }
 
 
@@ -1736,6 +1758,7 @@ def apply_filters(
     sort: Optional[SortSpec] = None,
     limit: Optional[int] = None,
     distance_from: Optional[tuple[float, float]] = None,
+    columns: Optional[frozenset[str]] = None,
 ) -> list[Cache]:
     """
     Load caches from DB, apply *filterset*, sort, and return a list.
@@ -1748,6 +1771,13 @@ def apply_filters(
     limit        : Maximum number of results to return
     distance_from: Optional (lat, lon) tuple — if given, results are sorted
                    by distance when sort.field == 'distance'
+    columns      : Issue #658 — column IDs currently visible in the caller's
+                   grid, if any. Only "hints" is looked at here (Notes is
+                   already always loaded via the joinedload(Cache.user_note)
+                   below, regardless of columns) — used to decide whether to
+                   undefer Cache.encoded_hints even when no *filter* needs
+                   it, so the "Hints" column doesn't lazy-load one row at a
+                   time.
 
     Returns
     -------
@@ -1762,6 +1792,7 @@ def apply_filters(
     # and trackable rows when the filterset contains only a NameFilter or a
     # simple quick-filter (the common case during live search).
     _needs = _filterset_relationship_needs(filterset)
+    needs_hint_column = columns is not None and "hints" in columns
 
     from sqlalchemy.orm import defer, joinedload, noload
     _opts: list = [
@@ -1777,7 +1808,7 @@ def apply_filters(
     # Defer the large free-text blobs unless text search needs them.
     if not _needs.description:
         _opts += [defer(Cache.short_description), defer(Cache.long_description)]
-    if not _needs.hint:
+    if not _needs.hint and not needs_hint_column:
         _opts.append(defer(Cache.encoded_hints))
     query = session.query(Cache).options(*_opts)
 
@@ -2031,6 +2062,7 @@ def apply_filters_lightweight(
     limit: Optional[int] = None,
     distance_from: Optional[tuple[float, float]] = None,
     push_limit: bool = False,
+    columns: Optional[frozenset[str]] = None,
 ) -> list:
     """Like apply_filters(), but returns LightweightCache rows instead of
     full Cache ORM objects when it safely can — see the module comment
@@ -2058,10 +2090,19 @@ def apply_filters_lightweight(
     slice ~3.0s regardless of limit size (500 through 5000 all fetch and
     construct every row before slicing); SQL LIMIT 0.31s-0.56s, correctly
     scaling with the requested limit.
+
+    columns (#658): column IDs currently visible in the caller's grid, if
+    any. LightweightCache/LightweightUserNote deliberately don't carry
+    encoded_hints or the full UserNote.note text (see LightweightCache's
+    docstring), so a visible "hints" or "notes" column needs the full
+    apply_filters() ORM path — same fallback mechanism already used for
+    filtersets that touch those fields via _filterset_relationship_needs().
     """
     _needs = _filterset_relationship_needs(filterset)
-    if _needs.any:
-        return apply_filters(session, filterset, sort, limit, distance_from)
+    needs_hint_column = columns is not None and "hints" in columns
+    needs_notes_column = columns is not None and "notes" in columns
+    if _needs.any or needs_hint_column or needs_notes_column:
+        return apply_filters(session, filterset, sort, limit, distance_from, columns=columns)
 
     _prepare_where_clause_filters(session, filterset, distance_from)
 
@@ -2131,6 +2172,7 @@ def apply_filters_auto(
     limit: Optional[int] = None,
     distance_from: Optional[tuple[float, float]] = None,
     push_limit: bool = False,
+    columns: Optional[frozenset[str]] = None,
 ) -> list:
     """Preferred entry point for GUI code (table, map) that only needs
     scalar display fields — always the fast path where it safely can be.
@@ -2155,8 +2197,12 @@ def apply_filters_auto(
     push_limit (#639): see apply_filters_lightweight()'s docstring —
     passed straight through, default False (no behavior change unless a
     caller opts in).
+
+    columns (#658): see apply_filters_lightweight()'s docstring — passed
+    straight through, default None (no behavior change unless a caller
+    opts in).
     """
-    return apply_filters_lightweight(session, filterset, sort, limit, distance_from, push_limit)
+    return apply_filters_lightweight(session, filterset, sort, limit, distance_from, push_limit, columns)
 
 
 # ── Saved filter profiles ─────────────────────────────────────────────────────

@@ -119,6 +119,21 @@ def get_column_defs() -> dict:
         "user_data_4":     (tr("col_user_data_4"),    100),
         # ── Issue #489/#491: Trackables (travel bugs / geocoins) ──────────
         "trackables":      (tr("col_trackables"),      55),
+        # ── Issue #658: additional GSAK-compatible columns ─────────────────
+        "gc_cache_id":     (tr("col_gc_cache_id"),      90),
+        "changed_date":    (tr("col_changed_date"),     90),
+        "creation_date":   (tr("col_creation_date"),    90),
+        "elevation":       (tr("col_elevation"),         70),
+        "find_count":      (tr("col_find_count"),        80),
+        "gc_note":         (tr("col_gc_note"),          160),
+        "guid":            (tr("col_guid"),             160),
+        "hints":           (tr("col_hints"),             160),
+        "notes":           (tr("col_notes"),             160),
+        "owner_id":        (tr("col_owner_id"),          90),
+        "owner_name":      (tr("col_owner_name"),       120),
+        "source":          (tr("col_source"),           120),
+        "url":             (tr("col_url"),               160),
+        "watch":           (tr("col_watch"),              55),
     }
 
 
@@ -648,6 +663,17 @@ class CacheTableModel(QAbstractTableModel):
             return self._caches[row]
         return None
 
+    def has_lightweight_caches(self) -> bool:
+        """Issue #658 follow-up: True if any currently loaded row is a
+        LightweightCache — which deliberately doesn't carry
+        encoded_hints/full UserNote.note text (see its docstring). Lets a
+        caller decide whether toggling on the "Hints"/"Notes" column via
+        the Column Chooser (which only swaps visible columns, not the
+        loaded data — see reload_columns()) needs a full DB re-query to
+        avoid an AttributeError on the next repaint."""
+        from opensak.filters.engine import LightweightCache
+        return any(isinstance(c, LightweightCache) for c in self._caches)
+
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._caches)
 
@@ -731,6 +757,14 @@ class CacheTableModel(QAbstractTableModel):
                        "latitude", "longitude",
                        "hidden_date", "last_log", "found_date", "dnf_date",
                        "placed_by",
+                       # Issue #658: additional GSAK-compatible columns —
+                       # dates/numbers/short IDs centered, matching the
+                       # existing hidden_date/found_date/log_count pattern.
+                       # gc_note/guid/hints/notes/owner_name/source/url are
+                       # left as free text (default left-align, same as
+                       # placed_by's *free-text sibling* user_data_1..4).
+                       "gc_cache_id", "changed_date", "creation_date",
+                       "elevation", "find_count", "owner_id", "watch",
                        # Issue #603: Country/Region(state)/County were missed
                        # by #431's sweep of "similar short-value columns" —
                        # left-aligned while Placed By (same kind of short
@@ -994,6 +1028,40 @@ class CacheTableModel(QAbstractTableModel):
             return cache.user_data_3 or ""
         if col == "user_data_4":
             return cache.user_data_4 or ""
+        # ── Issue #658: additional GSAK-compatible columns ─────────────────────
+        if col == "gc_cache_id":
+            return cache.gc_cache_id or ""
+        if col == "changed_date":
+            return _format_date(cache.last_updated) if cache.last_updated else ""
+        if col == "creation_date":
+            return _format_date(cache.imported_at) if cache.imported_at else ""
+        if col == "elevation":
+            if cache.elevation is None:
+                return ""
+            suffix = "ft" if get_settings().use_miles else "m"
+            value = cache.elevation * 3.28084 if get_settings().use_miles else cache.elevation
+            return f"{value:.0f} {suffix}"
+        if col == "find_count":
+            return str(cache.find_count) if cache.find_count is not None else ""
+        if col == "gc_note":
+            return (cache.gc_note or "").replace("\n", " ").strip()
+        if col == "guid":
+            return cache.guid or ""
+        if col == "hints":
+            return (cache.encoded_hints or "").replace("\n", " ").strip()
+        if col == "notes":
+            note = cache.user_note
+            return (note.note or "").replace("\n", " ").strip() if note else ""
+        if col == "owner_id":
+            return cache.owner_id or ""
+        if col == "owner_name":
+            return cache.owner_name or ""
+        if col == "source":
+            return cache.source_file or ""
+        if col == "url":
+            return cache.url or ""
+        if col == "watch":
+            return "✓" if cache.watch else ""
         return ""
 
     def sort(self, column: int, order=Qt.SortOrder.AscendingOrder) -> None:
@@ -1083,6 +1151,33 @@ class CacheTableModel(QAbstractTableModel):
             )
         elif col == "gc_code":
             self._caches.sort(key=lambda c: _gc_sort_key(c.gc_code or ""), reverse=reverse)
+        # ── Issue #658: additional GSAK-compatible columns ──────────────────
+        elif col == "changed_date":
+            self._caches.sort(key=lambda c: c.last_updated or datetime.min, reverse=reverse)
+        elif col == "creation_date":
+            self._caches.sort(key=lambda c: c.imported_at or datetime.min, reverse=reverse)
+        elif col == "notes":
+            # Not a direct Cache attribute — lives on the user_note
+            # relationship, so the generic fallback below (getattr(c, col))
+            # would silently sort everything as "0".
+            self._caches.sort(
+                key=lambda c: ((c.user_note.note or "") if c.user_note else "").lower(),
+                reverse=reverse,
+            )
+        elif col == "elevation":
+            # Optional[float] — the generic fallback mixes "" (str, for
+            # None rows) with float (for set rows), which crashes on
+            # comparison. Same reasoning as favorite_points/user_sort below.
+            self._caches.sort(key=lambda c: c.elevation if c.elevation is not None else -999999.0, reverse=reverse)
+        elif col == "find_count":
+            self._caches.sort(key=lambda c: c.find_count if c.find_count is not None else -1, reverse=reverse)
+        elif col == "hints":
+            # Column id "hints" maps to Cache.encoded_hints, not a same-named
+            # attribute — the generic fallback would raise AttributeError.
+            self._caches.sort(key=lambda c: (c.encoded_hints or "").lower(), reverse=reverse)
+        elif col == "source":
+            # Column id "source" maps to Cache.source_file.
+            self._caches.sort(key=lambda c: (c.source_file or "").lower(), reverse=reverse)
         else:
             self._caches.sort(
                 key=lambda c: (getattr(c, col) or "").lower()
