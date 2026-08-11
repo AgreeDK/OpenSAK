@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.7] — 2026-08-11
+
+### Added
+
+- **14 new GSAK-compatible columns (#658)** — Cache Id, Changed date,
+  Creation date, Elevation, Found count, GC.com note, Guid, Hints,
+  Notes, Owner ID, Owner name, Source, Url, Watch. All backed by
+  existing data — available immediately via the Column Chooser.
+- **Last found / Last GPX update / Last four logs columns (#716)** —
+  follow-up to #658 for the 3 remaining GSAK fields that needed new
+  derived data rather than just exposing existing columns:
+  - **Last found** — most recent "Found it"-type log by any finder
+    (unlike the existing "Date found by me" column, which is
+    specifically your own found date).
+  - **Last GPX update** — local timestamp of the most recent import
+    that touched a given cache.
+  - **Last four logs** — shown as 4 GSAK-style colored squares (green
+    = found, red = DNF, yellow = other, blank = no log), matching
+    GSAK's own compact display.
+
+  Existing databases backfill automatically on first launch after
+  updating.
+
+Thanks to Allyn56 and ianwok for the underlying GSAK-parity requests
+this closes out (#518, #542, #534).
+
+---
+
 ## [1.17.0-beta.6] — 2026-08-11
 
 ### Changed
