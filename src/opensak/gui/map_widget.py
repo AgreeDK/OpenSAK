@@ -192,6 +192,7 @@ var homeMarker = null;
 var selectedGcCode = null;
 var bridge = null;
 var waypointMarkers = [];
+var panRequestSeq = 0;     // issue #718 — see panToCache()
 
 // ── WebChannel setup ──────────────────────────────────────────────────────────
 new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -365,21 +366,40 @@ function setHomeLocation(lat, lon, label) {
 function panToCache(gcCode) {
     var marker = markers[gcCode];
     if (!marker) return;
-    try {
-        clusterGroup.zoomToShowLayer(marker, function() {
-            try {
-                map.panTo(marker.getLatLng());
-                if (marker._icon) {
-                    marker.openPopup();
-                }
-            } catch (e) {
-                // marker may have been invalidated during animation
-            }
-        });
-    } catch (e) {
-        map.panTo(marker.getLatLng());
-    }
     selectMarker(gcCode);
+
+    // Issue #718 (Mike, Mac ARM, beta.7): selecting a new cache in the grid
+    // updates the detail text but the map sometimes doesn't pan/pop up,
+    // ~60% of the time. Root cause: Leaflet.markercluster's
+    // zoomToShowLayer() registers a one-shot moveend/zoomend listener and
+    // resolves it via that listener — but if this function is called again
+    // (a new cache selected) before the previous call's listener has fired,
+    // the plugin's internal bookkeeping can drop one of the two callbacks
+    // silently (a known upstream race, worse here because WebEngine's
+    // animation timing makes back-to-back selections more likely to
+    // overlap — matches "fails about 60%+ of the time" on rapid grid
+    // clicking). panRequestSeq ensures only the most recently requested
+    // pan actually moves the map (a stale callback becomes a no-op instead
+    // of yanking the view back to an old cache), and the setTimeout is a
+    // safety net for when zoomToShowLayer's callback never fires at all.
+    var mySeq = ++panRequestSeq;
+    var doPan = function() {
+        if (mySeq !== panRequestSeq) return;  // superseded by a later selection
+        try {
+            map.panTo(marker.getLatLng());
+            if (marker._icon) {
+                marker.openPopup();
+            }
+        } catch (e) {
+            // marker may have been invalidated during animation
+        }
+    };
+    try {
+        clusterGroup.zoomToShowLayer(marker, doPan);
+        setTimeout(doPan, 400);
+    } catch (e) {
+        doPan();
+    }
 }
 
 function selectMarker(gcCode) {

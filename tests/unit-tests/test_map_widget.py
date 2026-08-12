@@ -299,6 +299,22 @@ class TestJsMethods:
         w.pan_to_cache("GC'1")
         assert any("panToCache" in js for js in w._page.js)
 
+    def test_pan_to_cache_js_has_stale_callback_guard(self):
+        # Issue #718 (Mike, Mac ARM beta.7): the map pin sometimes didn't
+        # pan/pop up when a new cache was selected, ~60% of the time.
+        # Root cause: Leaflet.markercluster's zoomToShowLayer() callback can
+        # silently be dropped when panToCache() is called again (a new
+        # selection) before the previous call's moveend/zoomend listener has
+        # fired. Two safeguards are required: a sequence token so a stale
+        # callback can't move the map to the wrong (old) cache, and a
+        # setTimeout fallback for when the callback never fires at all.
+        start = mw_mod.MAP_HTML.index("function panToCache")
+        end = mw_mod.MAP_HTML.index("\nfunction selectMarker", start)
+        body = mw_mod.MAP_HTML[start:end]
+        assert "panRequestSeq" in body
+        assert "mySeq !== panRequestSeq" in body
+        assert "setTimeout(doPan" in body
+
     def test_fit_all(self, w):
         w.fit_all()
         assert w._page.js == ["fitAllMarkers()"]
