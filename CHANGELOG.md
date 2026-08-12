@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.10] — 2026-08-12
+
+### Added
+
+- **Startup and migration timing diagnostics (#723 follow-up)** — a report
+  surfaced that the app could still appear to hang on startup for some
+  large existing databases even after the beta.9 fix. To pin down exactly
+  where, the full startup path now logs timestamped checkpoints to
+  `opensak.log`: each phase in `app.py` (language load, database check,
+  database load, main window build), every one of the 24 schema
+  migrations individually, and — for the migrations most likely to be
+  slow on a large database — each underlying query separately rather than
+  the migration as a whole (the three backfills in migration 24, each of
+  the index creations in migrations 6 and 12, and the waypoints table
+  rebuild in migration 2). The one-off distance/bearing recalculation
+  that can run on first launch after an upgrade is also broken down by
+  phase (fetch / compute / write). No behaviour changes — this release is
+  diagnostics only, so the next report comes with an exact trace instead
+  of a stopwatch guess.
+
+---
+
 ## [1.17.0-beta.9] — 2026-08-12
 
 ### Fixed
