@@ -3,6 +3,8 @@ src/opensak/gui/mainwindow.py — Main application window.
 """
 
 from __future__ import annotations
+import logging
+import time
 from typing import TYPE_CHECKING, Optional, cast
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
@@ -32,6 +34,8 @@ from opensak.updater import UpdateCheckWorker, RELEASES_PAGE
 
 if TYPE_CHECKING:
     from opensak.gui.dialogs.trip_dialog import TripPlannerDialog
+
+logger = logging.getLogger(__name__)
 
 
 class ClickableLabel(QLabel):
@@ -1147,6 +1151,7 @@ class MainWindow(QMainWindow):
         returning from Settings or any other dialog never discards the active
         filter (fixes #128).
         """
+        _t0 = time.monotonic()
         quick_fs = self._build_current_filterset()
 
         # Wrap both filtersets in a top-level AND so they work together.
@@ -1168,16 +1173,32 @@ class MainWindow(QMainWindow):
                 session, fs, self._current_sort,
                 columns=self._visible_table_columns(),
             )
+        logger.info(
+            "mainwindow: apply_filters_auto returned %s caches (+%.2fs)",
+            len(caches), time.monotonic() - _t0,
+        )
 
         self._cache_table.load_caches(caches)
+        logger.info(
+            "mainwindow: cache_table.load_caches done (+%.2fs)",
+            time.monotonic() - _t0,
+        )
         if get_settings().map_enabled:
             self._map_widget.load_caches(self._fetch_map_caches(fs, caches))
+            logger.info(
+                "mainwindow: map_widget.load_caches done (+%.2fs)",
+                time.monotonic() - _t0,
+            )
         count = self._cache_table.row_count()
         if count == 1:
             self._count_lbl.setText(tr("count_cache_single"))
         else:
             self._count_lbl.setText(tr("count_caches", count=count))
         self._update_info_bar()
+        logger.info(
+            "mainwindow: _refresh_cache_list done (+%.2fs total)",
+            time.monotonic() - _t0,
+        )
 
     def _update_info_bar(self) -> None:
         """Recalculate and update the GSAK-style info bar (issue #116)."""
@@ -1785,15 +1806,28 @@ class MainWindow(QMainWindow):
         database synkroniseret fra en anden maskine med et andet
         hjemmepunkt).
         """
+        logger.info("mainwindow: _initial_load starting")
+        _t0 = time.monotonic()
         s = get_settings()
         if s.home_lat and s.home_lon:
             from opensak.db.database import recalculate_distances, distances_up_to_date
             if not distances_up_to_date(s.home_lat, s.home_lon):
+                logger.info("mainwindow: distances stale, recalculating")
                 recalculate_distances(s.home_lat, s.home_lon)
+            else:
+                logger.info("mainwindow: distances already up to date, skipping recalc")
+        logger.info(
+            "mainwindow: _initial_load pre-refresh done (+%.2fs)",
+            time.monotonic() - _t0,
+        )
         if not self._map_widget.is_ready():
+            logger.info("mainwindow: map not ready, deferring refresh")
             self._map_widget.set_pending_refresh(self._refresh_cache_list)
         else:
             self._refresh_cache_list()
+        logger.info(
+            "mainwindow: _initial_load done (+%.2fs total)", time.monotonic() - _t0,
+        )
 
     def _check_setup_complete(self) -> None:
         """Vis velkomst-dialog hvis setup mangler."""

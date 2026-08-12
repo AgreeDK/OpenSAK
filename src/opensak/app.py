@@ -2,13 +2,17 @@
 app.py — Application entry point for OpenSAK.
 """
 
+import logging
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from opensak.gui.icon import get_app_icon
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QSplashScreen
+
+logger = logging.getLogger(__name__)
 
 def _migrate_legacy_db() -> None:
     """
@@ -207,6 +211,8 @@ def main() -> None:
     # alt der sker under resten af opstarten, inkl. migration og wizard.
     from opensak.logger import setup_logging
     setup_logging()
+    logger.info("startup: main() begin, version=%s", _ver)
+    _startup_t0 = time.monotonic()
 
     # Indlæs sprog FØR noget UI oprettes
     splash_msg("Indlæser sprog...")
@@ -240,18 +246,23 @@ def main() -> None:
 
     # Migrer gammel database hvis nødvendigt
     splash_msg("Kontrollerer database...")
+    logger.info("startup: checking legacy db (+%.2fs)", time.monotonic() - _startup_t0)
     _migrate_legacy_db()
 
     # Initialiser database manager — åbner samme DB som sidst
     splash_msg("Indlæser database...")
+    logger.info("startup: loading database (+%.2fs)", time.monotonic() - _startup_t0)
     from opensak.db.manager import get_db_manager
     manager = get_db_manager()
     manager.ensure_active_initialised()
+    logger.info("startup: database loaded (+%.2fs)", time.monotonic() - _startup_t0)
 
     # Opret hovedvindue
     splash_msg("Starter OpenSAK...")
+    logger.info("startup: building main window (+%.2fs)", time.monotonic() - _startup_t0)
     from opensak.gui.mainwindow import MainWindow
     window = MainWindow()
+    logger.info("startup: main window built (+%.2fs total)", time.monotonic() - _startup_t0)
 
     # Vent til cache-tabellen er loadet før splash lukkes
     def _close_splash():
