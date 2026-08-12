@@ -185,6 +185,8 @@ def _run_migrations(engine: Engine) -> None:
         idx_names = [r[0] for r in idx_rows]
 
         if "uq_waypoint_cache_prefix_name" not in idx_names:
+            logger.debug("[migrations] 2: waypoints table rebuild starting")
+            _step_t0 = time.monotonic()
             # SQLite understøtter ikke DROP CONSTRAINT — vi recreater tabellen.
             # Unik-constraint laves som et NAVNGIVET index (ikke inline UNIQUE,
             # der ville få et auto-genereret sqlite_autoindex-navn) så gaten
@@ -219,6 +221,10 @@ def _run_migrations(engine: Engine) -> None:
             ))
             conn.execute(text("PRAGMA foreign_keys=ON"))
             conn.commit()
+            logger.debug(
+                "[migrations] 2: waypoints table rebuild done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
             print("Migration: opdaterede waypoints unique constraint til (cache_id, prefix, name)")
 
         # ── Migration 3: Tilføj county til caches ────────────────────────────
@@ -303,9 +309,15 @@ def _run_migrations(engine: Engine) -> None:
         created_log_idx = []
         for idx_name, cols in log_index_specs:
             if idx_name not in existing_log_idx:
+                logger.debug("[migrations] 6: creating %s starting", idx_name)
+                _step_t0 = time.monotonic()
                 conn.execute(text(
                     f"CREATE INDEX IF NOT EXISTS {idx_name} ON logs ({cols})"
                 ))
+                logger.debug(
+                    "[migrations] 6: creating %s done (+%.2fs)",
+                    idx_name, time.monotonic() - _step_t0,
+                )
                 created_log_idx.append(idx_name)
         if created_log_idx:
             conn.commit()
@@ -447,9 +459,15 @@ def _run_migrations(engine: Engine) -> None:
         created_idx = []
         for idx_name, cols in index_specs:
             if idx_name not in existing_idx:
+                logger.debug("[migrations] 12: creating %s starting", idx_name)
+                _step_t0 = time.monotonic()
                 conn.execute(text(
                     f"CREATE INDEX IF NOT EXISTS {idx_name} ON caches ({cols})"
                 ))
+                logger.debug(
+                    "[migrations] 12: creating %s done (+%.2fs)",
+                    idx_name, time.monotonic() - _step_t0,
+                )
                 created_idx.append(idx_name)
         if created_idx:
             conn.commit()
@@ -864,6 +882,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.execute(text(
                 "ALTER TABLE caches ADD COLUMN last_found_date DATETIME"
             ))
+            logger.debug("[migrations] 24: last_found_date backfill starting")
+            _step_t0 = time.monotonic()
             # Most recent "Found it"-type log by ANY finder — same
             # FOUND_LOG_TYPES set used everywhere else in the codebase
             # (see opensak.utils.constants.FOUND_LOG_TYPES).
@@ -876,24 +896,36 @@ def _run_migrations(engine: Engine) -> None:
                       AND logs.log_type IN ('Found it', 'Attended', 'Webcam Photo Taken')
                 )
             """))
+            logger.debug(
+                "[migrations] 24: last_found_date backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
             added_23.append("last_found_date")
 
         if "last_gpx_update" not in existing_caches_23:
             conn.execute(text(
                 "ALTER TABLE caches ADD COLUMN last_gpx_update DATETIME"
             ))
+            logger.debug("[migrations] 24: last_gpx_update backfill starting")
+            _step_t0 = time.monotonic()
             # No historical import-timestamp data exists yet — imported_at
             # (set once, on first creation) is the best available proxy
             # until the next real import sets this properly.
             conn.execute(text(
                 "UPDATE caches SET last_gpx_update = imported_at"
             ))
+            logger.debug(
+                "[migrations] 24: last_gpx_update backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
             added_23.append("last_gpx_update")
 
         if "last_four_logs" not in existing_caches_23:
             conn.execute(text(
                 "ALTER TABLE caches ADD COLUMN last_four_logs TEXT"
             ))
+            logger.debug("[migrations] 24: last_four_logs backfill starting")
+            _step_t0 = time.monotonic()
             # One line per log ("ISO date<TAB>log type<TAB>finder"), most
             # recent first, matching the format _upsert_cache() writes on
             # import (see importer/__init__.py). The inner derived table's
@@ -919,6 +951,10 @@ def _run_migrations(engine: Engine) -> None:
                 )
                 WHERE EXISTS (SELECT 1 FROM logs WHERE logs.cache_id = caches.id)
             """))
+            logger.debug(
+                "[migrations] 24: last_four_logs backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
             added_23.append("last_four_logs")
 
         if added_23:
