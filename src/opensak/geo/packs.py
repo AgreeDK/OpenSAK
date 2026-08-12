@@ -10,9 +10,9 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.error import URLError
 
 from opensak.logger import get_logger
@@ -27,6 +27,11 @@ MANIFEST_FILENAME = "manifest.json"
 THROTTLE_SECONDS = 7 * 24 * 3600
 REQUEST_TIMEOUT = 30
 DOWNLOAD_TIMEOUT = 60
+# Quick reachability probe used by fetch_packs() before a multi-pack batch —
+# short on purpose. A fully blocked/offline network would otherwise cost up
+# to DOWNLOAD_TIMEOUT seconds *per pack* before failing (#722); one short
+# probe fails fast and skips the whole batch instead.
+PROBE_TIMEOUT = 5
 # Baseline downloads are I/O-bound (network round-trip, not CPU) — urllib
 # releases the GIL during the actual socket wait, so a higher worker count
 # than a CPU-bound pool (e.g. the resolver's min(4, cpu_count)) is fine here.
@@ -91,6 +96,52 @@ def fetch_all(
             downloaded += 1
         if progress_cb:
             progress_cb(downloaded, total)
+    return downloaded
+
+
+def fetch_packs(
+    filenames: Iterable[str],
+    dest_dir: Path,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> int:
+    """
+    Download the given county packs (by filename) into dest_dir in parallel,
+    skipping any already present locally. Used as a pre-fetch phase ahead of
+    reverse-geocoding a batch of caches (#722): downloading every pack the
+    batch needs up front, with real progress, avoids resolving retrying a
+    slow on-demand fetch (up to DOWNLOAD_TIMEOUT seconds) for every cache
+    that happens to need a county whose pack is still missing.
+
+    A single short reachability probe (PROBE_TIMEOUT) runs first — if the
+    network is unreachable, the whole batch is skipped immediately rather
+    than paying the full timeout for each pack in turn.
+
+    progress_cb(done, total) is called from the calling thread as each pack
+    finishes downloading (success or failure) — safe to update a Qt
+    progress bar from a QThread's run() method, as ReverseGeocodeWorker does.
+    Returns the count of packs successfully downloaded.
+    """
+    to_fetch = list(dict.fromkeys(fn for fn in filenames if not (dest_dir / fn).is_file()))
+    total = len(to_fetch)
+    if not to_fetch:
+        return 0
+
+    if fetch_manifest(timeout=PROBE_TIMEOUT) is None:
+        log.debug("fetch_packs: reachability probe failed, skipping %d pack(s)", total)
+        if progress_cb:
+            progress_cb(total, total)
+        return 0
+
+    downloaded = 0
+    done = 0
+    with ThreadPoolExecutor(max_workers=min(BASELINE_FETCH_WORKERS, total)) as executor:
+        futures = {executor.submit(fetch_pack, fn, dest_dir): fn for fn in to_fetch}
+        for future in as_completed(futures):
+            if future.result():
+                downloaded += 1
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
     return downloaded
 
 

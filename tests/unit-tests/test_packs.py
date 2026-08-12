@@ -180,6 +180,146 @@ class TestFetchAll:
         assert packs.fetch_all(tmp_path) == 0
 
 
+# ── fetch_packs ───────────────────────────────────────────────────────────────
+
+class TestFetchPacks:
+    def test_downloads_missing_packs_in_parallel(self, tmp_path: Path, monkeypatch):
+        def _fake(url, **_k):
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        dest = tmp_path / "counties"
+        count = packs.fetch_packs(["aa.geojson", "bb.geojson"], dest)
+        assert count == 2
+        assert (dest / "aa.geojson").is_file()
+        assert (dest / "bb.geojson").is_file()
+
+    def test_skips_already_present_packs(self, tmp_path: Path, monkeypatch):
+        dest = tmp_path / "counties"
+        dest.mkdir()
+        (dest / "aa.geojson").write_bytes(b"{}")
+        calls: list[str] = []
+
+        def _fake(url, **_k):
+            calls.append(url)
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        count = packs.fetch_packs(["aa.geojson", "bb.geojson"], dest)
+        assert count == 1
+        assert not any("aa.geojson" in u for u in calls)
+        assert any("bb.geojson" in u for u in calls)
+
+    def test_empty_input_returns_zero_without_network_call(self, tmp_path: Path, monkeypatch):
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda *_a, **_k: calls.append(1) or _FakeResp(b"{}"),
+        )
+        assert packs.fetch_packs([], tmp_path / "counties") == 0
+        assert not calls
+
+    def test_all_already_present_skips_reachability_probe(self, tmp_path: Path, monkeypatch):
+        dest = tmp_path / "counties"
+        dest.mkdir()
+        (dest / "aa.geojson").write_bytes(b"{}")
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda *_a, **_k: calls.append(1) or _FakeResp(b"{}"),
+        )
+        assert packs.fetch_packs(["aa.geojson"], dest) == 0
+        assert not calls
+
+    def test_unreachable_network_skips_whole_batch(self, tmp_path: Path, monkeypatch):
+        # Issue #722, proposal 3: a fully blocked network must fail fast via
+        # the short reachability probe rather than paying up to
+        # DOWNLOAD_TIMEOUT seconds per pack for what would also fail.
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda *_a, **_k: (_ for _ in ()).throw(URLError("blocked")),
+        )
+        dest = tmp_path / "counties"
+        count = packs.fetch_packs(["aa.geojson", "bb.geojson"], dest)
+        assert count == 0
+        assert not (dest / "aa.geojson").is_file()
+        assert not (dest / "bb.geojson").is_file()
+
+    def test_probe_uses_short_timeout(self, tmp_path: Path, monkeypatch):
+        seen_timeouts: list[int] = []
+
+        def _fake(url, timeout=None, **_k):
+            seen_timeouts.append(timeout)
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        packs.fetch_packs(["aa.geojson"], tmp_path / "counties")
+        assert seen_timeouts[0] == packs.PROBE_TIMEOUT
+
+    def test_progress_callback_reports_done_and_total(self, tmp_path: Path, monkeypatch):
+        def _fake(url, **_k):
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        reported: list[tuple[int, int]] = []
+        packs.fetch_packs(
+            ["aa.geojson", "bb.geojson"], tmp_path / "counties",
+            progress_cb=lambda d, t: reported.append((d, t)),
+        )
+        assert len(reported) == 2
+        assert reported[-1] == (2, 2)
+        assert all(t == 2 for _, t in reported)
+
+    def test_progress_callback_called_once_on_probe_failure(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda *_a, **_k: (_ for _ in ()).throw(URLError("down")),
+        )
+        reported: list[tuple[int, int]] = []
+        packs.fetch_packs(
+            ["aa.geojson", "bb.geojson"], tmp_path / "counties",
+            progress_cb=lambda d, t: reported.append((d, t)),
+        )
+        assert reported == [(2, 2)]
+
+    def test_deduplicates_filenames(self, tmp_path: Path, monkeypatch):
+        calls: list[str] = []
+
+        def _fake(url, **_k):
+            calls.append(url)
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        count = packs.fetch_packs(["aa.geojson", "aa.geojson"], tmp_path / "counties")
+        assert count == 1
+        assert sum("aa.geojson" in u for u in calls) == 1  # manifest probe + one pack fetch
+
+    def test_individual_pack_failure_does_not_fail_whole_batch(self, tmp_path: Path, monkeypatch):
+        def _fake(url, **_k):
+            if "manifest.json" in url:
+                return _json_resp(_manifest("1"))
+            if "bb.geojson" in url:
+                raise URLError("no")
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
+        dest = tmp_path / "counties"
+        count = packs.fetch_packs(["aa.geojson", "bb.geojson"], dest)
+        assert count == 1
+        assert (dest / "aa.geojson").is_file()
+        assert not (dest / "bb.geojson").is_file()
+
+
 # ── fetch_baseline ────────────────────────────────────────────────────────────
 
 class TestFetchBaseline:
@@ -439,3 +579,85 @@ class TestOnDemandFetch:
         loc = resolver.resolve(0.5, 0.5)
         s.close()
         assert loc.county is None  # coarser layers still resolved (state/country are empty here)
+
+    def test_fetch_attempted_once_across_candidates_sharing_a_pack(self, tmp_path: Path, monkeypatch):
+        # Issue #722: AlphaCounty and BetaCounty (candidates 1 and 2) both
+        # reference missing.geojson — a single resolve() call must only
+        # attempt the network fetch once, not once per candidate.
+        _build_minimal_db(tmp_path)
+        calls: list[str] = []
+
+        def _fake_fetch(filename: str, dest_dir: Path, **_k: object) -> bool:
+            calls.append(filename)
+            return False
+
+        monkeypatch.setattr(packs, "fetch_pack", _fake_fetch)
+        s = BoundaryStore(tmp_path)
+        resolver = TerritoryResolver(s)
+        loc = resolver.resolve(0.5, 0.5)
+        s.close()
+        assert calls == ["missing.geojson"]
+        assert loc.county is None
+
+    def test_fetch_attempted_once_across_separate_resolve_calls(self, tmp_path: Path, monkeypatch):
+        # Issue #722: a batch resolving many caches in the same missing
+        # county must only try the network once for the whole batch, not
+        # once per cache — this is the actual reported hang.
+        _build_minimal_db(tmp_path)
+        calls: list[str] = []
+
+        def _fake_fetch(filename: str, dest_dir: Path, **_k: object) -> bool:
+            calls.append(filename)
+            return False
+
+        monkeypatch.setattr(packs, "fetch_pack", _fake_fetch)
+        s = BoundaryStore(tmp_path)
+        resolver = TerritoryResolver(s)
+        resolver.resolve(0.5, 0.5)
+        resolver.resolve(0.5, 0.5)
+        resolver.resolve(0.5, 0.5)
+        s.close()
+        assert calls == ["missing.geojson"]
+
+    def test_fresh_store_retries_after_previous_store_failed(self, tmp_path: Path, monkeypatch):
+        # Negative caching is scoped to a single BoundaryStore/run, not
+        # persisted to disk — a later import batch (fresh store) should
+        # still retry, in case the pack has since become available.
+        _build_minimal_db(tmp_path)
+        calls: list[str] = []
+
+        def _fake_fetch(filename: str, dest_dir: Path, **_k: object) -> bool:
+            calls.append(filename)
+            return False
+
+        monkeypatch.setattr(packs, "fetch_pack", _fake_fetch)
+        s1 = BoundaryStore(tmp_path)
+        TerritoryResolver(s1).resolve(0.5, 0.5)
+        s1.close()
+        s2 = BoundaryStore(tmp_path)
+        TerritoryResolver(s2).resolve(0.5, 0.5)
+        s2.close()
+        assert calls == ["missing.geojson", "missing.geojson"]
+
+    def test_corrupt_pack_after_successful_fetch_degrades_gracefully(self, tmp_path: Path, monkeypatch):
+        # fetch_pack() can return True but the write is still bad in some
+        # edge case (e.g. an HTML error page saved as if it were JSON) —
+        # this must degrade to county=None on read, not crash, and must
+        # also be cached negatively so it isn't re-read every time.
+        _build_minimal_db(tmp_path)
+        calls: list[str] = []
+
+        def _fake_fetch(filename: str, dest_dir: Path, **_k: object) -> bool:
+            calls.append(filename)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            (dest_dir / filename).write_bytes(b"not valid json")
+            return True
+
+        monkeypatch.setattr(packs, "fetch_pack", _fake_fetch)
+        s = BoundaryStore(tmp_path)
+        resolver = TerritoryResolver(s)
+        loc = resolver.resolve(0.5, 0.5)
+        s.close()
+        assert loc.county is None
+        assert calls == ["missing.geojson"]  # only attempted once (2 candidates share it)
+

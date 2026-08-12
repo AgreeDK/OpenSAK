@@ -497,6 +497,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Aucun waypoint à mettre à jour avec le périmètre sélectionné.",
     "update_loc_row":               "{gc_code} : {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code} : erreur — {msg}",
+    "update_loc_prefetch_progress": "Téléchargement des données de département manquantes : {done}/{total}…",
 
     # ── Boîtes de dialogue packs de frontières ────────────────────────────────
     "boundary_dl_title":            "Télécharger les packs de frontières",

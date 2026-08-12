@@ -496,6 +496,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Žádné kešky k aktualizaci s vybraným rozsahem.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: chyba — {msg}",
+    "update_loc_prefetch_progress": "Stahování chybějících dat okresu: {done}/{total}…",
 
     # ── Boundary packs dialogs ────────────────────────────────────────────────
     "boundary_dl_title":            "Download Boundary Packs",

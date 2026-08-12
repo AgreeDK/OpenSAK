@@ -496,6 +496,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Nenhuma cache para atualizar com o âmbito selecionado.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: erro — {msg}",
+    "update_loc_prefetch_progress": "A transferir dados de município em falta: {done}/{total}…",
 
     # ── Diálogos de pacotes de fronteiras ─────────────────────────────────────
     "boundary_dl_title":            "Transferir pacotes de fronteiras",

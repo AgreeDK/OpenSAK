@@ -496,6 +496,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Inga cacher att uppdatera med det valda omfånget.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fel — {msg}",
+    "update_loc_prefetch_progress": "Laddar ner saknad kommundata: {done}/{total}…",
 
     # ── Gränspaket-dialoger ───────────────────────────────────────────────────
     "boundary_dl_title":            "Ladda ner gränspaket",

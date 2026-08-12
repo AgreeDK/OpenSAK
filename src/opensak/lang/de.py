@@ -496,6 +496,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Keine Caches mit dem gewählten Umfang zu aktualisieren.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: Fehler — {msg}",
+    "update_loc_prefetch_progress": "Fehlende Landkreisdaten werden heruntergeladen: {done}/{total}…",
 
     # ── Grenzpolygon-Dialoge ──────────────────────────────────────────────────
     "boundary_dl_title":            "Grenzpolygon-Pakete herunterladen",

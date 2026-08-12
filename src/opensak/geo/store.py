@@ -77,6 +77,15 @@ def _copy_baseline(src: Path, dst: Path) -> None:
             shutil.copy2(f, dst_sub / f.name)
 
 
+# Sentinel stored in BoundaryStore._packs when a pack was attempted and
+# failed to load this run (missing on disk and the on-demand fetch also
+# failed, or fetch_pack succeeded but wrote something unreadable). Without
+# this, a missing county pack needed by several caches in the same import
+# batch would retry the full network fetch — including up to
+# packs.DOWNLOAD_TIMEOUT seconds — for every single one of them (#722).
+_MISSING = object()
+
+
 @dataclass(frozen=True)
 class Region:
     id: int
@@ -152,17 +161,34 @@ class BoundaryStore:
     def _load_pack(self, layer: str, pack: str) -> dict[str, Any]:
         cache_key = (layer, pack)
         cached = self._packs.get(cache_key)
+        if cached is _MISSING:
+            # Already tried (and failed) to load this pack earlier in the
+            # same run — don't pay for another network fetch attempt.
+            raise FileNotFoundError(pack)
         if cached is None:
             path = self.data_dir / _LAYER_DIR[self._layer(layer)] / pack
             if not path.is_file() and layer == "county":
                 # On-demand fetch: county packs are not bundled, downloaded lazily.
+                # This is now mostly a fallback — ReverseGeocodeWorker's
+                # pre-fetch phase (see packs.fetch_packs) already downloads
+                # every pack the batch needs before resolving starts, so this
+                # branch normally only fires for a pack the pre-fetch phase
+                # itself failed to get (e.g. it appeared mid-run, or the
+                # pre-fetch phase was skipped/failed and this is the retry).
                 if is_debug_enabled("geo"):
                     log.debug("fetching county pack: %s", pack)
                 from opensak.geo import packs as _packs
                 _packs.fetch_pack(pack, path.parent)
+            if not path.is_file():
+                self._packs[cache_key] = _MISSING
+                raise FileNotFoundError(pack)
             if is_debug_enabled("geo"):
                 log.debug("loading pack: %s", path)
-            cached = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                cached = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                self._packs[cache_key] = _MISSING
+                raise FileNotFoundError(pack) from None
             self._packs[cache_key] = cached
         return cached
 

@@ -8,6 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **PQ import appeared to hang on Windows when county boundary packs
+  aren't cached locally (#722)** — a missing county pack needed by the
+  offline reverse-geocoding step was fetched on demand inside the resolve
+  loop, but a *failed* fetch was never remembered: the same missing pack
+  needed by a later cache in the same import batch retried the full
+  network fetch (up to 60s) every single time. A PQ spanning many counties
+  combined with slow/blocked outbound requests could stall for a very long
+  time with no visible progress. Fixed with three changes: (1) failed
+  fetches are now cached negatively for the rest of the run, so a missing
+  pack is only attempted once; (2) a new pre-fetch phase collects every
+  distinct county pack a batch will need and downloads them all in
+  parallel with real progress *before* resolving starts, so the on-demand
+  fetch is now a fallback rather than the common path; (3) a short
+  reachability probe runs before the pre-fetch batch, so a fully blocked
+  network fails fast instead of costing up to 60s per pack.
 - **App appeared to hang on startup for large existing databases (#723)** —
   the startup migrations backfill several cached columns on `caches`
   (`log_count`, `last_log_date`, `last_found_date`, `last_gpx_update`,

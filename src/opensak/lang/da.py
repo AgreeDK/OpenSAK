@@ -496,6 +496,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Ingen caches at opdatere med det valgte omfang.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fejl — {msg}",
+    "update_loc_prefetch_progress": "Downloader manglende kommunedata: {done}/{total}…",
 
     # ── Grænsefladedata-dialoger ──────────────────────────────────────────────
     "boundary_dl_title":            "Download grænsefladedata",

@@ -499,6 +499,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Geen waypoints om bij te werken met het geselecteerde bereik.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fout — {msg}",
+    "update_loc_prefetch_progress": "Ontbrekende gemeentegegevens downloaden: {done}/{total}…",
 
     # ── Grenspakket-dialoogvensters ───────────────────────────────────────────
     "boundary_dl_title":            "Grenspakketten downloaden",

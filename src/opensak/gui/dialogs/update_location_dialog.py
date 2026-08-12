@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from opensak.lang import tr
+from opensak.logger import get_logger
+
+log = get_logger("gui.update_location_dialog")
 
 
 # ── Data types ────────────────────────────────────────────────────────────────
@@ -101,6 +104,49 @@ class ReverseGeocodeWorker(QThread):
         dataset = check.dataset_version()
         check.close()
         now = datetime.now(timezone.utc)
+
+        # Phase 0 — pre-fetch phase (#722): collect every distinct county
+        # pack this batch will need (via the same R-Tree bbox candidates the
+        # resolver itself uses) and download them all in parallel, with real
+        # progress, before the per-row resolve starts. Without this, a
+        # county pack missing locally but needed by many caches in the
+        # batch would otherwise retry a slow on-demand fetch (up to
+        # packs.DOWNLOAD_TIMEOUT seconds) inside _resolve_layer for every
+        # single cache that needs it — the original #722 hang. This is a
+        # best-effort optimization: any failure here just falls back to the
+        # existing on-demand fetch in store.py, so it's wrapped defensively
+        # rather than aborting the whole geocode run over it.
+        try:
+            from opensak.geo import packs as _packs_mod
+
+            probe = BoundaryStore()
+            needed_packs: set[str] = set()
+            for row in self._rows:
+                if self._cancel:
+                    break
+                for region_id in probe.candidates("county", row.lat, row.lon):
+                    region = probe.region("county", region_id)
+                    if region is not None:
+                        needed_packs.add(region.pack)
+            counties_dir = probe.data_dir / "counties"
+            probe.close()
+
+            if needed_packs and not self._cancel:
+                def _prefetch_progress(done: int, total: int) -> None:
+                    if total:
+                        self.row_done.emit("", tr(
+                            "update_loc_prefetch_progress", done=done, total=total
+                        ))
+
+                _packs_mod.fetch_packs(
+                    sorted(needed_packs), counties_dir, progress_cb=_prefetch_progress
+                )
+        except Exception as exc:
+            log.debug("county pre-fetch phase failed, falling back to on-demand fetch: %s", exc)
+
+        if self._cancel:
+            self.cancelled.emit(result)
+            return
 
         # Phase 1 — parallel resolve.
         # _shared_packs is injected into every thread's BoundaryStore so GeoJSON
