@@ -8,6 +8,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.8] — 2026-08-12
+
+### Fixed
+
+- **Archived caches hidden by default in the Set Filter dialog (#576)** —
+  the Availability tab's Archived checkbox defaulted to unchecked, silently
+  hiding archived caches even with no other filter criteria set at all
+  (GSAK, by contrast, always shows archived caches unless you explicitly
+  filter them out). Also fixed a related persistence bug: explicitly
+  checking Archived was silently forgotten the next time the filter dialog
+  was reopened, because the "all three availability checkboxes checked"
+  state was treated internally as "no filter needed" and nothing was saved
+  to restore it from. Archived now defaults to checked, matching GSAK, and
+  hiding archived caches is a deliberate, persisted choice like any other
+  filter — it now also counts correctly toward the "N active" badge.
+- **Map didn't pan to the selected cache ~60% of the time (#718)** —
+  quickly selecting a different cache in the list updated the detail panel
+  text but left the map pin unmoved. Leaflet.markercluster's
+  `zoomToShowLayer()` reveal animation can silently drop its completion
+  callback if a new cache is selected before the previous call's callback
+  has fired — worse on macOS, where WebEngine's animation timing makes
+  back-to-back selections more likely to overlap. Fixed with a sequence
+  guard (a stale callback can no longer move the map to the wrong cache)
+  and a timeout fallback for when the callback never fires at all.
+
+Thanks to Mike for both reports.
+
+---
+
 ## [1.17.0-beta.7] — 2026-08-11
 
 ### Added
