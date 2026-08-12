@@ -132,7 +132,9 @@ def _types(fs):
 
 class TestBuildFilterset:
     def test_empty_is_empty(self, dlg):
-        dlg._archived_cb.setChecked(True)  # all three statuses -> no availability filter
+        # Issue #576: Available/Unavailable/Archived are all checked by
+        # default (GSAK-style — show everything unless told otherwise), so
+        # an untouched dialog already produces no availability filter.
         fs = dlg._build_filterset()
         assert fs._filters == []
 
@@ -174,34 +176,42 @@ class TestBuildFilterset:
         dlg._dist_enabled.setChecked(True)
         assert "distance" in _types(dlg._build_filterset())
 
-    def test_default_availability_state_does_not_count(self, dlg):
-        # Mike's report: setting only a distance filter (leaving Available/
-        # Unavailable checked and Archived unchecked, i.e. all defaults)
-        # showed "2 active" instead of "1 active". The default availability
-        # state still adds a real AvailabilityFilter (archived caches must
-        # stay hidden), but it must not count toward the active badge.
+    def test_default_availability_state_adds_no_filter(self, dlg):
+        # Issue #576: with Available/Unavailable/Archived all checked by
+        # default, setting only a distance filter must not silently pull in
+        # an AvailabilityFilter too — "2 active" was the old bug.
         dlg._dist_enabled.setChecked(True)
         fs = dlg._build_filterset()
-        assert set(_types(fs)) == {"distance", "availability"}
-        assert len(fs) == 2
+        assert set(_types(fs)) == {"distance"}
+        assert len(fs) == 1
         assert fs.active_count() == 1
 
-    def test_default_availability_state_alone_counts_zero(self, dlg):
-        # Opening the dialog and applying with no changes at all should not
-        # register as "1 active" even though an AvailabilityFilter is
-        # silently present to keep archived caches hidden.
+    def test_default_dialog_state_is_fully_empty(self, dlg):
+        # Opening the dialog and applying with no changes at all should
+        # produce a completely empty filterset (archived caches included —
+        # see test_empty_is_empty).
         fs = dlg._build_filterset()
-        assert _types(fs) == ["availability"]
+        assert _types(fs) == []
         assert fs.active_count() == 0
 
     def test_explicit_availability_change_still_counts(self, dlg):
-        # A deliberate availability change (e.g. also showing archived
-        # caches) is a real, user-chosen filter and must still count.
-        dlg._archived_cb.setChecked(True)
-        dlg._unavail_cb.setChecked(False)
+        # A deliberate availability change (e.g. hiding archived caches) is
+        # a real, user-chosen filter and must count toward the badge.
+        dlg._archived_cb.setChecked(False)
         fs = dlg._build_filterset()
         assert "availability" in _types(fs)
         assert fs.active_count() == 1
+
+    def test_unchecking_archived_hides_archived(self, dlg):
+        # Issue #576 (Mike): unchecking Archived must produce a real
+        # AvailabilityFilter with show_archived=False.
+        dlg._archived_cb.setChecked(False)
+        fs = dlg._build_filterset()
+        avail_filters = [f for f in fs._filters if getattr(f, "filter_type", None) == "availability"]
+        assert len(avail_filters) == 1
+        assert avail_filters[0].show_avail is True
+        assert avail_filters[0].show_unavail is True
+        assert avail_filters[0].show_archived is False
 
     def test_premium_and_trackable_and_corrected(self, dlg):
         dlg._prem_no.setChecked(False)
@@ -383,6 +393,32 @@ class TestLoadFilterset:
         assert dlg._text_search_logs.isChecked() is False
         assert dlg._text_search_notes.isChecked() is False
         assert dlg._text_search_hint.isChecked() is True
+
+    def test_explicit_show_archived_survives_reopen(self, dlg, qtbot):
+        # Regression for issue #576 (Mike): checking "show archived" used to
+        # be forgotten on reopen, because the all-three-checked state added
+        # no AvailabilityFilter to persist in the first place. Build once
+        # from a dialog with Archived unchecked (deliberately hiding them)
+        # and confirm a freshly reopened dialog restores it exactly.
+        dlg._archived_cb.setChecked(False)
+        fs_hide = dlg._build_filterset()
+        reopened = FilterDialog()
+        qtbot.addWidget(reopened)
+        reopened._load_filterset(fs_hide)
+        assert reopened._archived_cb.isChecked() is False
+        assert reopened._avail_cb.isChecked() is True
+        assert reopened._unavail_cb.isChecked() is True
+
+    def test_default_dialog_state_survives_reopen(self, qtbot):
+        # A brand-new, untouched dialog (Archived checked by default) must
+        # still show Archived checked after a build -> load round trip.
+        fresh = FilterDialog()
+        qtbot.addWidget(fresh)
+        fs_default = fresh._build_filterset()
+        reopened = FilterDialog()
+        qtbot.addWidget(reopened)
+        reopened._load_filterset(fs_default)
+        assert reopened._archived_cb.isChecked() is True
 
 
 # ── reset ───────────────────────────────────────────────────────────────────────

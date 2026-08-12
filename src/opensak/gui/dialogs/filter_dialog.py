@@ -445,7 +445,11 @@ class FilterDialog(QDialog):
         self._unavail_cb  = QCheckBox(tr("filter_unavailable"))
         self._unavail_cb.setChecked(True)
         self._archived_cb = QCheckBox(tr("quick_archived"))
-        self._archived_cb.setChecked(False)
+        # Issue #576 (Mike): GSAK always shows archived caches unless a
+        # filter is explicitly set to hide them — OpenSAK previously hid
+        # them by default, which surprised users and (per Mike's report)
+        # made an explicit "show archived" choice forget itself on reopen.
+        self._archived_cb.setChecked(True)
         avail_layout.addWidget(self._avail_cb)
         avail_layout.addWidget(self._unavail_cb)
         avail_layout.addWidget(self._archived_cb)
@@ -1011,7 +1015,7 @@ class FilterDialog(QDialog):
         self._notfound_cb.setChecked(True)
         self._avail_cb.setChecked(True)
         self._unavail_cb.setChecked(True)
-        self._archived_cb.setChecked(False)
+        self._archived_cb.setChecked(True)  # issue #576 — GSAK-style default
         self._dist_enabled.setChecked(False)
         self._dist_max.setValue(50.0)
         self._dist_min.setValue(0.0)
@@ -1136,28 +1140,22 @@ class FilterDialog(QDialog):
 
         # Tilgængelighed — byg OR-gruppe af de valgte statusser.
         # Brugeren kan vælge enhver kombination af: tilgængelig / utilgængelig / arkiveret.
-        # Hvis alle tre er valgt: ingen filter (vis alt).
+        # Alle tre er default (issue #576 — GSAK viser altid arkiverede caches
+        # medmindre brugeren aktivt vælger at skjule dem), så "alle tre valgt"
+        # er nu det reelle no-op-udgangspunkt: ingen filter, ingen badge.
+        # Fravælges én eller flere, er det en bevidst brugerhandling og skal
+        # ligesom alle andre faner tælle med i "N active".
         avail    = self._avail_cb.isChecked()
         unavail  = self._unavail_cb.isChecked()
         archived = self._archived_cb.isChecked()
 
         if not (avail and unavail and archived):
             # Mindst én er fravalgt — tilføj filter
-            avail_filter = AvailabilityFilter(
+            fs.add(AvailabilityFilter(
                 show_avail=avail,
                 show_unavail=unavail,
                 show_archived=archived,
-            )
-            if avail and unavail and not archived:
-                # This is exactly the dialog's factory-default state (hide
-                # archived caches, show everything else). It's baseline app
-                # behaviour the user didn't consciously opt into — unlike
-                # every other tab above, where a filter is only added once
-                # the user moves away from a neutral default — so don't let
-                # it inflate the "N active" badge (issue reported by Mike:
-                # setting only a distance filter showed "2 active").
-                avail_filter.counts_as_filter = False
-            fs.add(avail_filter)
+            ))
 
         # Afstand
         if self._dist_enabled.isChecked():
