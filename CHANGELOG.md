@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.17.0-beta.9] — 2026-08-12
+
 ### Fixed
 
 - **PQ import appeared to hang on Windows when county boundary packs
