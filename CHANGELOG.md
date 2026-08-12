@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **App appeared to hang on startup for large existing databases (#723)** —
+  the startup migrations backfill several cached columns on `caches`
+  (`log_count`, `last_log_date`, `last_found_date`, `last_gpx_update`,
+  `last_four_logs`) using correlated subqueries against the `logs` table.
+  On older databases without an index on `logs.cache_id`, each of these ran
+  as a full table scan per row in `caches`, confirmed by benchmark on the
+  issue. Added a migration that creates `ix_logs_cache_id` and
+  `ix_logs_log_date`, placed before the three migrations that need it, so
+  the index is guaranteed to exist before any of the heavy queries run.
+
 ---
 
 ## [1.17.0-beta.8] — 2026-08-12

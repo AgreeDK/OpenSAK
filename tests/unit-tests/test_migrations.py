@@ -96,6 +96,44 @@ def test_indexes_present_after_init(tmp_path):
         assert expected in names
 
 
+def test_logs_index_created_before_heavy_migrations(tmp_path):
+    # Issue #723: on a stale/large DB, migrations 7, 23 and 24 run
+    # correlated subqueries against `logs` (COUNT/MAX per cache_id) to
+    # backfill cached columns on `caches`. The ix_logs_cache_id /
+    # ix_logs_log_date CREATE INDEX statements must appear in the executed
+    # SQL before any SELECT/UPDATE that references the logs table, or the
+    # backfill queries still run as a full table scan.
+    engine = _make_engine(tmp_path / "order.db")
+    with engine.connect() as c:
+        for ddl in _OLD_SCHEMA:
+            c.execute(text(ddl))
+        c.execute(text("PRAGMA user_version = 0"))
+        c.commit()
+
+    seen, detach = _capture_statements(engine)
+    try:
+        _run_migrations(engine)
+    finally:
+        detach()
+
+    index_pos = next(
+        i for i, s in enumerate(seen)
+        if "CREATE INDEX" in s and "ix_logs_cache_id" in s
+    )
+    # Only the actual data queries against logs matter here (correlated
+    # subqueries / joins referencing "FROM logs" or "JOIN logs") — the
+    # sqlite_master introspection this same migration runs to check for an
+    # existing index also happens to contain the word "logs" and isn't a
+    # real query against the table, so it's deliberately excluded.
+    first_logs_query_pos = next(
+        i for i, s in enumerate(seen)
+        if i != index_pos and ("from logs" in s.lower() or "join logs" in s.lower())
+    )
+    assert index_pos < first_logs_query_pos, (
+        "ix_logs_cache_id was created after a query already touched logs"
+    )
+
+
 def test_old_schema_runs_every_migration(tmp_path):
     # A v0 database with the original schema must apply all migrations.
     engine = _make_engine(tmp_path / "old.db")
@@ -124,6 +162,9 @@ def test_old_schema_runs_every_migration(tmp_path):
         idx_names = {r[0] for r in c.execute(text(
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='waypoints'"
         ))}
+        log_idx_names = {r[0] for r in c.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='logs'"
+        ))}
         row = c.execute(text("SELECT cache_type, container FROM caches WHERE gc_code='GC1'")).first()
         found_row = c.execute(text(
             "SELECT last_found_date, last_gpx_update, last_four_logs FROM caches WHERE gc_code='GC1'"
@@ -138,20 +179,24 @@ def test_old_schema_runs_every_migration(tmp_path):
                 "last_found_date", "last_gpx_update", "last_four_logs"):
         assert col in cache_cols
     assert "is_corrected" in note_cols
-    # The waypoints rebuild (migration 2, later replaced by migration 21)
+    # The waypoints rebuild (migration 2, later replaced by migration 22)
     # creates the named unique index (matching the model's constraint name)
     # plus the cache_id index.
     assert "uq_waypoint_cache_wp_code" in idx_names
     assert "uq_waypoint_cache_prefix_name" not in idx_names
     assert "ix_waypoints_cache_id" in idx_names
-    assert row == ("GPS Adventures Maze", "Micro")  # migration 5 + 7 normalisation
+    # Issue #723: logs indexes must exist so the correlated subqueries in
+    # migrations 7, 23 and 24 don't full-scan logs on large databases.
+    assert "ix_logs_cache_id" in log_idx_names
+    assert "ix_logs_log_date" in log_idx_names
+    assert row == ("GPS Adventures Maze", "Micro")  # migration 5 + 8 normalisation
 
     for col in ("wp_code", "url", "wp_date", "created_by_user", "wp_flag"):
         assert col in wpt_cols
     for col in ("latitude", "longitude", "logged_by_owner"):
         assert col in log_cols
 
-    # Issue #716: Migration 23 backfill actually populated the new columns
+    # Issue #716: Migration 24 backfill actually populated the new columns
     # from the single "Found it" log inserted above.
     assert found_row is not None
     assert found_row[0] is not None and found_row[0].startswith("2024-01-01")  # last_found_date

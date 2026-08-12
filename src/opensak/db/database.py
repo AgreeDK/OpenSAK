@@ -63,7 +63,7 @@ _migrated_paths: set = set()  # undgår at køre migrationer to gange på samme 
 # bumped to the highest migration number whenever a new migration is added
 # below — _run_migrations() skips the whole block when the database already
 # reports this version, so a stale constant means new migrations never run.
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 
 def init_db(db_path: Path | None = None) -> Engine:
@@ -256,7 +256,39 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: normaliserede {result.rowcount} GPS Adventures cache_type værdier")
 
-        # ── Migration 6: log_count kolonne (issue #87) ───────────────────────
+        # ── Migration 6: indexes on logs table (issue #723) ──────────────────
+        # Migrations 7, 23 and 24 below run correlated subqueries against the
+        # logs table (COUNT/MAX per cache_id, and ordering by log_date) to
+        # backfill cached columns on `caches`. Without an index on
+        # logs.cache_id these are effectively a full table scan per row in
+        # `caches`, which is what made startup appear to hang on large
+        # existing databases (confirmed by benchmark on issue #723). This
+        # migration is placed before all three so the index is guaranteed to
+        # exist by the time those heavier queries run. CREATE INDEX IF NOT
+        # EXISTS is idempotent and cheap once the index exists, so it is safe
+        # to run on every startup.
+        existing_log_idx = {
+            row[0]
+            for row in conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='logs'"
+            )).fetchall()
+        }
+        log_index_specs = [
+            ("ix_logs_cache_id", "cache_id"),
+            ("ix_logs_log_date", "log_date"),
+        ]
+        created_log_idx = []
+        for idx_name, cols in log_index_specs:
+            if idx_name not in existing_log_idx:
+                conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS {idx_name} ON logs ({cols})"
+                ))
+                created_log_idx.append(idx_name)
+        if created_log_idx:
+            conn.commit()
+            print(f"Migration: oprettede {len(created_log_idx)} indexes på logs ({', '.join(created_log_idx)})")
+
+        # ── Migration 7: log_count kolonne (issue #87) ───────────────────────
         # log_count caches the number of logs per cache so the UI can display
         # it without loading the logs relationship. apply_filters() uses
         # noload(Cache.logs) for performance, which made cache.logs always
@@ -284,7 +316,7 @@ def _run_migrations(engine: Engine) -> None:
             print(f"Migration: tilføjede caches.log_count og opdaterede {result.rowcount} caches")
 
 
-        # ── Migration 7: Nano → Micro (data normalisation) ───────────────────
+        # ── Migration 8: Nano → Micro (data normalisation) ───────────────────
         # "Nano" is not an official Geocaching.com container size — it is an
         # informal community term for very small Micro caches (< 10 ml).
         # Geocaching.com exports these as "Micro" in GPX/PQ files. Only GSAK
@@ -298,7 +330,7 @@ def _run_migrations(engine: Engine) -> None:
             print(f"Migration: konverterede {result.rowcount} 'Nano' container værdier til 'Micro'")
 
 
-        # ── Migration 8: parent_gc_code (issue #141) ─────────────────────────
+        # ── Migration 9: parent_gc_code (issue #141) ─────────────────────────
         # Custom waypoints (CW...) can optionally reference a parent geocache.
         # NULL for all real geocaches — added silently, no data backfill needed.
         existing_caches = [
@@ -312,7 +344,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.parent_gc_code")
 
-        # ── Migration 9: owner_name (issue #158) ─────────────────────────────
+        # ── Migration 10: owner_name (issue #158) ─────────────────────────────
         # Stores the gs:owner display name separately from placed_by, which may
         # differ when a cache is adopted or placed under a pseudonym.
         existing_caches = [
@@ -326,7 +358,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.owner_name")
 
-        # ── Migration 10: last_log_date (issue #186) ─────────────────────────
+        # ── Migration 11: last_log_date (issue #186) ─────────────────────────
         # Caches the date of the most recent log so the "Latest Log" column can
         # display it without loading the noload'ed logs relationship.
         # Populated from existing log data so users don't need to re-import.
@@ -349,7 +381,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede caches.last_log_date og opdaterede {result.rowcount} caches")
 
-        # ── Migration 11: indexes for filter/sort columns (#214 phase 3) ─────
+        # ── Migration 12: indexes for filter/sort columns (#214 phase 3) ─────
         # Phase 2 pushed the common filters into the SQL WHERE clause; these
         # indexes let SQLite satisfy those predicates (and ORDER BY) without a
         # full table scan on large databases. CREATE INDEX IF NOT EXISTS is
@@ -394,7 +426,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: oprettede {len(created_idx)} indexes på caches ({', '.join(created_idx)})")
 
-        # ── Migration 12: location provenance columns (issue #60 phase 3) ──────
+        # ── Migration 13: location provenance columns (issue #60 phase 3) ──────
         # Four nullable columns record where territory values came from and which
         # dataset version produced them — needed by the Phase 4 GUI and the
         # stale-indicator logic. All default to NULL ("unknown / imported").
@@ -417,7 +449,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede provenance-kolonner til caches: {', '.join(added)}")
 
-        # ── Migration 13: parent_gc_code on waypoints (issue #376) ───────────
+        # ── Migration 14: parent_gc_code on waypoints (issue #376) ───────────
         # Stores the parent cache's GC code directly on the waypoint row —
         # mirrors cParent in GSAK and enables JOIN-free filter queries.
         existing_wpts = [
@@ -438,7 +470,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede waypoints.parent_gc_code")
 
-        # ── Migration 14: waypoint_count on caches (issue #377) ──────────────
+        # ── Migration 15: waypoint_count on caches (issue #377) ──────────────
         # Cached count of child waypoints so the grid can show a visual cue
         # without loading the noload'ed waypoints relationship.
         existing_caches_14 = [
@@ -458,7 +490,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.waypoint_count")
 
-        # ── Migration 15: locked flag on caches (issue #202) ─────────────────
+        # ── Migration 16: locked flag on caches (issue #202) ─────────────────
         # When set, _upsert_cache() skips overwriting scalar GPX-sourced
         # fields on re-import, so a manually corrected/locked cache survives
         # later PQ/GPX imports unchanged.
@@ -473,7 +505,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.locked")
 
-        # ── Migration 16: trackables table (issue #491) ───────────────────────
+        # ── Migration 17: trackables table (issue #491) ───────────────────────
         # The Trackable model (travel bugs / geocoins seen in a cache) has
         # shipped since v1.14.0 with no corresponding migration to create its
         # table. Any existing database crashes with "no such table:
@@ -504,11 +536,11 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: oprettede trackables-tabellen (manglede siden v1.14.0)")
 
-        # ── Migration 17: trackable_count kolonne (issue #489/#491) ──────────
-        # Mirrors log_count (Migration 6): cache the trackable count on the
+        # ── Migration 18: trackable_count kolonne (issue #489/#491) ──────────
+        # Mirrors log_count (Migration 7): cache the trackable count on the
         # caches row so the new "Trackables" table column can display it
         # without loading the trackables relationship for every row. Depends
-        # on Migration 16 above having created the trackables table.
+        # on Migration 17 above having created the trackables table.
         existing_caches_17 = [
             row[1]
             for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
@@ -528,7 +560,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede caches.trackable_count og opdaterede {result.rowcount} caches")
 
-        # ── Migration 18: GSAK database import schema additions (issue #469) ─
+        # ── Migration 19: GSAK database import schema additions (issue #469) ─
         # Adds fields identified during the #469 field-by-field comparison
         # against real GSAK databases, ahead of building the importer itself
         # (session 1), so the mapping code can target the final schema
@@ -593,7 +625,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede GSAK-import-felter til logs: {', '.join(added)}")
 
-        # ── Migration 19: find_count on caches (issue #517) ──────────────────
+        # ── Migration 20: find_count on caches (issue #517) ──────────────────
         # GC API field prep. Also populated straight away by the GSAK
         # importer from Caches.FoundCount (see #469 gsak_importer.py).
         existing_caches_19 = [
@@ -607,7 +639,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.find_count")
 
-        # ── Migration 20: remove leftover favorite_point column (issue #530) ─
+        # ── Migration 21: remove leftover favorite_point column (issue #530) ─
         # `favorite_point` (singular, Boolean NOT NULL) was briefly introduced
         # in v1.14.0 without a migration to add it to already-existing
         # databases, which surfaced as "no such column" errors (#488). The fix
@@ -641,7 +673,7 @@ def _run_migrations(engine: Engine) -> None:
                     "DROP COLUMN (kræver 3.35+). Kontakt hello@opensak.com."
                 )
 
-        # ── Migration 21: waypoints unique constraint on wp_code, not name (#536) ─
+        # ── Migration 22: waypoints unique constraint on wp_code, not name (#536) ─
         # GSAK's own uniqueness for a waypoint is per-cache by its own code
         # (cCode, stored here as wp_code) — not by prefix+name. The
         # (cache_id, prefix, name) constraint added in Migration 2 was too
@@ -713,7 +745,7 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: opdaterede waypoints unique constraint til (cache_id, wp_code)")
 
-        # ── Migration 22: found_log_count kolonne (issue #552) ───────────────
+        # ── Migration 23: found_log_count kolonne (issue #552) ───────────────
         # Cache.found is a boolean ("have I found this cache at least once"),
         # which undercounts relocatable/multi-visit caches where the same
         # user can legitimately log a found-type entry more than once —
@@ -773,7 +805,7 @@ def _run_migrations(engine: Engine) -> None:
                     "(intet gc_username/gc_finder_id sat — springer backfill over)"
                 )
 
-        # ── Migration 23: last_found_date, last_gpx_update, last_four_logs
+        # ── Migration 24: last_found_date, last_gpx_update, last_four_logs
         # (issue #716) ─────────────────────────────────────────────────────
         # Follow-up to #658's GSAK-compatible columns. Unlike those (which
         # just exposed existing data), these 3 are genuinely new derived
