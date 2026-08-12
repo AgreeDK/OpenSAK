@@ -216,10 +216,12 @@ class TestFetchPacks:
 
     def test_empty_input_returns_zero_without_network_call(self, tmp_path: Path, monkeypatch):
         calls: list[str] = []
-        monkeypatch.setattr(
-            "urllib.request.urlopen",
-            lambda *_a, **_k: calls.append(1) or _FakeResp(b"{}"),
-        )
+
+        def _fake(url, **_k):
+            calls.append(url)
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
         assert packs.fetch_packs([], tmp_path / "counties") == 0
         assert not calls
 
@@ -228,10 +230,12 @@ class TestFetchPacks:
         dest.mkdir()
         (dest / "aa.geojson").write_bytes(b"{}")
         calls: list[str] = []
-        monkeypatch.setattr(
-            "urllib.request.urlopen",
-            lambda *_a, **_k: calls.append(1) or _FakeResp(b"{}"),
-        )
+
+        def _fake(url, **_k):
+            calls.append(url)
+            return _FakeResp(b"{}")
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake)
         assert packs.fetch_packs(["aa.geojson"], dest) == 0
         assert not calls
 
