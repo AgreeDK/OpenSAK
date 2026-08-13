@@ -2211,6 +2211,56 @@ def apply_filters_auto(
     return apply_filters_lightweight(session, filterset, sort, limit, distance_from, push_limit, columns)
 
 
+def get_nearby_caches(
+    session: Session,
+    lat: float,
+    lon: float,
+    radius_km: float,
+    max_caches: int,
+) -> tuple[list, int]:
+    """Issue #718: the selected cache plus its neighbours within *radius_km*,
+    sorted nearest-first, capped to *max_caches*. Used by the split-screen
+    map so it always shows the selected cache in correct local context,
+    independent of the overview map's own map_max_caches cap and current
+    sort order (which is what #718 was about: a cache outside that cap's
+    dataset previously had no map at all, or the wrong one).
+
+    Returns (caches, total) — caches is capped to max_caches, total is the
+    full count found within radius_km (for a "showing nearest X of Y"
+    label; see settings_dialog's map_nearby_* settings).
+
+    Deliberately does NOT use SortSpec("distance", ...) — that sort field
+    always orders by the persisted Cache.distance column, which is
+    distance from the *home point* (see recalculate_distances()), not
+    from (lat, lon) here. distance_from only rewrites WhereClauseFilter's
+    raw-SQL UDF (_prepare_where_clause_filters), it does not change what
+    "distance" means for sorting. So results are fetched unsorted at the
+    SQL level and sorted in Python against (lat, lon) instead — cheap here
+    because DistanceFilter's SQL bounding-box (apply_to_query) already
+    keeps the fetched set geographically bounded regardless of database
+    size, same box used by the overview map's DistanceFilter today.
+    """
+    if lat is None or lon is None:
+        return [], 0
+
+    fs = FilterSet()
+    fs.add(DistanceFilter(lat=lat, lon=lon, max_km=radius_km))
+
+    matches = apply_filters_auto(session, fs)
+    total = len(matches)
+    if not matches:
+        return [], 0
+
+    dists = distance_km_batch(
+        lat, lon,
+        [c.latitude for c in matches],
+        [c.longitude for c in matches],
+    )
+    ordered = sorted(zip(matches, dists), key=lambda pair: pair[1])
+    nearby = [c for c, _ in ordered[:max_caches]]
+    return nearby, total
+
+
 # ── Saved filter profiles ─────────────────────────────────────────────────────
 
 class FilterProfile:
