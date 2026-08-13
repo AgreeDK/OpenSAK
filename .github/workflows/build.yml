@@ -139,15 +139,20 @@ jobs:
 
       # Code signing / notarization only run when the certificate secret is
       # present, so the build still succeeds unsigned on forks and PRs that
-      # don't have access to the OpenSAK org's secrets.
+      # don't have access to the OpenSAK org's secrets. `if:` conditions
+      # can't reference `secrets` directly (GitHub Actions restriction), so
+      # the check is done once here and reused via this step's output.
+      - name: Check for Apple signing secrets
+        id: signing
+        run: echo "enabled=${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}" >> "$GITHUB_OUTPUT"
       - name: Import signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-import-certificate
         with:
           p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Codesign app bundle
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-codesign
         with:
           target-path: dist/OpenSAK.app
@@ -165,12 +170,12 @@ jobs:
           || (cd dist && zip -r ../OpenSAK-${{ github.ref_name }}-macOS-arm64.zip OpenSAK.app && echo "Fallback ZIP created")
 
       - name: Codesign .dmg
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-codesign
         with:
           target-path: OpenSAK-${{ github.ref_name }}-macOS-arm64.dmg
       - name: Notarize .dmg
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-notarize
         with:
           target-path: OpenSAK-${{ github.ref_name }}-macOS-arm64.dmg
@@ -210,14 +215,17 @@ jobs:
         env:
           PYTHONPATH: src
 
+      - name: Check for Apple signing secrets
+        id: signing
+        run: echo "enabled=${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}" >> "$GITHUB_OUTPUT"
       - name: Import signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-import-certificate
         with:
           p12-base64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Codesign app bundle
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-codesign
         with:
           target-path: dist/OpenSAK.app
@@ -235,12 +243,12 @@ jobs:
           || (cd dist && zip -r ../OpenSAK-${{ github.ref_name }}-macOS-x86_64.zip OpenSAK.app && echo "Fallback ZIP created")
 
       - name: Codesign .dmg
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-codesign
         with:
           target-path: OpenSAK-${{ github.ref_name }}-macOS-x86_64.dmg
       - name: Notarize .dmg
-        if: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 != '' }}
+        if: steps.signing.outputs.enabled == 'true'
         uses: ./.github/actions/macos-notarize
         with:
           target-path: OpenSAK-${{ github.ref_name }}-macOS-x86_64.dmg
