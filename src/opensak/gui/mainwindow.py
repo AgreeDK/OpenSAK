@@ -19,7 +19,7 @@ from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.db.database import get_session, db_health_check
 from opensak.db.models import Cache
 from opensak.filters.engine import (
-    FilterSet, SortSpec, apply_filters_auto,
+    FilterSet, SortSpec, apply_filters_auto, get_nearby_caches,
     AvailableFilter, NotFoundFilter, CacheTypeFilter,
     DifficultyFilter, TerrainFilter
 )
@@ -1369,14 +1369,50 @@ class MainWindow(QMainWindow):
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
+    def _build_nearby_label(self, shown: int, total: int, radius_km: float) -> str:
+        """Issue #718: 'Showing nearest X of Y within R km/mi' — only when
+        map_nearby_max_caches actually capped the result (total > shown);
+        empty string means "no label", so the radius circle alone is the
+        indicator, matching the agreed UX (Mike Wood, #718)."""
+        if total <= shown:
+            return ""
+        s = get_settings()
+        if s.use_miles:
+            radius_disp = radius_km * 0.621371
+            unit = "mi"
+        else:
+            radius_disp = radius_km
+            unit = "km"
+        return tr("map_nearby_label").format(
+            shown=shown, total=total, radius=f"{radius_disp:g}", unit=unit,
+        )
+
     def _on_cache_selected(self, cache: Cache) -> None:
         """Kaldes når brugeren klikker på en cache i tabellen."""
         full = self._load_full_cache(cache.gc_code)
         if not full:
             return
         self._detail_panel.show_cache(full)
-        self._map_widget.pan_to_cache(full.gc_code)
         self._map_widget.set_active_cache(full.gc_code)
+        if full.latitude is not None and full.longitude is not None:
+            # Issue #718: split-screen map shows the selected cache's own
+            # neighbourhood (radius query, independent of the overview
+            # map's map_max_caches cap) instead of relying on the
+            # overview's already-loaded marker set — a cache outside that
+            # set previously got no map update at all, or the wrong one.
+            s = get_settings()
+            with get_session() as session:
+                nearby, total = get_nearby_caches(
+                    session, full.latitude, full.longitude,
+                    s.map_nearby_radius_km, s.map_nearby_max_caches,
+                )
+            label = self._build_nearby_label(len(nearby), total, s.map_nearby_radius_km)
+            self._map_widget.show_nearby_for_selection(full, nearby, s.map_nearby_radius_km, label)
+        else:
+            # No coordinates to build a neighbourhood from — fall back to
+            # the old behaviour (pan only works if the cache happens to
+            # already be in the currently-loaded overview marker set).
+            self._map_widget.pan_to_cache(full.gc_code)
         self._act_wp_edit.setEnabled(True)
         self._act_wp_delete.setEnabled(True)
         if full.latitude and full.longitude:

@@ -839,6 +839,7 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Zuhause",
+    "map_nearby_label":             "Zeigt die nächsten {shown} von {total} innerhalb von {radius} {unit}",
     "map_ctx_copy_coords":          "Kopieren {coords}",
     "map_ctx_copy_as":              "Kopieren als...",
     "map_ctx_set_corrected":        "Korrigierte Koordinaten setzen",

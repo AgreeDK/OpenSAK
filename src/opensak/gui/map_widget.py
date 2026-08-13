@@ -148,6 +148,16 @@ MAP_HTML = """<!DOCTYPE html>
   .leaflet-control-mapactions a:last-child {
     border-bottom: none;
   }
+  .leaflet-control-nearbylabel {
+    background: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    font-size: 11px;
+    font-family: sans-serif;
+    color: #333;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -193,6 +203,8 @@ var selectedGcCode = null;
 var bridge = null;
 var waypointMarkers = [];
 var panRequestSeq = 0;     // issue #718 — see panToCache()
+var nearbyCircle = null;   // issue #718 — split-screen map radius overlay
+var nearbyLabelControl = null;   // issue #718 — "showing nearest X of Y" label
 
 // ── WebChannel setup ──────────────────────────────────────────────────────────
 new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -268,6 +280,12 @@ function makeHomeIcon() {
 // ── Public API kaldt fra Python ───────────────────────────────────────────────
 
 function loadCaches(cachesJson) {
+    // Issue #718: any call to the general load path (filter change, table
+    // refresh, etc.) means we're back in overview mode — clear any
+    // leftover nearby-selection circle/label from loadNearbyCaches() below,
+    // so it never lingers over an unrelated marker set.
+    clearNearbyOverlay();
+
     var caches = JSON.parse(cachesJson);
 
     // Recreate the cluster group to avoid stale internal state from clearLayers()
@@ -412,6 +430,69 @@ function selectMarker(gcCode) {
         }
     }
     selectedGcCode = gcCode;
+}
+
+// ── Issue #718: split-screen "nearby caches" view ────────────────────────────
+//
+// Called when a cache is selected in the table/detail panel — replaces
+// whatever marker set is currently loaded with just that cache's
+// neighbourhood (within radius_km, see get_nearby_caches() in
+// filters/engine.py), draws a circle at radius_km so the user can see
+// exactly where the view ends, and shows an optional "showing nearest X
+// of Y" label when max_caches actually capped the result. Any subsequent
+// call to loadCaches() (a normal overview refresh) clears this overlay —
+// see the clearNearbyOverlay() call at the top of loadCaches() above.
+function loadNearbyCaches(cachesJson, centerLat, centerLon, radiusKm, gcCode, labelText) {
+    loadCaches(cachesJson);
+    drawNearbyCircle(centerLat, centerLon, radiusKm);
+    updateNearbyLabel(labelText);
+    panToCache(gcCode);
+}
+
+function drawNearbyCircle(lat, lon, radiusKm) {
+    clearNearbyCircle();
+    if (!(radiusKm > 0)) return;
+    nearbyCircle = L.circle([lat, lon], {
+        radius: radiusKm * 1000,
+        color: '#1976d2',
+        weight: 2,
+        fillColor: '#1976d2',
+        fillOpacity: 0.05,
+        interactive: false
+    }).addTo(map);
+}
+
+function clearNearbyCircle() {
+    if (nearbyCircle) {
+        map.removeLayer(nearbyCircle);
+        nearbyCircle = null;
+    }
+}
+
+function updateNearbyLabel(labelText) {
+    clearNearbyLabel();
+    if (!labelText) return;   // cap not reached — circle alone is the indicator
+    var Label = L.Control.extend({
+        options: { position: 'bottomleft' },
+        onAdd: function() {
+            var div = L.DomUtil.create('div', 'leaflet-control-nearbylabel');
+            div.textContent = labelText;
+            return div;
+        }
+    });
+    nearbyLabelControl = new Label().addTo(map);
+}
+
+function clearNearbyLabel() {
+    if (nearbyLabelControl) {
+        map.removeControl(nearbyLabelControl);
+        nearbyLabelControl = null;
+    }
+}
+
+function clearNearbyOverlay() {
+    clearNearbyCircle();
+    clearNearbyLabel();
 }
 
 function fitAllMarkers() {
@@ -663,7 +744,10 @@ class MapWidget(QWidget):
         else:
             self._pending_caches = caches
 
-    def _do_load_caches(self, caches: list[Cache]) -> None:
+    def _build_marker_data(self, caches: list[Cache]) -> list[dict]:
+        """Shared marker-payload builder for load_caches()/show_nearby_for_selection()
+        — see #718's docstring on show_nearby_for_selection() for why the
+        latter needed this factored out rather than duplicated."""
         from opensak.gps.garmin import _effective_coords
         data = []
         for c in caches:
@@ -687,11 +771,54 @@ class MapWidget(QWidget):
                 "pin_html":       _cache_pin_html(c.cache_type or "", bool(c.found), bool(c.dnf)),
                 "found":          c.found,
             })
+        return data
 
+    def _do_load_caches(self, caches: list[Cache]) -> None:
+        data = self._build_marker_data(caches)
         json_str = json.dumps(data, ensure_ascii=False)
         # Escape backticks for JS template literal
         json_str = json_str.replace("\\", "\\\\").replace("`", "\\`")
         self._run_js(f"loadCaches(`{json_str}`)")
+
+    def show_nearby_for_selection(
+        self,
+        cache: Cache,
+        nearby_caches: list[Cache],
+        radius_km: float,
+        label_text: str,
+    ) -> None:
+        """Issue #718: replace the currently-loaded marker set with just
+        *cache*'s neighbourhood (already computed by
+        filters.engine.get_nearby_caches() and passed in as
+        *nearby_caches*) — independent of the overview map's own
+        map_max_caches cap. Draws a radius circle at radius_km around
+        *cache* so the user can see exactly where the view ends (Mike
+        Wood's suggestion on #718), and shows *label_text* (pre-formatted
+        by the caller, e.g. "Showing nearest 500 of 1,240 within 2 km")
+        only when it's non-empty — the caller passes "" when max_caches
+        didn't actually cap the result, so the circle alone is the
+        indicator in the common case, matching the agreed UX.
+
+        Requires the map to already be ready/loaded — unlike load_caches(),
+        this deliberately does not queue itself for the not-yet-ready case:
+        selecting a cache before the map has finished loading is an edge
+        case not worth the extra state, and the general load_caches()
+        pending-queue path already covers the startup race for the
+        overview map that matters in practice.
+        """
+        if not self._ready:
+            return
+        if cache.latitude is None or cache.longitude is None:
+            return
+        data = self._build_marker_data(nearby_caches)
+        json_str = json.dumps(data, ensure_ascii=False)
+        json_str = json_str.replace("\\", "\\\\").replace("`", "\\`")
+        safe_gc = cache.gc_code.replace("'", "\\'")
+        safe_label = json.dumps(label_text, ensure_ascii=False)
+        self._run_js(
+            f"loadNearbyCaches(`{json_str}`, {cache.latitude}, {cache.longitude}, "
+            f"{radius_km}, '{safe_gc}', {safe_label})"
+        )
 
     def pan_to_cache(self, gc_code: GcCode) -> None:
         """Centrér kortet på en bestemt cache."""

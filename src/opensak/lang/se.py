@@ -839,6 +839,7 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Hem",
+    "map_nearby_label":             "Visar närmaste {shown} av {total} inom {radius} {unit}",
     "map_ctx_copy_coords":          "Kopiera {coords}",
     "map_ctx_copy_as":              "Kopiera som...",
     "map_ctx_set_corrected":        "Ange korrigerade koordinater",

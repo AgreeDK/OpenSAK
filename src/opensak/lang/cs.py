@@ -840,6 +840,7 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Domov",
+    "map_nearby_label":             "Zobrazeno {shown} nejbližších z {total} v okruhu {radius} {unit}",
     "map_ctx_copy_coords":          "Kopírovat {coords}",
     "map_ctx_copy_as":              "Kopírovat jako...",
     "map_ctx_set_corrected":        "Nastavit opravené souřadnice",

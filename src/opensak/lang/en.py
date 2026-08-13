@@ -838,6 +838,7 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Home",
+    "map_nearby_label":             "Showing nearest {shown} of {total} within {radius} {unit}",
     "map_ctx_copy_coords":          "Copy {coords}",
     "map_ctx_copy_as":              "Copy as...",
     "map_ctx_set_corrected":        "Set corrected coordinates",
