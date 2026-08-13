@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.17.0-beta.11] — 2026-08-13
+
 ### Fixed
 
 - **Split-screen map didn't update for caches outside the overview map's
