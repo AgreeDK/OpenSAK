@@ -1,8 +1,11 @@
 # Feature Flags
 
 Feature flags let you merge in-progress work without shipping it to end-users.
-Each flag defaults to **off** in release builds and **on** in developer builds,
-with no code changes required at release time.
+A **new** flag defaults to **off** in release builds and **on** in developer
+builds, with no code changes required at release time. Once a feature has
+graduated (proven stable in beta), its default in `_RELEASE_DEFAULTS` is
+flipped to **on** — see [Current flags](#current-flags) below — until the
+flag guard is removed entirely.
 
 ---
 
@@ -11,7 +14,7 @@ with no code changes required at release time.
 Priority order (highest wins):
 
 ```
-CLI --feature arg  >  features.json  >  release defaults (all false)
+CLI --feature arg  >  features.json  >  release defaults (per-flag, see below)
 ```
 
 | Context | Features file present? | Result |
@@ -30,7 +33,8 @@ bundle, so it is invisible to release users.
 
 ```json
 {
-  "reverse-geocoding": true
+  "reverse-geocoding": true,
+  "map-popout": true
 }
 ```
 
@@ -107,6 +111,13 @@ if flags.my_new_flag:
 
 ## Current flags
 
+Both flags below have **graduated**: their features are done and confirmed
+stable in beta, so `_RELEASE_DEFAULTS` now has them **on** for everyone. The
+flag guards are kept in place (rather than removed) mainly so they can still
+be switched off via `--feature name=false` if a regression turns up. They are
+candidates for full removal per step 4 of [Adding a new flag](#adding-a-new-flag).
+
 | Flag | Default | Description |
 |---|---|---|
-| `reverse-geocoding` | `false` | Offline boundary engine for County / State / Country (issue #60) — gates the Update Location menu action, its right-click context-menu entry, auto-geocode on GPX import, the boundary-packs download/update actions, and the related Settings section |
+| `reverse-geocoding` | `true` | Offline boundary engine for County / State / Country (issue #60) — gates the Update Location menu action, its right-click context-menu entry, auto-geocode on GPX import, the boundary-packs download/update actions, and the related Settings section |
+| `map-popout` | `true` | Full-screen / pop-out map window (issue #696) — gates the "Pop out map" menu action and toolbar button (both main menu and toolbar), and the corresponding JS hook in the Leaflet map HTML that enables pop-out mode |
