@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Split-screen map didn't update for caches outside the overview map's
+  display limit (#718)** — reported by Mike Wood (lignumaqua): selecting a
+  cache in the table sometimes left the map unchanged, or centred on the
+  wrong area, depending on the table's current sort order. Root cause: the
+  split-screen map reused the overview map's own capped/sorted marker set
+  (the "Map Display" max-caches limit), so a selected cache outside that
+  set simply had no marker to pan to — `panToCache()` silently did
+  nothing. Selecting a cache now loads that cache's own neighbourhood
+  (within a configurable radius, independent of the overview limit) and
+  draws a circle on the map at that radius so it's always clear where the
+  view ends; a small label appears only when a new safety cap actually
+  limited the result in a dense area. Two new per-database settings
+  (Settings → Map: split-screen map radius and cache limit) control this,
+  defaulting to 2 km / 500 caches.
+
 ---
 
 ## [1.17.0-beta.10] — 2026-08-12
