@@ -1,0 +1,54 @@
+name: "Notarize macOS disk image"
+description: "Submit a signed .dmg to Apple notarization, wait for the result, staple the ticket, and verify Gatekeeper acceptance."
+
+inputs:
+  target-path:
+    description: "Path to the signed .dmg to notarize"
+    required: true
+  apple-id:
+    description: "Apple ID used for notarization"
+    required: true
+  app-specific-password:
+    description: "App-specific password for the Apple ID (generated at appleid.apple.com)"
+    required: true
+  team-id:
+    description: "Apple Developer Team ID"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Submit for notarization and wait
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        SUBMIT_OUTPUT="$(xcrun notarytool submit "${{ inputs.target-path }}" \
+          --apple-id "${{ inputs.apple-id }}" \
+          --password "${{ inputs.app-specific-password }}" \
+          --team-id "${{ inputs.team-id }}" \
+          --wait \
+          --timeout 30m 2>&1 | tee /dev/stderr)"
+
+        SUBMISSION_ID="$(echo "$SUBMIT_OUTPUT" | awk '/id:/ {print $2; exit}')"
+        echo "SUBMISSION_ID=$SUBMISSION_ID" >> "$GITHUB_ENV"
+
+        if ! echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
+          echo "::error::Notarization did not report 'Accepted' — fetching Apple's log for details"
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --apple-id "${{ inputs.apple-id }}" \
+            --password "${{ inputs.app-specific-password }}" \
+            --team-id "${{ inputs.team-id }}" || true
+          exit 1
+        fi
+
+    - name: Staple notarization ticket
+      shell: bash
+      run: xcrun stapler staple "${{ inputs.target-path }}"
+
+    - name: Verify Gatekeeper acceptance
+      shell: bash
+      run: |
+        set -euo pipefail
+        spctl -a -vv --type open "${{ inputs.target-path }}"
+        xcrun stapler validate "${{ inputs.target-path }}"

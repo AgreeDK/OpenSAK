@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened runtime entitlements for OpenSAK (bundle id: dk.opensak.app).
+
+  This is a Developer ID (non-Mac-App-Store) app, so it does NOT use
+  com.apple.security.app-sandbox — OpenSAK needs to read/write arbitrary
+  database folders the user picks, not just files chosen via an open panel.
+  These entitlements only grant the specific hardened-runtime exceptions
+  the bundled Qt/QtWebEngine and PyInstaller bootloader need in order to
+  keep working once the hardened runtime is turned on for notarization.
+-->
+<plist version="1.0">
+<dict>
+    <!-- QtWebEngine (Chromium) needs JIT for its JavaScript engine -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Some Qt/Python native extensions allocate executable memory that
+         isn't itself JIT-compiled; the hardened runtime blocks this by
+         default. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- PyInstaller bundles many Qt/third-party .dylib/.so files that are
+         not signed by our Team ID. Without this, the hardened runtime
+         refuses to load them at all and the app won't launch. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- The PyInstaller bootloader sets DYLD_* environment variables to
+         find bundled libraries at runtime; the hardened runtime strips
+         these by default unless explicitly allowed. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- Outbound network access: geocaching.com sync, elevation.gsak.net,
+         OSRM routing, GitHub-based update checks, reverse-geocoding data
+         downloads. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>
