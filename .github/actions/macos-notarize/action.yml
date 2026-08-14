@@ -50,5 +50,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        spctl -a -vv --type open "${{ inputs.target-path }}"
+        # Note: `spctl -a --type open` on a .dmg (without --context) commonly
+        # reports "rejected / source=Insufficient Context" even when
+        # notarization succeeded correctly — this is a documented Apple
+        # quirk, not a real rejection. The --context flag below is Apple's
+        # own recommended way to check a disk image correctly.
+        spctl -a -t open -vvv --context context:primary-signature "${{ inputs.target-path }}"
         xcrun stapler validate "${{ inputs.target-path }}"
