@@ -184,7 +184,22 @@ def _run_migrations(engine: Engine) -> None:
         )).fetchall()
         idx_names = [r[0] for r in idx_rows]
 
-        if "uq_waypoint_cache_prefix_name" not in idx_names:
+        # Bug fundet 14/8-2026 (issue #723-opfølgning, Mikes 405MB database):
+        # migration 22 nedenfor erstatter SENERE dette constraint med et nyt,
+        # bedre ét — (cache_id, wp_code) i stedet for (cache_id, prefix, name),
+        # fordi prefix+name legitimt KAN gentages på samme cache (se Waypoint-
+        # modellens docstring, issue #536). For enhver database der allerede
+        # har kørt migration 22, hedder indexet "uq_waypoint_cache_wp_code" —
+        # "uq_waypoint_cache_prefix_name" findes ikke længere. Uden dette tjek
+        # troede migration 2 fejlagtigt den aldrig var kørt og forsøgte at
+        # genskabe det gamle, for strenge constraint — hvilket fejlede med en
+        # UNIQUE constraint-fejl på ægte data med legitime prefix+name-
+        # dubletter. Fejlen var ufanget hele vejen op gennem opstartskæden, så
+        # appen crashede stille uden fejlbesked — det så ud som et hang.
+        if (
+            "uq_waypoint_cache_prefix_name" not in idx_names
+            and "uq_waypoint_cache_wp_code" not in idx_names
+        ):
             logger.debug("[migrations] 2: waypoints table rebuild starting")
             _step_t0 = time.monotonic()
             # SQLite understøtter ikke DROP CONSTRAINT — vi recreater tabellen.

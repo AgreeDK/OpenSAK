@@ -206,6 +206,66 @@ def test_old_schema_runs_every_migration(tmp_path):
     assert version == SCHEMA_VERSION
 
 
+def test_migration_2_does_not_rerun_after_migration_22(tmp_path):
+    # Regression test for the #723 follow-up (14/8-2026, Mike's 405MB
+    # database): a database that already ran migration 22 has its unique
+    # constraint named "uq_waypoint_cache_wp_code", not
+    # "uq_waypoint_cache_prefix_name" — the name migration 2 used to look
+    # for. Without recognising the newer name too, migration 2 incorrectly
+    # believed it had never run and tried to recreate its own old, stricter
+    # (cache_id, prefix, name) constraint — which real-world data legitimately
+    # violates (that's exactly why migration 22 replaced it, issue #536).
+    # That raised an uncaught IntegrityError partway through startup, which
+    # silently crashed the app with no visible error — indistinguishable from
+    # a hang from the user's point of view.
+    engine = _make_engine(tmp_path / "post_m22.db")
+    with engine.connect() as c:
+        for ddl in _OLD_SCHEMA:
+            c.execute(text(ddl))
+        c.execute(text(
+            "INSERT INTO caches (gc_code, cache_type, imported_at) "
+            "VALUES ('GC1', 'Traditional Cache', '2023-01-01 00:00:00')"
+        ))
+        # Simulate a database already past migration 22: the modern
+        # constraint name, plus two waypoints with the SAME prefix+name on
+        # the same cache — legitimate under (cache_id, wp_code), but exactly
+        # what makes the old (cache_id, prefix, name) constraint fail.
+        c.execute(text(
+            "ALTER TABLE waypoints ADD COLUMN wp_code TEXT"
+        ))
+        c.execute(text(
+            "CREATE UNIQUE INDEX uq_waypoint_cache_wp_code ON waypoints (cache_id, wp_code)"
+        ))
+        c.execute(text(
+            "INSERT INTO waypoints (cache_id, prefix, name, wp_code) "
+            "VALUES (1, 'RP', 'Right turn', 'RP1')"
+        ))
+        c.execute(text(
+            "INSERT INTO waypoints (cache_id, prefix, name, wp_code) "
+            "VALUES (1, 'RP', 'Right turn', 'RP2')"
+        ))
+        c.execute(text("PRAGMA user_version = 22"))
+        c.commit()
+
+    # Must complete without raising — this is the actual regression: before
+    # the fix, this raised sqlite3.IntegrityError.
+    _run_migrations(engine)
+
+    with engine.connect() as c:
+        idx_names = {r[0] for r in c.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='waypoints'"
+        ))}
+        count = c.execute(text("SELECT COUNT(*) FROM waypoints WHERE cache_id=1")).scalar()
+        version = c.execute(text("PRAGMA user_version")).scalar()
+
+    # Migration 2 must NOT have rebuilt the table — the modern constraint
+    # stays, the old one is never (re)created, and no data was lost.
+    assert "uq_waypoint_cache_wp_code" in idx_names
+    assert "uq_waypoint_cache_prefix_name" not in idx_names
+    assert count == 2
+    assert version == SCHEMA_VERSION
+
+
 def test_waypoint_unique_constraint_wp_code_behaviour(tmp_path):
     # Issue #536: the (cache_id, wp_code) constraint replacing
     # (cache_id, prefix, name) — exercised directly on a fresh, current-
