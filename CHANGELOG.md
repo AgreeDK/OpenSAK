@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.12] — 2026-08-14
+
+### Fixed
+
+- **App could still silently crash (appearing to hang) on startup for
+  some existing databases (#723 follow-up)** — migration 2 checked for
+  an outdated index name (`uq_waypoint_cache_prefix_name`) that
+  migration 22 had long since replaced with `uq_waypoint_cache_wp_code`
+  when it relaxed the constraint from (cache_id, prefix, name) to
+  (cache_id, wp_code) (issue #536). Any database that had already run
+  migration 22 didn't have the old index name, so migration 2 wrongly
+  believed it had never run and tried to recreate its own old, stricter
+  constraint — which real-world data can legitimately violate (that's
+  exactly why migration 22 replaced it in the first place). The
+  resulting error was never caught anywhere in the startup path, so the
+  app crashed with no visible error message — indistinguishable from a
+  hang. Root-caused with a local repro against a real 405MB/12,600-cache
+  database; fixed by having migration 2 recognise either index name as
+  evidence it can skip.
+
+---
+
 ## [1.17.0-beta.11] — 2026-08-13
 
 ### Fixed
