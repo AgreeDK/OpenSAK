@@ -97,6 +97,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Sneltoetsen…",
 
     "action_open_log_file": "Logbestand openen",
+    "action_open_previous_log_file": "Log van vorige herstart openen",
     "action_support_opensak": "♥  OpenSAK steunen…",
     "log_file_not_found": "Logbestand nog niet gevonden: {path}",
 

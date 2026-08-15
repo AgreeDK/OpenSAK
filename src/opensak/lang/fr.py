@@ -94,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Raccourcis clavier…",
 
     "action_open_log_file": "Ouvrir le fichier journal",
+    "action_open_previous_log_file": "Ouvrir le journal du dernier redémarrage",
     "action_support_opensak": "♥  Soutenir OpenSAK…",
     "log_file_not_found": "Fichier journal introuvable : {path}",
 

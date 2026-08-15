@@ -94,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Klávesové zkratky…",
 
     "action_open_log_file": "Otevřít soubor protokolu",
+    "action_open_previous_log_file": "Otevřít protokol z posledního spuštění",
     "action_support_opensak": "♥  Podpořit OpenSAK…",
     "log_file_not_found": "Soubor protokolu ještě nebyl nalezen: {path}",
 

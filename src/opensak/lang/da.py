@@ -94,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Tastaturgenveje…",
 
     "action_open_log_file": "Åbn logfil",
+    "action_open_previous_log_file": "Åbn log fra forrige genstart",
     "action_support_opensak": "♥  Støt OpenSAK…",
     "log_file_not_found": "Logfil ikke fundet endnu: {path}",
 

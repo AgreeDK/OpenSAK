@@ -546,6 +546,14 @@ class MainWindow(QMainWindow):
         act_open_log.triggered.connect(self._open_log_file)
         help_menu.addAction(act_open_log)
 
+        # Issue #737: previous session's log is preserved via rotation in
+        # logger.setup_logging() — see get_previous_log_path(). Lets a
+        # crash/freeze from the last session be retrieved after
+        # restarting, without hunting the file down manually first.
+        act_open_previous_log = QAction(tr("action_open_previous_log_file"), self)
+        act_open_previous_log.triggered.connect(self._open_previous_log_file)
+        help_menu.addAction(act_open_previous_log)
+
         help_menu.addSeparator()
 
         act_support = QAction(tr("action_support_opensak"), self)
@@ -2838,6 +2846,25 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 tr("action_open_log_file"),
+                tr("log_file_not_found", path=str(log_path)),
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+
+    def _open_previous_log_file(self) -> None:
+        """Åbn forrige sessions logfil (issue #737) — bevaret via rotation
+        i logger.setup_logging(), så en session der endte i et crash/hæng
+        stadig kan hentes efter genstart, uden at brugeren selv skal finde
+        og gemme filen før OpenSAK åbnes igen."""
+        from opensak.config import get_previous_log_path
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        log_path = get_previous_log_path()
+        if not log_path.exists():
+            QMessageBox.information(
+                self,
+                tr("action_open_previous_log_file"),
                 tr("log_file_not_found", path=str(log_path)),
             )
             return

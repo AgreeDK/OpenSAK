@@ -73,6 +73,19 @@ def get_log_path() -> Path:
     return get_app_data_dir() / "opensak.log"
 
 
+def get_previous_log_path() -> Path:
+    """Return the path to the *previous* session's log file (issue #737).
+
+    Preserved via rotation in logger.setup_logging() — each new session
+    renames whatever was in opensak.log here before starting a fresh log,
+    instead of deleting it outright. This lets a crash/freeze from the
+    last session still be retrieved after restarting (see the "Open log
+    from last restart" Help-menu action in mainwindow.py), without the
+    user having to hunt down and grab the file before reopening the app.
+    """
+    return get_app_data_dir() / "opensak.log.previous"
+
+
 def get_gc_token_path() -> Path:
     """
     Return the path to the Geocaching.com OAuth token file.

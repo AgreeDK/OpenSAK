@@ -63,7 +63,8 @@ class TestSetupLogging:
         reset_logging()
         setup_logging()
         second_content = log_path.read_text(encoding="utf-8")
-        # mode="w" truncates — old line must be gone.
+        # Issue #737: rotation (not deletion) — the new session's log
+        # must still start fresh, same observable behaviour as before.
         assert "first session line" not in second_content
 
     def test_uses_rotating_file_handler(self):
@@ -161,4 +162,84 @@ class TestResetLogging:
         setup_logging()
         reset_logging()
         log_path = setup_logging()
+        assert log_path.exists() or log_path.parent.exists()
+
+
+# ── previous-session log rotation (issue #737) ─────────────────────────────────
+#
+# opensak.log used to be deleted outright at the start of every session
+# (#232) — fine for normal use, but it meant a crash/freeze from the last
+# session was unrecoverable the moment the user reopened OpenSAK to go
+# looking for it. setup_logging() now rotates the previous session's log
+# to opensak.log.previous instead of deleting it, and a new "Open log
+# from last restart" Help-menu action (mainwindow.py) opens that file.
+
+class TestPreviousSessionLogRotation:
+    def test_first_ever_session_has_no_previous_log(self):
+        from opensak.config import get_previous_log_path
+        setup_logging()
+        assert not get_previous_log_path().exists()
+
+    def test_previous_session_content_preserved_after_rotation(self, tmp_path):
+        from opensak.config import get_previous_log_path
+
+        log_path = setup_logging()
+        log = get_logger("updater")
+        log.warning("session one line")
+        for h in logging.getLogger("opensak").handlers:
+            h.flush()
+
+        reset_logging()
+        setup_logging()  # rotates session one's log to .previous
+
+        previous_content = get_previous_log_path().read_text(encoding="utf-8")
+        assert "session one line" in previous_content
+        # And the new session's own log must still start fresh (covered
+        # again here since it's the behaviour #737 must not regress).
+        assert "session one line" not in log_path.read_text(encoding="utf-8")
+
+    def test_only_the_single_most_recent_previous_session_is_kept(self):
+        from opensak.config import get_previous_log_path
+
+        # Session one
+        setup_logging()
+        get_logger("updater").warning("session one line")
+        for h in logging.getLogger("opensak").handlers:
+            h.flush()
+        reset_logging()
+
+        # Session two
+        setup_logging()
+        get_logger("updater").warning("session two line")
+        for h in logging.getLogger("opensak").handlers:
+            h.flush()
+        reset_logging()
+
+        # Session three — rotates session two's log into .previous,
+        # overwriting session one's (already rotated away by session two).
+        setup_logging()
+
+        previous_content = get_previous_log_path().read_text(encoding="utf-8")
+        assert "session two line" in previous_content
+        assert "session one line" not in previous_content
+
+    def test_rotation_failure_falls_back_to_delete_not_crash(self, tmp_path, monkeypatch):
+        # A locked/permission-denied rotation must not prevent the app
+        # from starting — degrade to the old delete behaviour instead.
+        import opensak.logger as logger_module
+        from pathlib import Path
+
+        setup_logging()
+        get_logger("updater").warning("will be lost, and that's fine")
+        for h in logging.getLogger("opensak").handlers:
+            h.flush()
+        reset_logging()
+
+        real_replace = Path.replace
+
+        def boom(self, target):
+            raise OSError("simulated: file locked")
+
+        monkeypatch.setattr(Path, "replace", boom)
+        log_path = setup_logging()  # must not raise
         assert log_path.exists() or log_path.parent.exists()
