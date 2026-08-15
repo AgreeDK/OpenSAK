@@ -170,6 +170,55 @@ class TestManagerDialog:
         dlg._switch_to_selected()
         manager.switch_to.assert_not_called()
 
+    # ── Issue #738 ──────────────────────────────────────────────────────────
+
+    def test_switch_failure_shows_critical_error(self, dlg, manager, monkeypatch):
+        manager.switch_to.side_effect = RuntimeError("simulated migration failure")
+        crit = MagicMock()
+        info = MagicMock()
+        monkeypatch.setattr(dd.QMessageBox, "critical", crit)
+        monkeypatch.setattr(dd.QMessageBox, "information", info)
+        emitted = []
+        dlg.database_switched.connect(lambda db: emitted.append(db.name))
+        _select(dlg, "Other")
+        dlg._switch_to_selected()
+        crit.assert_called_once()
+        # Must not report success (no "switched" info dialog, no signal)
+        # when the switch actually failed.
+        info.assert_not_called()
+        assert emitted == []
+
+    def test_new_database_switch_failure_still_reports_creation_state(self, dlg, manager, monkeypatch):
+        # Database creation itself succeeded — only the follow-up switch
+        # failed — so this must be reported distinctly from a creation
+        # failure (test_new_database_value_error above), not silently
+        # swallowed as if nothing happened.
+        new_db = _DB("Fresh", "/data/fresh.db")
+        manager.new_database.return_value = new_db
+        manager.switch_to.side_effect = RuntimeError("simulated migration failure")
+
+        class FakeNew:
+            def __init__(self, parent=None):
+                pass
+            def exec(self):
+                return 1
+            name = "Fresh"
+            custom_path = None
+        monkeypatch.setattr(dd, "NewDatabaseDialog", FakeNew)
+        crit = MagicMock()
+        info = MagicMock()
+        monkeypatch.setattr(dd.QMessageBox, "critical", crit)
+        monkeypatch.setattr(dd.QMessageBox, "information", info)
+        emitted = []
+        dlg.database_switched.connect(lambda db: emitted.append(db.name))
+
+        dlg._new_database()
+
+        manager.new_database.assert_called_once()
+        crit.assert_called_once()
+        info.assert_not_called()  # no "database created" success message either
+        assert emitted == []
+
     def test_new_database_success(self, dlg, manager, monkeypatch):
         new_db = _DB("Fresh", "/data/fresh.db")
         manager.new_database.return_value = new_db

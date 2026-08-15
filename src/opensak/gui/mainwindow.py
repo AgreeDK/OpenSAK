@@ -953,7 +953,21 @@ class MainWindow(QMainWindow):
         manager = get_db_manager()
         if db == manager.active:
             return
-        manager.switch_to(db)
+        try:
+            manager.switch_to(db)
+        except Exception as e:
+            # Issue #738: show the failure instead of leaving the app
+            # looking frozen, and reset the dropdown back to the still-
+            # active database — switch_to() only updates manager.active
+            # on success, so _reload_db_combo() correctly re-selects the
+            # previous one rather than showing the failed switch as if it
+            # had gone through.
+            self._reload_db_combo()
+            QMessageBox.critical(
+                self, tr("db_err_switch_failed_title"),
+                tr("db_err_switch_failed", name=db.name, error=str(e)),
+            )
+            return
         self._on_database_switched(db)
 
     # Under denne pixel-grænse regnes en gendannet splitter-side som

@@ -572,6 +572,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Le dossier n'existe pas :\n{path}",
     "db_err_no_write_permission":   "Pas de permission d'écriture pour le dossier :\n{path}",
     "db_err_create_failed":         "Impossible de créer la base de données.",
+    "db_err_switch_failed_title":   "Impossible de changer de base de données",
+    "db_err_switch_failed":         "Impossible de passer à '{name}' :\n{error}\n\nUn journal détaillé a été enregistré — voir Aide > Ouvrir le fichier journal.",
     "db_err_file_not_found":        "Fichier de base de données introuvable :\n{path}",
     "db_err_remove_active":         "Impossible de retirer la base de données active de la liste.",
     "db_err_delete_active":         "Impossible de supprimer la base de données active — basculez d'abord vers une autre.",
@@ -842,6 +844,8 @@ STRINGS: dict[str, str] = {
     # ── Coordonnées corrigées ─────────────────────────────────────────────────
     "map_home_label":               "Domicile",
     "map_nearby_label":             "Affiche les {shown} plus proches sur {total} dans un rayon de {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK n'a pas pu démarrer",
+    "startup_db_error_msg":         "OpenSAK n'a pas pu ouvrir votre base de données et ne peut pas démarrer.\n\n{error}\n\nUn journal d'erreurs détaillé a été enregistré ici :\n{path}\n\nVeuillez partager ce fichier journal sur github.com/OpenSAK-Org/OpenSAK/issues ou hello@opensak.com afin que nous puissions vous aider.",
     "map_ctx_copy_coords":          "Copier {coords}",
     "map_ctx_copy_as":              "Copier comme...",
     "map_ctx_set_corrected":        "Définir les coordonnées corrigées",

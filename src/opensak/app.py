@@ -254,7 +254,30 @@ def main() -> None:
     logger.info("startup: loading database (+%.2fs)", time.monotonic() - _startup_t0)
     from opensak.db.manager import get_db_manager
     manager = get_db_manager()
-    manager.ensure_active_initialised()
+    try:
+        manager.ensure_active_initialised()
+    except Exception as e:
+        # Issue #738/#723: previously uncaught — a migration failure here
+        # (whether the already-fixed #723 bug, or anything else specific
+        # to a user's database) propagated all the way out of app startup.
+        # In a PyInstaller-bundled build with no console window that
+        # traceback went nowhere, so the app just looked like it hung on
+        # the splash screen. switch_to()/init_db() already logs the full
+        # traceback (now preserved across a restart via #737's rotation);
+        # here we additionally stop and tell the user directly, rather
+        # than pressing on into a MainWindow with no valid database
+        # engine, which would likely fail again in some more confusing
+        # way further down.
+        logger.exception("startup: failed to initialise active database")
+        splash.hide()
+        from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
+        from opensak.config import get_log_path
+        from opensak.lang import tr
+        QMessageBox.critical(
+            None, tr("startup_db_error_title"),
+            tr("startup_db_error_msg", error=str(e), path=str(get_log_path())),
+        )
+        sys.exit(1)
     logger.info("startup: database loaded (+%.2fs)", time.monotonic() - _startup_t0)
 
     # Opret hovedvindue

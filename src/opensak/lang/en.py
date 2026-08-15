@@ -570,6 +570,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Folder does not exist:\n{path}",
     "db_err_no_write_permission":   "No write permission for folder:\n{path}",
     "db_err_create_failed":         "Could not create the database.",
+    "db_err_switch_failed_title":   "Could not switch database",
+    "db_err_switch_failed":         "Could not switch to '{name}':\n{error}\n\nA detailed log has been saved — see Help > Open log file.",
     "db_err_file_not_found":        "Database file not found:\n{path}",
     "db_err_remove_active":         "Cannot remove the active database from the list.",
     "db_err_delete_active":         "Cannot delete the active database — switch to another one first.",
@@ -840,6 +842,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Home",
     "map_nearby_label":             "Showing nearest {shown} of {total} within {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK could not start",
+    "startup_db_error_msg":         "OpenSAK could not open your database and cannot start.\n\n{error}\n\nA detailed error log has been saved to:\n{path}\n\nPlease share this log file at github.com/OpenSAK-Org/OpenSAK/issues or hello@opensak.com so we can help.",
     "map_ctx_copy_coords":          "Copy {coords}",
     "map_ctx_copy_as":              "Copy as...",
     "map_ctx_set_corrected":        "Set corrected coordinates",

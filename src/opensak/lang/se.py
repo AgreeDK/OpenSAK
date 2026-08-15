@@ -571,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Mappen finns inte:\n{path}",
     "db_err_no_write_permission":   "Ingen skrivbehörighet för mappen:\n{path}",
     "db_err_create_failed":         "Kunde inte skapa databasen.",
+    "db_err_switch_failed_title":   "Kunde inte byta databas",
+    "db_err_switch_failed":         "Kunde inte byta till '{name}':\n{error}\n\nEn detaljerad logg har sparats — se Hjälp > Öppna loggfil.",
     "db_err_file_not_found":        "Databasfilen hittades inte:\n{path}",
     "db_err_remove_active":         "Den aktiva databasen kan inte tas bort från listan.",
     "db_err_delete_active":         "Den aktiva databasen kan inte raderas — byt till en annan först.",
@@ -841,6 +843,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Hem",
     "map_nearby_label":             "Visar närmaste {shown} av {total} inom {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kunde inte starta",
+    "startup_db_error_msg":         "OpenSAK kunde inte öppna din databas och kan inte starta.\n\n{error}\n\nEn detaljerad felllogg har sparats här:\n{path}\n\nDela gärna denna loggfil på github.com/OpenSAK-Org/OpenSAK/issues eller hello@opensak.com så vi kan hjälpa till.",
     "map_ctx_copy_coords":          "Kopiera {coords}",
     "map_ctx_copy_as":              "Kopiera som...",
     "map_ctx_set_corrected":        "Ange korrigerade koordinater",

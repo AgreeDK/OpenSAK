@@ -571,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Mappen eksisterer ikke:\n{path}",
     "db_err_no_write_permission":   "Ingen skriverettigheder til mappen:\n{path}",
     "db_err_create_failed":         "Kunne ikke oprette databasen.",
+    "db_err_switch_failed_title":   "Kunne ikke skifte database",
+    "db_err_switch_failed":         "Kunne ikke skifte til '{name}':\n{error}\n\nEn detaljeret log er gemt — se Hjælp > Åbn logfil.",
     "db_err_file_not_found":        "Databasefilen blev ikke fundet:\n{path}",
     "db_err_remove_active":         "Kan ikke fjerne den aktive database fra listen.",
     "db_err_delete_active":         "Kan ikke slette den aktive database — skift til en anden først.",
@@ -841,6 +843,8 @@ STRINGS: dict[str, str] = {
     # ── Korrigerede koordinater ───────────────────────────────────────────────
     "map_home_label":               "Hjem",
     "map_nearby_label":             "Viser nærmeste {shown} af {total} inden for {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kunne ikke starte",
+    "startup_db_error_msg":         "OpenSAK kunne ikke åbne din database og kan ikke starte.\n\n{error}\n\nEn detaljeret fejllog er gemt her:\n{path}\n\nDel venligst denne logfil på github.com/OpenSAK-Org/OpenSAK/issues eller hello@opensak.com, så vi kan hjælpe.",
     "map_ctx_copy_coords":          "Kopier {coords}",
     "map_ctx_copy_as":              "Kopier som...",
     "map_ctx_set_corrected":        "Sæt korrigerede koordinater",

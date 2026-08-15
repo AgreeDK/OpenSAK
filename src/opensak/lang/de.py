@@ -571,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Der Ordner existiert nicht:\n{path}",
     "db_err_no_write_permission":   "Keine Schreibberechtigung für den Ordner:\n{path}",
     "db_err_create_failed":         "Die Datenbank konnte nicht erstellt werden.",
+    "db_err_switch_failed_title":   "Datenbank konnte nicht gewechselt werden",
+    "db_err_switch_failed":         "Wechsel zu '{name}' fehlgeschlagen:\n{error}\n\nEin detailliertes Protokoll wurde gespeichert — siehe Hilfe > Protokolldatei öffnen.",
     "db_err_file_not_found":        "Datenbankdatei nicht gefunden:\n{path}",
     "db_err_remove_active":         "Die aktive Datenbank kann nicht aus der Liste entfernt werden.",
     "db_err_delete_active":         "Die aktive Datenbank kann nicht gelöscht werden — wechseln Sie zuerst zu einer anderen.",
@@ -841,6 +843,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Zuhause",
     "map_nearby_label":             "Zeigt die nächsten {shown} von {total} innerhalb von {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK konnte nicht gestartet werden",
+    "startup_db_error_msg":         "OpenSAK konnte Ihre Datenbank nicht öffnen und kann nicht starten.\n\n{error}\n\nEin detailliertes Fehlerprotokoll wurde gespeichert unter:\n{path}\n\nBitte teilen Sie diese Protokolldatei unter github.com/OpenSAK-Org/OpenSAK/issues oder hello@opensak.com mit, damit wir helfen können.",
     "map_ctx_copy_coords":          "Kopieren {coords}",
     "map_ctx_copy_as":              "Kopieren als...",
     "map_ctx_set_corrected":        "Korrigierte Koordinaten setzen",

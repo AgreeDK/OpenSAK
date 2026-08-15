@@ -280,7 +280,21 @@ class DatabaseManager:
     def switch_to(self, db_info: "DatabaseInfo") -> None:
         """Skift aktiv database og initialiser den."""
         from opensak.db.database import init_db
-        init_db(db_path=db_info.path)  # raises if the file is not a valid DB
+        try:
+            init_db(db_path=db_info.path)  # raises if the file is not a valid DB
+        except Exception:
+            # Issue #738: this used to be uncaught all the way up through
+            # whichever GUI call site triggered it (toolbar dropdown,
+            # database dialog's Switch button, or the auto-switch after
+            # creating a new database) — in a PyInstaller-bundled build
+            # with no console window, that traceback went nowhere and the
+            # app just looked frozen or was left in a half-switched state.
+            # Logged here once, at the source, so it's captured regardless
+            # of which caller triggered it (and now preserved across a
+            # restart via #737's log rotation) — then re-raised so each
+            # caller can still show its own error dialog.
+            logger.exception("switch_to(%s) failed", db_info.path)
+            raise
         self._active = db_info          # only update state after successful init
         self._save_to_settings()
 

@@ -574,6 +574,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Map bestaat niet:\n{path}",
     "db_err_no_write_permission":   "Geen schrijfrechten voor map:\n{path}",
     "db_err_create_failed":         "Kan de database niet aanmaken.",
+    "db_err_switch_failed_title":   "Kan niet van database wisselen",
+    "db_err_switch_failed":         "Kan niet wisselen naar '{name}':\n{error}\n\nEr is een gedetailleerd logbestand opgeslagen — zie Help > Logbestand openen.",
     "db_err_file_not_found":        "Databasebestand niet gevonden:\n{path}",
     "db_err_remove_active":         "Kan de actieve database niet uit de lijst verwijderen.",
     "db_err_delete_active":         "Kan de actieve database niet verwijderen — schakel eerst over naar een andere.",
@@ -843,6 +845,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Thuis",
     "map_nearby_label":             "Toont de {shown} dichtstbijzijnde van {total} binnen {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kon niet starten",
+    "startup_db_error_msg":         "OpenSAK kon uw database niet openen en kan niet starten.\n\n{error}\n\nEen gedetailleerd foutenlogboek is hier opgeslagen:\n{path}\n\nDeel dit logbestand op github.com/OpenSAK-Org/OpenSAK/issues of hello@opensak.com, zodat we kunnen helpen.",
     "map_ctx_copy_coords":          "Kopieer {coords}",
     "map_ctx_copy_as":              "Kopieer als...",
     "map_ctx_set_corrected":        "Gecorrigeerde coördinaten instellen",

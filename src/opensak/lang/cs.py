@@ -571,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Složka neexistuje:\n{path}",
     "db_err_no_write_permission":   "Nemáte oprávnění k zápisu do složky:\n{path}",
     "db_err_create_failed":         "Nepodařilo se vytvořit databázi.",
+    "db_err_switch_failed_title":   "Nepodařilo se přepnout databázi",
+    "db_err_switch_failed":         "Nepodařilo se přepnout na '{name}':\n{error}\n\nByl uložen podrobný protokol — viz Nápověda > Otevřít soubor protokolu.",
     "db_err_file_not_found":        "Soubor databáze nebyl nalezen:\n{path}",
     "db_err_remove_active":         "Aktivní databázi nelze odebrat ze seznamu.",
     "db_err_delete_active":         "Aktivní databázi nelze smazat — nejprve přepněte na jinou.",
@@ -842,6 +844,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Domov",
     "map_nearby_label":             "Zobrazeno {shown} nejbližších z {total} v okruhu {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK se nepodařilo spustit",
+    "startup_db_error_msg":         "OpenSAK se nepodařilo otevřít vaši databázi a nelze jej spustit.\n\n{error}\n\nPodrobný protokol chyb byl uložen do:\n{path}\n\nProsím, sdílejte tento soubor protokolu na github.com/OpenSAK-Org/OpenSAK/issues nebo hello@opensak.com, abychom mohli pomoci.",
     "map_ctx_copy_coords":          "Kopírovat {coords}",
     "map_ctx_copy_as":              "Kopírovat jako...",
     "map_ctx_set_corrected":        "Nastavit opravené souřadnice",

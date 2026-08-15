@@ -421,6 +421,39 @@ class TestSwitchTo:
             manager.switch_to(extra)
         assert manager.active is extra
 
+    # ── Issue #738 ──────────────────────────────────────────────────────────
+    #
+    # A failing init_db() (e.g. a migration exception) used to propagate
+    # uncaught all the way up through whichever GUI call site triggered it
+    # — indistinguishable from a hang in a console-less build. switch_to()
+    # now logs the full exception once, at the source, and re-raises so
+    # each caller can still show its own error dialog.
+
+    def test_failed_switch_logs_exception_and_reraises(self, manager, tmp_path):
+        with patch("opensak.db.database.init_db"):
+            extra = manager.new_database("BadDB", tmp_path / "BadDB.db")
+
+        boom = RuntimeError("simulated migration failure")
+        with patch("opensak.db.database.init_db", side_effect=boom):
+            with patch("opensak.db.manager.logger.exception") as mock_log:
+                with pytest.raises(RuntimeError, match="simulated migration failure"):
+                    manager.switch_to(extra)
+        assert mock_log.called
+
+    def test_failed_switch_does_not_change_active(self, manager, tmp_path):
+        with patch("opensak.db.database.init_db"):
+            original = manager.active
+            extra = manager.new_database("BadDB2", tmp_path / "BadDB2.db")
+
+        with patch("opensak.db.database.init_db", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError):
+                manager.switch_to(extra)
+
+        # switch_to() must only update self._active on success — a failed
+        # switch must leave the previously-active database untouched.
+        assert manager.active is original
+        assert manager.active is not extra
+
 
 # ── copy_database ─────────────────────────────────────────────────────────────
 

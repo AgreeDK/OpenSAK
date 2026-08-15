@@ -571,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "A pasta não existe:\n{path}",
     "db_err_no_write_permission":   "Sem permissão de escrita na pasta:\n{path}",
     "db_err_create_failed":         "Não foi possível criar a base de dados.",
+    "db_err_switch_failed_title":   "Não foi possível mudar de base de dados",
+    "db_err_switch_failed":         "Não foi possível mudar para '{name}':\n{error}\n\nFoi guardado um registo detalhado — ver Ajuda > Abrir ficheiro de registo.",
     "db_err_file_not_found":        "Ficheiro de base de dados não encontrado:\n{path}",
     "db_err_remove_active":         "Não é possível remover a base de dados ativa da lista.",
     "db_err_delete_active":         "Não é possível eliminar a base de dados ativa — mude primeiro para outra.",
@@ -842,6 +844,8 @@ STRINGS: dict[str, str] = {
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Casa",
     "map_nearby_label":             "A mostrar as {shown} mais próximas de {total} num raio de {radius} {unit}",
+    "startup_db_error_title":       "O OpenSAK não conseguiu iniciar",
+    "startup_db_error_msg":         "O OpenSAK não conseguiu abrir a sua base de dados e não pode iniciar.\n\n{error}\n\nFoi guardado um registo de erro detalhado em:\n{path}\n\nPor favor partilhe este ficheiro de registo em github.com/OpenSAK-Org/OpenSAK/issues ou hello@opensak.com para que possamos ajudar.",
     "map_ctx_copy_coords":          "Copiar {coords}",
     "map_ctx_copy_as":              "Copiar como...",
     "map_ctx_set_corrected":        "Definir coordenadas corrigidas",
