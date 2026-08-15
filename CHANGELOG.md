@@ -8,6 +8,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.13] — 2026-08-15
+
+### Added
+
+- **Previous session's log is preserved across restarts (#737)** — `setup_logging()`
+  now renames `opensak.log` to `opensak.log.previous` at startup instead of deleting
+  it, so a crash or hang from the last session can still be inspected after
+  restarting. A new Help menu action, "Open log from last restart", opens it
+  directly. Falls back to the old delete-and-recreate behaviour if rotation fails
+  (e.g. a locked file) rather than blocking startup.
+
+### Fixed
+
+- **Migration and database-switch failures could still fail silently (#738)** —
+  `switch_to()` now logs the full exception once at the source and re-raises,
+  instead of the error being swallowed somewhere along the way. All three GUI call
+  sites (toolbar database dropdown, Switch button, new-database auto-switch) catch
+  it, show a clear error dialog, and avoid leaving the UI in a half-switched state.
+  Startup (`ensure_active_initialised`, the original #723 code path) now shows a
+  clear error and exits cleanly instead of continuing into a MainWindow with no
+  valid database engine. This doesn't fix any specific unknown migration bug, but
+  turns any future occurrence — known or unknown — into a visible error with a full
+  traceback in the log, which is now preserved across restart thanks to #737.
+
+---
+
 ## [1.17.0-beta.12] — 2026-08-14
 
 ### Fixed
