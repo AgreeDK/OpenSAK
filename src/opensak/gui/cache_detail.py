@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 
 from opensak.db.models import Cache
 from opensak.lang import tr
@@ -52,7 +52,22 @@ def _convert_markdown_links(text: str) -> str:
 
 
 class _DescWebPage(QWebEnginePage):
-    """Custom page der åbner links i systemets browser i stedet for i WebEngine."""
+    """Custom page der åbner links i systemets browser i stedet for i WebEngine.
+
+    Issue #742: cache-beskrivelser er reelt tredjeparts-HTML (cache-ejeren
+    styrer indholdet), og gamle caches indeholder til tider legacy-tags som
+    <bgsound>/<embed src="...wav" autostart> til baggrundslyd. Chromium kan
+    ikke rendere den slags medie inline og forsøger i stedet at navigere hele
+    framet til ressourcen — det udløser acceptNavigationRequest() UDEN at
+    brugeren har klikket på noget. Den gamle logik betragtede alt undtagen
+    den initiale load som et link-klik og sendte det videre til systemets
+    browser, hvilket fik fx en .wav-fil til at åbne og afspille i en ny
+    Chrome-fane bare ved at vælge cachen.
+    Nu er det kun et EKSPLICIT brugerklik (NavigationTypeLinkClicked), der må
+    forlade widget'en til systemets browser. Alt andet (Other, FormSubmitted,
+    BackForward, Reload m.fl. — det legacy-tags rammer) blokeres stille, uden
+    at åbne noget.
+    """
 
     def acceptNavigationRequest(self, url: QUrl | str, nav_type, is_main_frame: bool) -> bool:
         if isinstance(url, str):
@@ -62,10 +77,14 @@ class _DescWebPage(QWebEnginePage):
             return True
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeRedirect:
             return True
-        # Alt andet (link-klik) sendes til systemets browser
-        if url.scheme() in ("http", "https"):
-            webbrowser.open(url.toString())
+        # Kun et rigtigt brugerklik på et link må sendes videre til systemets browser
+        if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            if url.scheme() in ("http", "https"):
+                webbrowser.open(url.toString())
             return False
+        # Alt andet (fx en automatisk navigation udløst af et <embed>/<bgsound>-tag
+        # eller en <meta http-equiv="refresh">, som Chromium ikke kan rendere inline)
+        # blokeres uden at åbne noget — se docstring ovenfor.
         return False
 
 
@@ -248,6 +267,15 @@ class CacheDetailPanel(QWidget):
             self._desc_view = QWebEngineView()
             self._desc_page = _DescWebPage()
             self._desc_view.setPage(self._desc_page)
+
+            # Issue #742 — forsvar i dybden: cache-beskrivelser er tredjeparts-HTML
+            # (cache-ejeren styrer indholdet), og der er ingen legitim grund til at
+            # køre JavaScript i denne visning. Slået fra for at reducere angrebsfladen
+            # ud over selve navigations-fixet i _DescWebPage.acceptNavigationRequest().
+            desc_settings = self._desc_page.settings()
+            desc_settings.setAttribute(
+                QWebEngineSettings.WebAttribute.JavascriptEnabled, False
+            )
 
             from PySide6.QtWidgets import QApplication
             app = QApplication.instance()

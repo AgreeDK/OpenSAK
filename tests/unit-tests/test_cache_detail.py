@@ -597,3 +597,96 @@ def test_trackables_tab_cleared_on_clear(monkeypatch, qapp):
     panel.clear()
     assert panel._tb_browser.toPlainText() == ""
     assert panel._tabs.tabText(5) == tr("col_trackables")
+
+
+# ── _DescWebPage.acceptNavigationRequest — issue #742 ──────────────────────
+#
+# Regression suite for #742: selecting cache GCKAGH auto-opened a browser tab
+# that played a .wav file, with no click involved. Root cause: the long
+# description contained a legacy tag (e.g. <bgsound>/<embed src="...wav">)
+# that Chromium can't render inline, so it tried to navigate the whole frame
+# to the resource. That navigation isn't a link click, but the old logic
+# treated everything except the initial page load as one and forwarded it to
+# the system browser via webbrowser.open().
+#
+# acceptNavigationRequest() is pure logic (no instance state), so we call it
+# directly on the class without constructing a real QWebEnginePage — this
+# keeps the test fast and avoids spawning Chromium in CI.
+
+from PySide6.QtCore import QUrl as _QUrl
+from PySide6.QtWebEngineCore import QWebEnginePage as _QWebEnginePage
+
+_NavType = _QWebEnginePage.NavigationType
+
+
+@pytest.mark.parametrize("scheme,url", [
+    ("http", "http://freepages.misc.rootsweb.com/~lukesphotos/bosun/allhands.wav"),
+    ("https", "https://example.com/page.html"),
+])
+def test_link_clicked_opens_system_browser(monkeypatch, scheme, url):
+    opened = []
+    monkeypatch.setattr(cd.webbrowser, "open", lambda u: opened.append(u))
+    result = cd._DescWebPage.acceptNavigationRequest(
+        None, _QUrl(url), _NavType.NavigationTypeLinkClicked, True
+    )
+    assert result is False
+    assert opened == [url]
+
+
+def test_link_clicked_non_http_scheme_not_opened(monkeypatch):
+    # e.g. a mailto: link in a description — don't hand arbitrary schemes to webbrowser.open
+    opened = []
+    monkeypatch.setattr(cd.webbrowser, "open", lambda u: opened.append(u))
+    result = cd._DescWebPage.acceptNavigationRequest(
+        None, _QUrl("mailto:someone@example.com"), _NavType.NavigationTypeLinkClicked, True
+    )
+    assert result is False
+    assert opened == []
+
+
+@pytest.mark.parametrize("nav_type", [
+    _NavType.NavigationTypeTyped,
+    _NavType.NavigationTypeRedirect,
+])
+def test_initial_load_and_redirect_allowed_in_page(monkeypatch, nav_type):
+    # setHtml()'s own load (and its redirects) must still render inside the widget.
+    opened = []
+    monkeypatch.setattr(cd.webbrowser, "open", lambda u: opened.append(u))
+    result = cd._DescWebPage.acceptNavigationRequest(
+        None, _QUrl("https://example.com/"), nav_type, True
+    )
+    assert result is True
+    assert opened == []
+
+
+@pytest.mark.parametrize("nav_type", [
+    _NavType.NavigationTypeOther,        # <embed>/<bgsound> auto-navigation lands here
+    _NavType.NavigationTypeFormSubmitted,
+    _NavType.NavigationTypeBackForward,
+    _NavType.NavigationTypeReload,
+])
+def test_non_click_navigation_blocked_without_opening_browser(monkeypatch, nav_type):
+    # Regression for #742: no click happened, so nothing should reach webbrowser.open(),
+    # and the navigation itself must not be allowed to proceed either.
+    opened = []
+    monkeypatch.setattr(cd.webbrowser, "open", lambda u: opened.append(u))
+    result = cd._DescWebPage.acceptNavigationRequest(
+        None,
+        _QUrl("http://freepages.misc.rootsweb.com/~lukesphotos/bosun/allhands.wav"),
+        nav_type,
+        True,
+    )
+    assert result is False
+    assert opened == []
+
+
+def test_accept_navigation_request_accepts_str_url(monkeypatch):
+    # acceptNavigationRequest's url parameter can arrive as a plain str in some
+    # PySide6 call paths — make sure the QUrl(str) coercion at the top still works.
+    opened = []
+    monkeypatch.setattr(cd.webbrowser, "open", lambda u: opened.append(u))
+    result = cd._DescWebPage.acceptNavigationRequest(
+        None, "https://example.com/clicked", _NavType.NavigationTypeLinkClicked, True
+    )
+    assert result is False
+    assert opened == ["https://example.com/clicked"]
