@@ -27,7 +27,7 @@ import pytest
 
 pytest.importorskip("pytestqt")
 
-from tests.data import make_fake_manager
+from tests.data import make_fake_manager, wait_for_refresh
 from tests.screenshots.demo_data import seed_demo_caches
 
 
@@ -87,7 +87,10 @@ def demo_window(qtbot, tmp_path, monkeypatch):
     window.resize(1440, 900)
     window.show()
     qtbot.waitExposed(window)
-    window._refresh_cache_list()
+    window._refresh_cache_list()  # issue #740: query runs on a background
+    # RefreshWorker now — wait for it before handing the window to the test,
+    # so the table/map are populated by the time screenshots are taken.
+    wait_for_refresh(window)
 
     try:
         yield window
