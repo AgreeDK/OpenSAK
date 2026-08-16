@@ -8,6 +8,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0-beta.14] — 2026-08-16
+
+### Fixed
+
+- **GUI thread blocked 20-90s on large-database switch/filter/load, appearing
+  as a freeze or force-close (#740)** — reported by Ron Radix (Facebook
+  community) on a 232,149-cache database: switching to another database
+  could make OpenSAK close itself, with the previous database reopening
+  afterward. A submitted `opensak.log` ruled out both an uncaught exception
+  and a migration (schema was already current throughout) — the log simply
+  stopped, mid-flow, right after a successful database switch, with no
+  traceback. Root cause: `apply_filters_auto()` → `cache_table.load_caches()`
+  → `map_widget.load_caches()` ran synchronously on the GUI thread and
+  consistently took 16-28s on 39k-232k cache databases, reaching 85+ seconds
+  of continuous blocking when combined with a distance recalculation — long
+  enough that Windows' "Not Responding" detection (or the user via Task
+  Manager) would terminate the process. Confirmed via measured timings
+  across three real databases (98k/198k/348k caches). The DB query now runs
+  on a new background `RefreshWorker` (`QThread`); the GUI thread applies
+  the result once ready. A generation counter discards results from a
+  superseded refresh (e.g. two quick database switches) without needing to
+  cancel the older worker. Verified against the same three databases:
+  switching between them no longer freezes or force-closes, at the cost of
+  a measured increase in total completion time on first (cold) access —
+  tracked separately as a performance follow-up in #746, since the query's
+  cost is largely GIL-bound ORM row hydration rather than I/O wait, so
+  backgrounding it doesn't make it faster on its own.
+
+### Added
+
+- **Wait cursor during cache-list refresh (#647)** — a multi-second refresh
+  on a large database (see #740 above) previously gave no visual feedback
+  at all, indistinguishable from the app doing nothing. A wait cursor is now
+  shown for the duration of any refresh, including at startup with a large
+  database.
+
+---
+
 ## [1.17.0-beta.13] — 2026-08-15
 
 ### Added

@@ -150,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "All flags cleared",
     "status_flagged_count":         "{flagged} of {total} caches flagged",
     "status_db_name":               "Database: {db_name}",
+    "status_refresh_failed":        "Failed to refresh the cache list",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Add cache",

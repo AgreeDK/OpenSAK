@@ -11,11 +11,12 @@ from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QSplitter, QVBoxLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QStatusBar,
-    QToolBar, QPushButton, QComboBox,
+    QToolBar, QPushButton, QComboBox, QApplication,
     QSizePolicy, QMessageBox, QWidgetAction, QStackedWidget
 )
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
+from opensak.gui.refresh_worker import RefreshWorker
 from opensak.db.database import get_session, db_health_check
 from opensak.db.models import Cache
 from opensak.filters.engine import (
@@ -210,6 +211,17 @@ class MainWindow(QMainWindow):
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._refresh_cache_list)
+        # Issue #740: apply_filters_auto()/cache_table/map_widget ran
+        # synchronously on the GUI thread and took 6-9+ seconds on 200k+
+        # cache databases with no progress feedback — long enough that
+        # Windows (or the user) would treat the app as frozen and force-close
+        # it during a database switch. _refresh_generation lets a stale
+        # RefreshWorker's result be discarded safely if a newer refresh was
+        # requested before it finished (e.g. two quick database switches),
+        # without needing to cancel/terminate the older QThread — see
+        # RefreshWorker's docstring and _on_refresh_result() below.
+        self._refresh_generation: int = 0
+        self._active_refresh_workers: list[RefreshWorker] = []
         self._setup_ui()
         self._setup_menu()
         self._setup_toolbar()
@@ -1151,6 +1163,16 @@ class MainWindow(QMainWindow):
             if worker is not None and worker.isRunning():
                 worker.quit()
                 worker.wait(500)
+        # Issue #740: let any in-flight RefreshWorker(s) finish before the
+        # window (and its DB session machinery) goes away. quit() is a no-op
+        # here (run() doesn't use an event loop) but wait() still blocks
+        # briefly for a natural finish, same pattern as the update workers
+        # above — best-effort, not a guarantee for a very slow query, but
+        # matches the level of rigor already established here.
+        for worker in list(self._active_refresh_workers):
+            if worker.isRunning():
+                worker.quit()
+                worker.wait(500)
         # Tear down the map's WebEngine page before its profile while the event
         # loop is still alive. The map's QWebEngineProfile/QWebEnginePage are
         # parent-less; relying on aboutToQuit (which fires only at app exit) means
@@ -1172,6 +1194,16 @@ class MainWindow(QMainWindow):
         filter dialog) with the quick-filter / search-box filters so that
         returning from Settings or any other dialog never discards the active
         filter (fixes #128).
+
+        Issue #740: the actual DB query (apply_filters_auto(), for both the
+        table and the map) runs on a background RefreshWorker instead of
+        synchronously here. GUI-only work — cache_table.load_caches(),
+        map_widget.load_caches(), the count label, the info bar — stays on
+        the GUI thread and happens in _on_refresh_result() once the worker
+        reports back. If this method is called again before that worker
+        finishes (e.g. two quick database switches, or fast typing in the
+        search box), the older worker's result is discarded by generation
+        number rather than cancelled — see RefreshWorker's docstring.
         """
         _t0 = time.monotonic()
         quick_fs = self._build_current_filterset()
@@ -1190,23 +1222,54 @@ class MainWindow(QMainWindow):
         else:
             fs = quick_fs
 
-        with get_session() as session:
-            caches = apply_filters_auto(
-                session, fs, self._current_sort,
-                columns=self._visible_table_columns(),
-            )
+        self._refresh_generation += 1
+        generation = self._refresh_generation
+        map_enabled = get_settings().map_enabled
+
+        # Issue #647: wait cursor while the worker runs, so a multi-second
+        # refresh on a large database no longer looks like nothing is
+        # happening. Paired 1:1 with restoreOverrideCursor() in
+        # _on_refresh_result()/_on_refresh_error() below — every worker we
+        # start here, however many are in flight at once, gets exactly one
+        # matching restore when it reports back, so the cursor only returns
+        # to normal once the last one finishes.
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        worker = RefreshWorker(
+            generation, fs, self._current_sort,
+            self._visible_table_columns(),
+            fetch_map=map_enabled,
+            map_max_caches=get_settings().map_max_caches,
+        )
+        worker.result.connect(
+            lambda gen, table_caches, map_caches, _t0=_t0:
+                self._on_refresh_result(gen, table_caches, map_caches, _t0)
+        )
+        worker.error.connect(self._on_refresh_error)
+        worker.finished.connect(lambda w=worker: self._cleanup_refresh_worker(w))
+        self._active_refresh_workers.append(worker)
+        worker.start()
+
+    def _on_refresh_result(
+        self, generation: int, table_caches: list, map_caches: list, _t0: float,
+    ) -> None:
+        """GUI-thread continuation of _refresh_cache_list() — see RefreshWorker."""
+        QApplication.restoreOverrideCursor()
+        if generation != self._refresh_generation:
+            # Superseded by a newer refresh request — discard silently.
+            return
         logger.info(
             "mainwindow: apply_filters_auto returned %s caches (+%.2fs)",
-            len(caches), time.monotonic() - _t0,
+            len(table_caches), time.monotonic() - _t0,
         )
 
-        self._cache_table.load_caches(caches)
+        self._cache_table.load_caches(table_caches)
         logger.info(
             "mainwindow: cache_table.load_caches done (+%.2fs)",
             time.monotonic() - _t0,
         )
         if get_settings().map_enabled:
-            self._map_widget.load_caches(self._fetch_map_caches(fs, caches))
+            self._map_widget.load_caches(map_caches)
             logger.info(
                 "mainwindow: map_widget.load_caches done (+%.2fs)",
                 time.monotonic() - _t0,
@@ -1221,6 +1284,25 @@ class MainWindow(QMainWindow):
             "mainwindow: _refresh_cache_list done (+%.2fs total)",
             time.monotonic() - _t0,
         )
+
+    def _on_refresh_error(self, generation: int, message: str) -> None:
+        """A RefreshWorker's query raised — surface it without crashing the
+        refresh chain. Cursor is restored unconditionally (paired with the
+        setOverrideCursor() in _refresh_cache_list()) even for a stale
+        generation, so the cursor stack never gets left unbalanced."""
+        QApplication.restoreOverrideCursor()
+        logger.error("mainwindow: RefreshWorker failed (generation=%s): %s", generation, message)
+        if generation == self._refresh_generation:
+            self._statusbar.showMessage(tr("status_refresh_failed"), 6000)
+
+    def _cleanup_refresh_worker(self, worker: RefreshWorker) -> None:
+        """Drop our reference once a RefreshWorker's run() has returned, so it
+        can be garbage-collected. Without this, a still-running QThread being
+        destroyed can abort the process (same reasoning as ImportWorker's
+        completion-signal comment in import_dialog.py)."""
+        if worker in self._active_refresh_workers:
+            self._active_refresh_workers.remove(worker)
+        worker.deleteLater()
 
     def _update_info_bar(self) -> None:
         """Recalculate and update the GSAK-style info bar (issue #116)."""
