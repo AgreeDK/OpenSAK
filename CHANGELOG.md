@@ -8,6 +8,66 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0] — TBD
+
+> Summarises net changes since v1.16.3 (the beta.1/4/5 releases that folded
+> the v1.16.1–v1.16.3 hotfixes back into `beta` are not repeated here, since
+> those fixes already shipped as stable patch releases).
+
+### Added
+
+- **Full-screen / pop-out map (#696, #598)** — maximize the map within the
+  main window (`F11`), or pop it out to its own floating window that can be
+  moved to a second monitor (`Ctrl+Shift+M`). Thanks @blazerat!
+- **14 new GSAK-compatible columns (#658)** — Cache Id, Changed date,
+  Creation date, Elevation, Found count, GC.com note, Guid, Hints, Notes,
+  Owner ID, Owner name, Source, Url, Watch.
+- **Last found / Last GPX update / Last four logs columns (#716)** —
+  closing out long-standing GSAK-parity requests #518, #542, #534. Thanks
+  Allyn56 and ianwok.
+- **Wait cursor during cache-list refresh (#647)** — including at startup
+  with a large database, so a multi-second refresh is no longer
+  indistinguishable from the app doing nothing.
+- **Previous session's log preserved across restarts (#737)** — a new Help
+  menu action, "Open log from last restart", makes it possible to inspect a
+  crash or hang from the previous session.
+
+### Changed
+
+- **Offline reverse-geocoding (Country/State/County) enabled by default
+  (#60)** — no longer requires manual opt-in.
+
+### Fixed
+
+- **GUI freeze / force-close on large-database switch, filter, or load
+  (#740)** — the cache list and map now refresh on a background thread
+  instead of blocking the GUI thread for up to 85+ seconds on very large
+  databases.
+- **App could hang or silently crash on startup for large or existing
+  databases (#723)** — root cause was a missing index on `logs.cache_id`
+  causing full table scans during startup migrations, plus a separate
+  migration bug that could crash startup entirely on databases that had
+  already run a later schema migration.
+- **PQ import appeared to hang on Windows when county boundary packs
+  weren't cached locally (#722)** — missing packs are now pre-fetched in
+  parallel with progress feedback, instead of retried on demand for every
+  affected cache.
+- **Migration and database-switch failures could fail silently (#738)** —
+  these now log the full error and show a clear dialog instead of leaving
+  the app in a half-switched or broken state.
+- **Reverse-geocode bulk write could crash on large databases (#710)** —
+  fixed a "too many SQL variables" error by chunking the write.
+- **Archived caches hidden by default in the Set Filter dialog, and the
+  setting wasn't remembered (#576)** — now defaults to shown, matching
+  GSAK, and the choice persists correctly.
+- **Map didn't reliably pan to the selected cache, and the split-screen map
+  didn't update for caches outside the overview map's display range
+  (#718)**.
+- **Toolbar title was hardcoded in Danish regardless of UI language
+  (#683)** — thanks @urs-beeli.
+
+---
+
 ## [1.17.0-beta.14] — 2026-08-16
 
 ### Fixed
