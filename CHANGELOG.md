@@ -8,8 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.17.0] — TBD
+## [1.17.0] — 2026-08-17
 
+> First stable release of the 1.17.0 cycle. Replaces the run of
+> `1.17.0-beta.1` … `1.17.0-beta.14` builds — see git history for the
+> detailed beta-by-beta log if needed. Headline of this cycle: full-screen
+> and pop-out map support, offline reverse-geocoding enabled by default,
+> and a fix for the long-standing GUI freeze on large-database switch/load.
+>
 > Summarises net changes since v1.16.3 (the beta.1/4/5 releases that folded
 > the v1.16.1–v1.16.3 hotfixes back into `beta` are not repeated here, since
 > those fixes already shipped as stable patch releases).
