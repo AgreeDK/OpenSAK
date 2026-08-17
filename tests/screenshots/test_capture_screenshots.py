@@ -119,3 +119,30 @@ def test_column_chooser_dialog(qtbot, demo_window, screenshot_dir):
     qtbot.wait(150)
     _grab(dlg, screenshot_dir / "column-chooser.png")
     dlg.close()
+
+
+def test_map_maximized(qtbot, demo_window, screenshot_dir):
+    # Select a cache first so the maximized map isn't just an empty ocean view.
+    model = demo_window._cache_table._model
+    for row in range(demo_window._cache_table.row_count()):
+        cache = model.cache_at(row)
+        if cache is not None and cache.gc_code == "GC1A001":
+            demo_window._cache_table.selectRow(row)
+            break
+    qtbot.wait(2500)  # let the map tiles finish rendering before maximizing
+
+    demo_window._toggle_maximize_map()
+    qtbot.wait(300)  # let the splitter animation/layout settle
+    _grab(demo_window, screenshot_dir / "map-maximized.png")
+    demo_window._toggle_maximize_map()  # restore normal layout for the next test
+
+
+def test_map_popout(qtbot, demo_window, screenshot_dir):
+    demo_window._toggle_popout_map()
+    popout = demo_window._map_popout_window
+    qtbot.addWidget(popout)
+    qtbot.waitExposed(popout)
+    qtbot.wait(2500)  # let the map tiles finish rendering in the new window
+    _grab(popout, screenshot_dir / "map-popout.png")
+    demo_window._toggle_popout_map()  # dock back so teardown closes a normal window
+

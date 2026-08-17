@@ -24,6 +24,7 @@ from opensak.coords import format_coords, format_lat, format_lon, format_lat, fo
 from opensak.lang import tr
 from opensak.utils.types import DateFormat, GcCode, TEXT_SIZE_MAP, TextSize, norm_locale_date_fmt
 from opensak.utils.utils import normalize_geocacher_name
+from opensak.utils.constants import FOUND_LOG_TYPES
 from opensak.gui.icon_provider import (
     get_cache_type_icon,
     get_flag_icon,
@@ -119,6 +120,25 @@ def get_column_defs() -> dict:
         "user_data_4":     (tr("col_user_data_4"),    100),
         # ── Issue #489/#491: Trackables (travel bugs / geocoins) ──────────
         "trackables":      (tr("col_trackables"),      55),
+        # ── Issue #658: additional GSAK-compatible columns ─────────────────
+        "gc_cache_id":     (tr("col_gc_cache_id"),      90),
+        "changed_date":    (tr("col_changed_date"),     90),
+        "creation_date":   (tr("col_creation_date"),    90),
+        "elevation":       (tr("col_elevation"),         70),
+        "find_count":      (tr("col_find_count"),        80),
+        "gc_note":         (tr("col_gc_note"),          160),
+        "guid":            (tr("col_guid"),             160),
+        "hints":           (tr("col_hints"),             160),
+        "notes":           (tr("col_notes"),             160),
+        "owner_id":        (tr("col_owner_id"),          90),
+        "owner_name":      (tr("col_owner_name"),       120),
+        "source":          (tr("col_source"),           120),
+        "url":             (tr("col_url"),               160),
+        "watch":           (tr("col_watch"),              55),
+        # ── Issue #716: follow-up derived columns ───────────────────────────
+        "last_found_date": (tr("col_last_found_date"),    90),
+        "last_gpx_update": (tr("col_last_gpx_update"),    90),
+        "last_four_logs":  (tr("col_last_four_logs"),     70),
     }
 
 
@@ -463,6 +483,91 @@ class SizeBarDelegate(QStyledItemDelegate):
         return sh
 
 
+def _parse_last_four_logs(raw: str) -> list[tuple[str, str, str]]:
+    """Parse the "date\\ttype\\tfinder" per-line format _upsert_cache() writes
+    into last_four_logs. Returns (date_str, log_type, finder) tuples, most
+    recent first — malformed/partial lines are silently skipped rather than
+    raising, since this is display-only data derived from the DB, not
+    user input."""
+    if not raw:
+        return []
+    out = []
+    for line in raw.split("\n"):
+        fields = line.split("\t")
+        if len(fields) == 3:
+            out.append((fields[0], fields[1], fields[2]))
+    return out
+
+
+class LastFourLogsDelegate(QStyledItemDelegate):
+    """Issue #716 (follow-up): GSAK-style 4-square "last four logs" indicator.
+
+    Mirrors GSAK's own display for this exact field — 4 small squares,
+    most recent log first (left to right), colored by log type:
+      Green  = a found-type log (FOUND_LOG_TYPES: Found it / Attended /
+               Webcam Photo Taken)
+      Red    = Didn't find it (DNF)
+      Yellow = anything else (Write note, Owner Maintenance, etc.)
+      Blank  = no log in that slot (cache has fewer than 4 logs)
+
+    Same segmented-square structure as SizeBarDelegate above, just 4
+    fixed-color squares instead of a size-proportional fill.
+    """
+
+    _SQUARE_COUNT = 4
+    _SQUARE_GAP = 2
+    _COLOR_FOUND = QColor("#7dcea0")   # green
+    _COLOR_DNF   = QColor("#f1948a")   # red
+    _COLOR_OTHER = QColor("#f9e79f")   # yellow
+    _COLOR_EMPTY = QColor("#e0e0e0")   # no log in this slot
+
+    def _color_for(self, log_type: str) -> QColor:
+        if log_type in FOUND_LOG_TYPES:
+            return self._COLOR_FOUND
+        if log_type == "Didn't find it":
+            return self._COLOR_DNF
+        return self._COLOR_OTHER
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        from PySide6.QtWidgets import QStyle
+        cache = index.data(Qt.ItemDataRole.UserRole)
+        logs = _parse_last_four_logs(getattr(cache, "last_four_logs", None) or "") if cache else []
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if is_selected:
+            painter.fillRect(option.rect, QColor("#3daee9"))
+        else:
+            super().paint(painter, option, index)
+
+        rect = option.rect
+        margin_x, margin_y = 4, 4
+        total_w = rect.width() - 2 * margin_x
+        total_h = rect.height() - 2 * margin_y
+        x0 = rect.x() + margin_x
+        y0 = rect.y() + margin_y
+
+        sq_w = max(4, (total_w - self._SQUARE_GAP * (self._SQUARE_COUNT - 1)) // self._SQUARE_COUNT)
+        sq_h = max(4, total_h)
+
+        for i in range(self._SQUARE_COUNT):
+            sx = x0 + i * (sq_w + self._SQUARE_GAP)
+            sq_rect = QRect(sx, y0, sq_w, sq_h)
+            color = self._color_for(logs[i][1]) if i < len(logs) else self._COLOR_EMPTY
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(sq_rect, 1, 1)
+
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        sh = super().sizeHint(option, index)
+        sh.setHeight(max(sh.height(), 20))
+        return sh
+
+
 class GcCodeDelegate(QStyledItemDelegate):
     """Issue #117/#270/#366: Tegner farvet baggrund i gc_code-kolonnen (GSAK-style).
 
@@ -648,6 +753,17 @@ class CacheTableModel(QAbstractTableModel):
             return self._caches[row]
         return None
 
+    def has_lightweight_caches(self) -> bool:
+        """Issue #658 follow-up: True if any currently loaded row is a
+        LightweightCache — which deliberately doesn't carry
+        encoded_hints/full UserNote.note text (see its docstring). Lets a
+        caller decide whether toggling on the "Hints"/"Notes" column via
+        the Column Chooser (which only swaps visible columns, not the
+        loaded data — see reload_columns()) needs a full DB re-query to
+        avoid an AttributeError on the next repaint."""
+        from opensak.filters.engine import LightweightCache
+        return any(isinstance(c, LightweightCache) for c in self._caches)
+
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._caches)
 
@@ -731,6 +847,16 @@ class CacheTableModel(QAbstractTableModel):
                        "latitude", "longitude",
                        "hidden_date", "last_log", "found_date", "dnf_date",
                        "placed_by",
+                       # Issue #658: additional GSAK-compatible columns —
+                       # dates/numbers/short IDs centered, matching the
+                       # existing hidden_date/found_date/log_count pattern.
+                       # gc_note/guid/hints/notes/owner_name/source/url are
+                       # left as free text (default left-align, same as
+                       # placed_by's *free-text sibling* user_data_1..4).
+                       "gc_cache_id", "changed_date", "creation_date",
+                       "elevation", "find_count", "owner_id", "watch",
+                       # Issue #716
+                       "last_found_date", "last_gpx_update", "last_four_logs",
                        # Issue #603: Country/Region(state)/County were missed
                        # by #431's sweep of "similar short-value columns" —
                        # left-aligned while Placed By (same kind of short
@@ -773,6 +899,14 @@ class CacheTableModel(QAbstractTableModel):
                 if note and note.is_corrected:
                     return tr("detail_corrected_coords")
                 return tr("col_coord_tooltip_original")
+            if col == "last_four_logs" and cache.last_four_logs:
+                # Full multi-line detail — the cell itself now shows 4
+                # colored squares (LastFourLogsDelegate), not text.
+                lines = []
+                for date_str, log_type, finder in _parse_last_four_logs(cache.last_four_logs):
+                    date_str = date_str.split("T")[0]
+                    lines.append(f"{date_str}  {log_type}  —  {finder}" if finder else f"{date_str}  {log_type}")
+                return "\n".join(lines)
 
         if role == Qt.ItemDataRole.DecorationRole:
             return self._decoration_value(cache, col)
@@ -994,6 +1128,50 @@ class CacheTableModel(QAbstractTableModel):
             return cache.user_data_3 or ""
         if col == "user_data_4":
             return cache.user_data_4 or ""
+        # ── Issue #658: additional GSAK-compatible columns ─────────────────────
+        if col == "gc_cache_id":
+            return cache.gc_cache_id or ""
+        if col == "changed_date":
+            return _format_date(cache.last_updated) if cache.last_updated else ""
+        if col == "creation_date":
+            return _format_date(cache.imported_at) if cache.imported_at else ""
+        if col == "elevation":
+            if cache.elevation is None:
+                return ""
+            suffix = "ft" if get_settings().use_miles else "m"
+            value = cache.elevation * 3.28084 if get_settings().use_miles else cache.elevation
+            return f"{value:.0f} {suffix}"
+        if col == "find_count":
+            return str(cache.find_count) if cache.find_count is not None else ""
+        if col == "gc_note":
+            return (cache.gc_note or "").replace("\n", " ").strip()
+        if col == "guid":
+            return cache.guid or ""
+        if col == "hints":
+            return (cache.encoded_hints or "").replace("\n", " ").strip()
+        if col == "notes":
+            note = cache.user_note
+            return (note.note or "").replace("\n", " ").strip() if note else ""
+        if col == "owner_id":
+            return cache.owner_id or ""
+        if col == "owner_name":
+            return cache.owner_name or ""
+        if col == "source":
+            return cache.source_file or ""
+        if col == "url":
+            return cache.url or ""
+        if col == "watch":
+            return "✓" if cache.watch else ""
+        # ── Issue #716: follow-up derived columns ───────────────────────────
+        if col == "last_found_date":
+            return _format_date(cache.last_found_date) if cache.last_found_date else ""
+        if col == "last_gpx_update":
+            return _format_date(cache.last_gpx_update) if cache.last_gpx_update else ""
+        if col == "last_four_logs":
+            # Issue #716 (follow-up): drawn by LastFourLogsDelegate as 4
+            # GSAK-style colored squares — no cell text, same as the other
+            # icon-only columns (corrected/found/premium_only).
+            return ""
         return ""
 
     def sort(self, column: int, order=Qt.SortOrder.AscendingOrder) -> None:
@@ -1083,6 +1261,37 @@ class CacheTableModel(QAbstractTableModel):
             )
         elif col == "gc_code":
             self._caches.sort(key=lambda c: _gc_sort_key(c.gc_code or ""), reverse=reverse)
+        # ── Issue #658: additional GSAK-compatible columns ──────────────────
+        elif col == "changed_date":
+            self._caches.sort(key=lambda c: c.last_updated or datetime.min, reverse=reverse)
+        elif col == "creation_date":
+            self._caches.sort(key=lambda c: c.imported_at or datetime.min, reverse=reverse)
+        elif col == "notes":
+            # Not a direct Cache attribute — lives on the user_note
+            # relationship, so the generic fallback below (getattr(c, col))
+            # would silently sort everything as "0".
+            self._caches.sort(
+                key=lambda c: ((c.user_note.note or "") if c.user_note else "").lower(),
+                reverse=reverse,
+            )
+        elif col == "elevation":
+            # Optional[float] — the generic fallback mixes "" (str, for
+            # None rows) with float (for set rows), which crashes on
+            # comparison. Same reasoning as favorite_points/user_sort below.
+            self._caches.sort(key=lambda c: c.elevation if c.elevation is not None else -999999.0, reverse=reverse)
+        elif col == "find_count":
+            self._caches.sort(key=lambda c: c.find_count if c.find_count is not None else -1, reverse=reverse)
+        elif col == "hints":
+            # Column id "hints" maps to Cache.encoded_hints, not a same-named
+            # attribute — the generic fallback would raise AttributeError.
+            self._caches.sort(key=lambda c: (c.encoded_hints or "").lower(), reverse=reverse)
+        elif col == "source":
+            # Column id "source" maps to Cache.source_file.
+            self._caches.sort(key=lambda c: (c.source_file or "").lower(), reverse=reverse)
+        elif col == "last_found_date":
+            self._caches.sort(key=lambda c: c.last_found_date or datetime.min, reverse=reverse)
+        elif col == "last_gpx_update":
+            self._caches.sort(key=lambda c: c.last_gpx_update or datetime.min, reverse=reverse)
         else:
             self._caches.sort(
                 key=lambda c: (getattr(c, col) or "").lower()
@@ -1387,6 +1596,9 @@ class CacheTableView(QTableView):
                     # DecorationRole, så den genbruges uændret her.
                     self._icon_only_delegate = CorrectedCoordsDelegate(self)
                     self.setItemDelegateForColumn(i, self._icon_only_delegate)
+                elif col_id == "last_four_logs":
+                    self._last_four_logs_delegate = LastFourLogsDelegate(self)
+                    self.setItemDelegateForColumn(i, self._last_four_logs_delegate)
                 else:
                     # None clears the column delegate (stub types it non-optional)
                     self.setItemDelegateForColumn(i, None)  # type: ignore[arg-type]

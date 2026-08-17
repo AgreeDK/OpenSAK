@@ -269,6 +269,43 @@ def seed_standard_caches(work_dir: Path) -> None:
         import_gpx(variant_file, session)
 
 
+def wait_for_refresh(window, timeout_ms: int = 5000) -> None:
+    """Issue #740: MainWindow._refresh_cache_list() now delegates the actual
+    DB query to a background RefreshWorker and returns immediately instead
+    of populating the table/map synchronously. Tests written against the old
+    synchronous behavior need to pump the Qt event loop until the worker's
+    result has been delivered and applied — cross-thread Qt signals are
+    queued connections and are never dispatched without an active event loop
+    pumping. Call this right after any `window._refresh_cache_list()` (or
+    anything that triggers one, e.g. changing a filter) instead of assuming
+    the table/map are already populated on return.
+
+    Deliberately implemented with QCoreApplication.processEvents() rather
+    than qtbot.waitUntil(), so call sites don't need `qtbot` added to their
+    fixture list just for this.
+    """
+    import time
+    from PySide6.QtCore import QCoreApplication
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    while window._active_refresh_workers:
+        QCoreApplication.processEvents()
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                "wait_for_refresh: RefreshWorker did not finish within "
+                f"{timeout_ms}ms"
+            )
+        time.sleep(0.005)
+    # One more pass: the `finished` signal that empties
+    # _active_refresh_workers is itself a queued cross-thread signal, so a
+    # slot connected to `result`/`error` (e.g. MainWindow's own) can still
+    # be pending delivery in the same event-loop tick that observed the
+    # list as empty. A couple of extra process_events() calls flush any
+    # such trailing queued events deterministically.
+    for _ in range(3):
+        QCoreApplication.processEvents()
+
+
 def make_fake_manager(db_path: Path, name: str = "E2ETest"):
     # Return a lightweight DatabaseManager stand-in for monkeypatching.
     from opensak.db.manager import DatabaseInfo

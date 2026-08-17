@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("pytestqt")
 
-from tests.data import make_fake_manager, seed_standard_caches
+from tests.data import make_fake_manager, seed_standard_caches, wait_for_refresh
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +56,11 @@ def _make_window(qtbot, tmp_path, monkeypatch, *, name: str, seed: bool):
     qtbot.addWidget(window)
     window.show()
     qtbot.waitExposed(window)
-    window._refresh_cache_list()  # synchronous — table is populated on return
+    window._refresh_cache_list()  # issue #740: query runs on a background
+    # RefreshWorker now — wait for it before handing the window to the test,
+    # so the table/map are populated by the time the test runs (same
+    # guarantee the old synchronous call gave).
+    wait_for_refresh(window)
 
     try:
         yield window

@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Set filter…",
     "action_clear_filter":          "❌  &Clear filter",
     "action_columns":               "&Choose columns…",
+    "action_maximize_map":          "⛶  &Maximize map",
+    "action_restore_map":           "◻  &Restore panels",
+    "toolbar_maximize_map_tooltip": "Maximize map (F11)",
+    "toolbar_restore_map_tooltip":  "Restore panels (F11)",
+    "action_popout_map":            "⧉  &Pop out map",
+    "action_dock_map":              "↩  &Dock map back",
+    "toolbar_popout_map_tooltip":   "Pop out map to own window (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Dock map back into main window (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Map",
 
     # Tools menu
     "action_settings":              "&Settings…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Keyboard Shortcuts…",
 
     "action_open_log_file": "Open log file",
+    "action_open_previous_log_file": "Open log from last restart",
     "action_support_opensak": "♥  Support OpenSAK…",
     "log_file_not_found": "Log file not found yet: {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Trip Planner",
     "shortcut_coord_converter":     "Coordinate Converter",
     "shortcut_projection":          "Coordinate Projection",
+    "shortcut_maximize_map":        "Maximize Map",
+    "shortcut_popout_map":          "Pop Out Map",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Tools",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "None",
     "toolbar_filter_combo_active":   "Active (unsaved)",
     "toolbar_refresh":              "Refresh",
+    "toolbar_context_menu":         "Toolbar",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter cleared",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "All flags cleared",
     "status_flagged_count":         "{flagged} of {total} caches flagged",
     "status_db_name":               "Database: {db_name}",
+    "status_refresh_failed":        "Failed to refresh the cache list",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Add cache",
@@ -313,6 +327,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Max caches shown on map:",
     "settings_map_unlimited":           "Unlimited",
     "settings_map_max_caches_note":     "Limits the map to the nearest caches from your active home coordinate — much faster on large databases, and a map with hundreds of thousands of pins isn't very readable at normal zoom anyway. The cache list is never affected by this limit.",
+    "settings_map_nearby_radius_label":    "Split-screen map radius:",
+    "settings_map_nearby_max_caches_label": "Split-screen map cache limit:",
+    "settings_map_nearby_note":          "Controls the individual cache map shown in split screen — shows caches within this radius of the selected cache, independent of the overview map's limit above. A circle is drawn on the map at this radius; if the cache limit is reached within it, a label shows how many are hidden. Saved per database.",
     "map_disabled_placeholder":         "Map disabled\n\nEnable it again in Settings → Map.",
     "settings_date_format_locale":  "OS locale",
     "settings_group_language":      "Language",
@@ -483,6 +500,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "No waypoints to update with the selected scope.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: error — {msg}",
+    "update_loc_prefetch_progress": "Downloading missing county data: {done}/{total}…",
 
     # ── Boundary packs dialogs ────────────────────────────────────────────────
     "boundary_dl_title":            "Download Boundary Packs",
@@ -553,6 +571,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Folder does not exist:\n{path}",
     "db_err_no_write_permission":   "No write permission for folder:\n{path}",
     "db_err_create_failed":         "Could not create the database.",
+    "db_err_switch_failed_title":   "Could not switch database",
+    "db_err_switch_failed":         "Could not switch to '{name}':\n{error}\n\nA detailed log has been saved — see Help > Open log file.",
     "db_err_file_not_found":        "Database file not found:\n{path}",
     "db_err_remove_active":         "Cannot remove the active database from the list.",
     "db_err_delete_active":         "Cannot delete the active database — switch to another one first.",
@@ -720,6 +740,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "User data 4",
     "col_favorite_points":   "Fav. points",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Changed date",
+    "col_creation_date":     "Creation date",
+    "col_elevation":         "Elevation",
+    "col_find_count":        "Found count",
+    "col_gc_note":           "GC.com note",
+    "col_guid":              "Guid",
+    "col_hints":             "Hints",
+    "col_notes":             "Note",
+    "col_owner_id":          "Owner ID",
+    "col_owner_name":        "Owner name",
+    "col_source":            "Source",
+    "col_url":               "Url",
+    "col_watch":              "Watch",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Last found",
+    "col_last_gpx_update":   "Last GPX update",
+    "col_last_four_logs":    "Last four logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Open on geocaching.com",
@@ -803,6 +842,9 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Home",
+    "map_nearby_label":             "Showing nearest {shown} of {total} within {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK could not start",
+    "startup_db_error_msg":         "OpenSAK could not open your database and cannot start.\n\n{error}\n\nA detailed error log has been saved to:\n{path}\n\nPlease share this log file at github.com/OpenSAK-Org/OpenSAK/issues or hello@opensak.com so we can help.",
     "map_ctx_copy_coords":          "Copy {coords}",
     "map_ctx_copy_as":              "Copy as...",
     "map_ctx_set_corrected":        "Set corrected coordinates",

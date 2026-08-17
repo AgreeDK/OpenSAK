@@ -19,11 +19,13 @@ from opensak.db.database import (
 _OLD_SCHEMA = [
     "CREATE TABLE caches (id INTEGER PRIMARY KEY AUTOINCREMENT, gc_code TEXT, cache_type TEXT, "
     "container TEXT, difficulty REAL, terrain REAL, hidden_date DATETIME, found_date DATETIME, "
-    "found BOOLEAN, archived BOOLEAN, available BOOLEAN, latitude REAL, longitude REAL)",
+    "found BOOLEAN, archived BOOLEAN, available BOOLEAN, latitude REAL, longitude REAL, "
+    "imported_at DATETIME)",
     "CREATE TABLE waypoints (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, prefix TEXT, "
     "wp_type TEXT, name TEXT, description TEXT, comment TEXT, latitude REAL, longitude REAL)",
     "CREATE TABLE user_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER)",
-    "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, log_date DATETIME)",
+    "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_id INTEGER, log_date DATETIME, "
+    "log_type TEXT, finder TEXT)",
 ]
 
 
@@ -94,6 +96,44 @@ def test_indexes_present_after_init(tmp_path):
         assert expected in names
 
 
+def test_logs_index_created_before_heavy_migrations(tmp_path):
+    # Issue #723: on a stale/large DB, migrations 7, 23 and 24 run
+    # correlated subqueries against `logs` (COUNT/MAX per cache_id) to
+    # backfill cached columns on `caches`. The ix_logs_cache_id /
+    # ix_logs_log_date CREATE INDEX statements must appear in the executed
+    # SQL before any SELECT/UPDATE that references the logs table, or the
+    # backfill queries still run as a full table scan.
+    engine = _make_engine(tmp_path / "order.db")
+    with engine.connect() as c:
+        for ddl in _OLD_SCHEMA:
+            c.execute(text(ddl))
+        c.execute(text("PRAGMA user_version = 0"))
+        c.commit()
+
+    seen, detach = _capture_statements(engine)
+    try:
+        _run_migrations(engine)
+    finally:
+        detach()
+
+    index_pos = next(
+        i for i, s in enumerate(seen)
+        if "CREATE INDEX" in s and "ix_logs_cache_id" in s
+    )
+    # Only the actual data queries against logs matter here (correlated
+    # subqueries / joins referencing "FROM logs" or "JOIN logs") — the
+    # sqlite_master introspection this same migration runs to check for an
+    # existing index also happens to contain the word "logs" and isn't a
+    # real query against the table, so it's deliberately excluded.
+    first_logs_query_pos = next(
+        i for i, s in enumerate(seen)
+        if i != index_pos and ("from logs" in s.lower() or "join logs" in s.lower())
+    )
+    assert index_pos < first_logs_query_pos, (
+        "ix_logs_cache_id was created after a query already touched logs"
+    )
+
+
 def test_old_schema_runs_every_migration(tmp_path):
     # A v0 database with the original schema must apply all migrations.
     engine = _make_engine(tmp_path / "old.db")
@@ -102,10 +142,13 @@ def test_old_schema_runs_every_migration(tmp_path):
             c.execute(text(ddl))
         # Rows that trigger the data-normalisation migrations (5 and 7).
         c.execute(text(
-            "INSERT INTO caches (gc_code, cache_type, container) "
-            "VALUES ('GC1', 'gps adventures exhibit', 'Nano')"
+            "INSERT INTO caches (gc_code, cache_type, container, imported_at) "
+            "VALUES ('GC1', 'gps adventures exhibit', 'Nano', '2023-01-01 00:00:00')"
         ))
-        c.execute(text("INSERT INTO logs (cache_id, log_date) VALUES (1, '2024-01-01')"))
+        c.execute(text(
+            "INSERT INTO logs (cache_id, log_date, log_type, finder) "
+            "VALUES (1, '2024-01-01', 'Found it', 'Someone')"
+        ))
         c.execute(text("PRAGMA user_version = 0"))
         c.commit()
 
@@ -119,28 +162,107 @@ def test_old_schema_runs_every_migration(tmp_path):
         idx_names = {r[0] for r in c.execute(text(
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='waypoints'"
         ))}
+        log_idx_names = {r[0] for r in c.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='logs'"
+        ))}
         row = c.execute(text("SELECT cache_type, container FROM caches WHERE gc_code='GC1'")).first()
+        found_row = c.execute(text(
+            "SELECT last_found_date, last_gpx_update, last_four_logs FROM caches WHERE gc_code='GC1'"
+        )).first()
         version = c.execute(text("PRAGMA user_version")).scalar()
 
     for col in ("county", "log_count", "parent_gc_code", "owner_name", "last_log_date",
                 "dnf_date", "favorite_points", "distance", "bearing", "waypoint_count",
                 "locked", "gc_note", "url", "elevation", "color", "guid", "watch",
-                "gc_cache_id", "find_count"):
+                "gc_cache_id", "find_count",
+                # Issue #716
+                "last_found_date", "last_gpx_update", "last_four_logs"):
         assert col in cache_cols
     assert "is_corrected" in note_cols
-    # The waypoints rebuild (migration 2, later replaced by migration 21)
+    # The waypoints rebuild (migration 2, later replaced by migration 22)
     # creates the named unique index (matching the model's constraint name)
     # plus the cache_id index.
     assert "uq_waypoint_cache_wp_code" in idx_names
     assert "uq_waypoint_cache_prefix_name" not in idx_names
     assert "ix_waypoints_cache_id" in idx_names
-    assert row == ("GPS Adventures Maze", "Micro")  # migration 5 + 7 normalisation
+    # Issue #723: logs indexes must exist so the correlated subqueries in
+    # migrations 7, 23 and 24 don't full-scan logs on large databases.
+    assert "ix_logs_cache_id" in log_idx_names
+    assert "ix_logs_log_date" in log_idx_names
+    assert row == ("GPS Adventures Maze", "Micro")  # migration 5 + 8 normalisation
 
     for col in ("wp_code", "url", "wp_date", "created_by_user", "wp_flag"):
         assert col in wpt_cols
     for col in ("latitude", "longitude", "logged_by_owner"):
         assert col in log_cols
 
+    # Issue #716: Migration 24 backfill actually populated the new columns
+    # from the single "Found it" log inserted above.
+    assert found_row is not None
+    assert found_row[0] is not None and found_row[0].startswith("2024-01-01")  # last_found_date
+    assert found_row[1] is not None  # last_gpx_update (backfilled from imported_at)
+    assert found_row[2] == "2024-01-01T00:00:00\tFound it\tSomeone"  # last_four_logs
+
+    assert version == SCHEMA_VERSION
+
+
+def test_migration_2_does_not_rerun_after_migration_22(tmp_path):
+    # Regression test for the #723 follow-up (14/8-2026, Mike's 405MB
+    # database): a database that already ran migration 22 has its unique
+    # constraint named "uq_waypoint_cache_wp_code", not
+    # "uq_waypoint_cache_prefix_name" — the name migration 2 used to look
+    # for. Without recognising the newer name too, migration 2 incorrectly
+    # believed it had never run and tried to recreate its own old, stricter
+    # (cache_id, prefix, name) constraint — which real-world data legitimately
+    # violates (that's exactly why migration 22 replaced it, issue #536).
+    # That raised an uncaught IntegrityError partway through startup, which
+    # silently crashed the app with no visible error — indistinguishable from
+    # a hang from the user's point of view.
+    engine = _make_engine(tmp_path / "post_m22.db")
+    with engine.connect() as c:
+        for ddl in _OLD_SCHEMA:
+            c.execute(text(ddl))
+        c.execute(text(
+            "INSERT INTO caches (gc_code, cache_type, imported_at) "
+            "VALUES ('GC1', 'Traditional Cache', '2023-01-01 00:00:00')"
+        ))
+        # Simulate a database already past migration 22: the modern
+        # constraint name, plus two waypoints with the SAME prefix+name on
+        # the same cache — legitimate under (cache_id, wp_code), but exactly
+        # what makes the old (cache_id, prefix, name) constraint fail.
+        c.execute(text(
+            "ALTER TABLE waypoints ADD COLUMN wp_code TEXT"
+        ))
+        c.execute(text(
+            "CREATE UNIQUE INDEX uq_waypoint_cache_wp_code ON waypoints (cache_id, wp_code)"
+        ))
+        c.execute(text(
+            "INSERT INTO waypoints (cache_id, prefix, name, wp_code) "
+            "VALUES (1, 'RP', 'Right turn', 'RP1')"
+        ))
+        c.execute(text(
+            "INSERT INTO waypoints (cache_id, prefix, name, wp_code) "
+            "VALUES (1, 'RP', 'Right turn', 'RP2')"
+        ))
+        c.execute(text("PRAGMA user_version = 22"))
+        c.commit()
+
+    # Must complete without raising — this is the actual regression: before
+    # the fix, this raised sqlite3.IntegrityError.
+    _run_migrations(engine)
+
+    with engine.connect() as c:
+        idx_names = {r[0] for r in c.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='waypoints'"
+        ))}
+        count = c.execute(text("SELECT COUNT(*) FROM waypoints WHERE cache_id=1")).scalar()
+        version = c.execute(text("PRAGMA user_version")).scalar()
+
+    # Migration 2 must NOT have rebuilt the table — the modern constraint
+    # stays, the old one is never (re)created, and no data was lost.
+    assert "uq_waypoint_cache_wp_code" in idx_names
+    assert "uq_waypoint_cache_prefix_name" not in idx_names
+    assert count == 2
     assert version == SCHEMA_VERSION
 
 

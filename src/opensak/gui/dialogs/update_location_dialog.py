@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from opensak.lang import tr
+from opensak.logger import get_logger
+
+log = get_logger("gui.update_location_dialog")
 
 
 # ── Data types ────────────────────────────────────────────────────────────────
@@ -102,6 +105,49 @@ class ReverseGeocodeWorker(QThread):
         check.close()
         now = datetime.now(timezone.utc)
 
+        # Phase 0 — pre-fetch phase (#722): collect every distinct county
+        # pack this batch will need (via the same R-Tree bbox candidates the
+        # resolver itself uses) and download them all in parallel, with real
+        # progress, before the per-row resolve starts. Without this, a
+        # county pack missing locally but needed by many caches in the
+        # batch would otherwise retry a slow on-demand fetch (up to
+        # packs.DOWNLOAD_TIMEOUT seconds) inside _resolve_layer for every
+        # single cache that needs it — the original #722 hang. This is a
+        # best-effort optimization: any failure here just falls back to the
+        # existing on-demand fetch in store.py, so it's wrapped defensively
+        # rather than aborting the whole geocode run over it.
+        try:
+            from opensak.geo import packs as _packs_mod
+
+            probe = BoundaryStore()
+            needed_packs: set[str] = set()
+            for row in self._rows:
+                if self._cancel:
+                    break
+                for region_id in probe.candidates("county", row.lat, row.lon):
+                    region = probe.region("county", region_id)
+                    if region is not None:
+                        needed_packs.add(region.pack)
+            counties_dir = probe.data_dir / "counties"
+            probe.close()
+
+            if needed_packs and not self._cancel:
+                def _prefetch_progress(done: int, total: int) -> None:
+                    if total:
+                        self.row_done.emit("", tr(
+                            "update_loc_prefetch_progress", done=done, total=total
+                        ))
+
+                _packs_mod.fetch_packs(
+                    sorted(needed_packs), counties_dir, progress_cb=_prefetch_progress
+                )
+        except Exception as exc:
+            log.debug("county pre-fetch phase failed, falling back to on-demand fetch: %s", exc)
+
+        if self._cancel:
+            self.cancelled.emit(result)
+            return
+
         # Phase 1 — parallel resolve.
         # _shared_packs is injected into every thread's BoundaryStore so GeoJSON
         # packs are loaded from disk at most once across all threads. Each thread
@@ -150,25 +196,29 @@ class ReverseGeocodeWorker(QThread):
             self.cancelled.emit(result)
             return
 
-        # Phase 2 — bulk write in one transaction (single IN query, no per-row SELECT)
+        # Phase 2 — bulk write in one transaction, no per-row SELECT. The IN query
+        # is chunked to stay under SQLite's bound-parameter limit (large DBs).
         resolved_map = {row.gc_code: (row, loc) for row, loc in resolved}
+        gc_codes = list(resolved_map)
         try:
             with get_session() as session:
-                caches = (
-                    session.query(Cache)
-                    .filter(Cache.gc_code.in_(list(resolved_map)))
-                    .all()
-                )
-                for cache in caches:
-                    row, loc = resolved_map[cache.gc_code]
-                    cache.country          = loc.country
-                    cache.state            = loc.state
-                    cache.county           = loc.county
-                    cache.location_source  = "boundary"
-                    cache.location_basis   = row.basis
-                    cache.location_updated = now
-                    cache.location_dataset = dataset
-                    result.updated += 1
+                for i in range(0, len(gc_codes), 500):
+                    chunk = gc_codes[i:i + 500]
+                    caches = (
+                        session.query(Cache)
+                        .filter(Cache.gc_code.in_(chunk))
+                        .all()
+                    )
+                    for cache in caches:
+                        row, loc = resolved_map[cache.gc_code]
+                        cache.country          = loc.country
+                        cache.state            = loc.state
+                        cache.county           = loc.county
+                        cache.location_source  = "boundary"
+                        cache.location_basis   = row.basis
+                        cache.location_updated = now
+                        cache.location_dataset = dataset
+                        result.updated += 1
         except Exception as exc:
             result.errors += 1
             self.row_done.emit("", tr("update_loc_row_error", gc_code="batch", msg=str(exc)))

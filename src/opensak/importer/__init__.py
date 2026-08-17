@@ -51,6 +51,8 @@ def _make_ns(gs_uri: str) -> dict:
 
 def _text(element, xpath: str, ns: dict = NS) -> Optional[str]:
     """Return stripped text of first XPath match, or None."""
+    if element is None:
+        return None
     nodes = element.xpath(xpath, namespaces=ns)
     if nodes:
         val = nodes[0] if isinstance(nodes[0], str) else nodes[0].text
@@ -69,6 +71,8 @@ def _float(element, xpath: str, ns: dict = NS) -> Optional[float]:
 
 def _bool_attr(element, xpath: str, ns: dict = NS) -> bool:
     """Return bool from an attribute value like 'True'/'False'."""
+    if element is None:
+        return False
     nodes = element.xpath(xpath, namespaces=ns)
     if nodes:
         return str(nodes[0]).strip().lower() == "true"
@@ -224,10 +228,17 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
     type_raw = _text(wpt_el, "gpx:type", gpx_ns) or ""
     cache_type_full = type_raw.split("|")[-1].strip() if "|" in type_raw else type_raw
 
-    # Accept GC codes (standard caches), LC codes (Adventure Lab / lab2gpx),
-    # and any other code the type field identifies as a Geocache — covers other
-    # lab2gpx-encoded Adventure Lab prefixes such as LB, LA, etc.
-    if not gc_code.startswith("GC") and not gc_code.startswith("LC"):
+    # Accept GC codes (standard caches) unconditionally, and any other code
+    # (including LC / Adventure Lab / lab2gpx prefixes such as LB, LA, etc.)
+    # only when the type field actually identifies it as a Geocache.
+    #
+    # Issue #741: lab2gpx reuses the LC-prefix for BOTH the lab cache itself
+    # AND its individual stage waypoints (e.g. <type>Waypoint|Parking Area</type>,
+    # <type>Waypoint|Virtual Stage</type>). Those stage entries have no
+    # <groundspeak:cache> block, so previously they slipped past this check,
+    # were treated as caches, and crashed downstream when gs_cache was None.
+    # They should fall through to _parse_extra_wpt() as ordinary waypoints.
+    if not gc_code.startswith("GC"):
         if not type_raw.startswith("Geocache"):
             return None
 
@@ -974,6 +985,31 @@ def _upsert_cache(
 
     log_dates = [_as_aware_utc(lg.log_date) for lg in existing_logs_by_id.values() if lg.log_date]
     cache.last_log_date = max(log_dates) if log_dates else None
+
+    # ── Issue #716: last_found_date (most recent found-type log by ANY
+    # finder, unlike found_date which is the current user's own log) ───────
+    found_log_dates = [
+        _as_aware_utc(lg.log_date)
+        for lg in existing_logs_by_id.values()
+        if lg.log_type in FOUND_LOG_TYPES and lg.log_date
+    ]
+    cache.last_found_date = max(found_log_dates) if found_log_dates else None
+
+    # ── Issue #716: last_four_logs (cached summary — logs relationship is
+    # noload'ed in the grid, same reasoning as last_log_date above) ────────
+    _recent = sorted(
+        (lg for lg in existing_logs_by_id.values() if lg.log_date),
+        key=lambda lg: _as_aware_utc(lg.log_date), reverse=True,
+    )[:4]
+    cache.last_four_logs = "\n".join(
+        f"{_as_aware_utc(lg.log_date).strftime('%Y-%m-%dT%H:%M:%S')}\t{lg.log_type}\t{lg.finder or ''}"
+        for lg in _recent
+    ) or None
+
+    # ── Issue #716: last_gpx_update — local timestamp of this import pass,
+    # set unconditionally (even for locked caches — it reflects import
+    # activity, not listing content, same as source_file above) ───────────
+    cache.last_gpx_update = datetime.now(timezone.utc)
 
     # Trackables
     for tb in data.get("trackables", []):

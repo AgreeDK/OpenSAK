@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QGroupBox, QComboBox,
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QTabWidget, QWidget,
-    QFrame, QSizePolicy, QSpinBox, QScrollArea
+    QFrame, QSizePolicy, QSpinBox, QScrollArea, QDoubleSpinBox
 )
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from PySide6.QtGui import QPixmap, QFont
@@ -395,6 +395,39 @@ class SettingsDialog(QDialog):
         max_caches_note.setWordWrap(True)
         max_caches_note.setStyleSheet("color: gray; font-size: 10px;")
         group_layout.addWidget(max_caches_note)
+
+        group_layout.addSpacing(8)
+
+        # Issue #718: split-screen map (the single selected cache's map)
+        # uses its own radius-bounded query, independent of the overview
+        # map_max_caches above — see get_nearby_caches() in filters/engine.py.
+        # Saved per database (AppSettings.map_nearby_radius_km /
+        # map_nearby_max_caches), same pattern as home_lat/home_lon.
+        nearby_radius_row = QHBoxLayout()
+        nearby_radius_row.addWidget(QLabel(tr("settings_map_nearby_radius_label")))
+        self._map_nearby_radius = QDoubleSpinBox()
+        self._map_nearby_radius.setRange(0.0, 1000.0)
+        self._map_nearby_radius.setDecimals(1)
+        self._map_nearby_radius.setSingleStep(0.5)
+        self._map_nearby_radius.setFixedWidth(100)
+        nearby_radius_row.addWidget(self._map_nearby_radius)
+        nearby_radius_row.addStretch()
+        group_layout.addLayout(nearby_radius_row)
+
+        nearby_max_row = QHBoxLayout()
+        nearby_max_row.addWidget(QLabel(tr("settings_map_nearby_max_caches_label")))
+        self._map_nearby_max_caches = QSpinBox()
+        self._map_nearby_max_caches.setRange(1, 100000)
+        self._map_nearby_max_caches.setSingleStep(50)
+        self._map_nearby_max_caches.setFixedWidth(100)
+        nearby_max_row.addWidget(self._map_nearby_max_caches)
+        nearby_max_row.addStretch()
+        group_layout.addLayout(nearby_max_row)
+
+        nearby_note = QLabel(tr("settings_map_nearby_note"))
+        nearby_note.setWordWrap(True)
+        nearby_note.setStyleSheet("color: gray; font-size: 10px;")
+        group_layout.addWidget(nearby_note)
 
         layout.addWidget(group)
         layout.addStretch()
@@ -1046,6 +1079,16 @@ class SettingsDialog(QDialog):
         self._decode_hints_cb.setChecked(s.default_decode_hints)
         self._map_enabled_cb.setChecked(s.map_enabled)
         self._map_max_caches.setValue(s.map_max_caches)
+        # Issue #718 — stored value is always km; display in the user's
+        # configured unit, same conversion used by filter_dialog.py's
+        # DistanceFilter radius field.
+        if s.use_miles:
+            self._map_nearby_radius.setSuffix(" mi")
+            self._map_nearby_radius.setValue(s.map_nearby_radius_km * 0.621371)
+        else:
+            self._map_nearby_radius.setSuffix(" km")
+            self._map_nearby_radius.setValue(s.map_nearby_radius_km)
+        self._map_nearby_max_caches.setValue(s.map_nearby_max_caches)
         lang_idx = self._lang_combo.findData(current_language())
         self._lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
         theme_idx = self._theme_combo.findData(s.theme)
@@ -1090,6 +1133,13 @@ class SettingsDialog(QDialog):
         s.default_decode_hints = self._decode_hints_cb.isChecked()
         s.map_enabled = self._map_enabled_cb.isChecked()
         s.map_max_caches = self._map_max_caches.value()
+        # Issue #718 — convert back to km for storage if the field was
+        # shown in miles (unit combo already saved above via s.use_miles).
+        radius_val = self._map_nearby_radius.value()
+        s.map_nearby_radius_km = (
+            radius_val * 1.60934 if s.use_miles else radius_val
+        )
+        s.map_nearby_max_caches = self._map_nearby_max_caches.value()
         s.search_min_chars  = self._search_min_chars.value()
         s.search_debounce_ms = self._search_debounce_ms.value()
         new_theme = self._theme_combo.currentData()

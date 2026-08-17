@@ -97,9 +97,7 @@ Download the correct `.dmg` for your Mac from the [Releases page](https://github
 
 > **Not sure which Mac you have?** Click the Apple menu → **About This Mac**. If it says "Apple M1/M2/M3/M4" choose **arm64**. If it says "Intel" choose **x86_64**.
 
-Open the `.dmg` and drag OpenSAK to your Applications folder.
-
-> On first launch, macOS may block the app because it is not signed with an Apple Developer certificate. Right-click → **Open** to bypass this warning.
+Open the `.dmg` and drag OpenSAK to your Applications folder. The app is signed and notarized by Apple, so it opens normally on first launch.
 
 ### macOS — Manual install
 

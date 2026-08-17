@@ -67,6 +67,25 @@ _ALL_COLUMNS_DEF = [
     ("user_data_2",    "col_user_data_2",  100, False),
     ("user_data_3",    "col_user_data_3",  100, False),
     ("user_data_4",    "col_user_data_4",  100, False),
+    # ── Issue #658: additional GSAK-compatible columns ─────────────────────────
+    ("gc_cache_id",    "col_gc_cache_id",   90, False),
+    ("changed_date",   "col_changed_date",  90, False),
+    ("creation_date",  "col_creation_date", 90, False),
+    ("elevation",      "col_elevation",     70, False),
+    ("find_count",     "col_find_count",    80, False),
+    ("gc_note",        "col_gc_note",      160, False),
+    ("guid",           "col_guid",         160, False),
+    ("hints",          "col_hints",        160, False),
+    ("notes",          "col_notes",        160, False),
+    ("owner_id",       "col_owner_id",      90, False),
+    ("owner_name",     "col_owner_name",   120, False),
+    ("source",         "col_source",       120, False),
+    ("url",            "col_url",          160, False),
+    ("watch",          "col_watch",         55, False),
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    ("last_found_date", "col_last_found_date", 90, False),
+    ("last_gpx_update", "col_last_gpx_update", 90, False),
+    ("last_four_logs",  "col_last_four_logs", 70, False),
 ]
 
 def get_all_columns():

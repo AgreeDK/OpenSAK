@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Sæt filter…",
     "action_clear_filter":          "❌  &Nulstil filter",
     "action_columns":               "&Vælg kolonner…",
+    "action_maximize_map":          "⛶  &Maksimér kort",
+    "action_restore_map":           "◻  &Gendan paneler",
+    "toolbar_maximize_map_tooltip": "Maksimér kort (F11)",
+    "toolbar_restore_map_tooltip":  "Gendan paneler (F11)",
+    "action_popout_map":            "⧉  &Pop kort ud",
+    "action_dock_map":              "↩  &Dok kort tilbage",
+    "toolbar_popout_map_tooltip":   "Pop kort ud i eget vindue (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Dok kort tilbage i hovedvinduet (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Kort",
 
     # Funktioner-menu
     "action_settings":              "&Indstillinger…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Tastaturgenveje…",
 
     "action_open_log_file": "Åbn logfil",
+    "action_open_previous_log_file": "Åbn log fra forrige genstart",
     "action_support_opensak": "♥  Støt OpenSAK…",
     "log_file_not_found": "Logfil ikke fundet endnu: {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Turplanlægger",
     "shortcut_coord_converter":     "Koordinatkonverter",
     "shortcut_projection":          "Koordinatprojektion",
+    "shortcut_maximize_map":        "Maksimér kort",
+    "shortcut_popout_map":          "Pop kort ud",
 
     # ── Geocaching Værktøjer-menu ─────────────────────────────────────────────
     "menu_gc_tools":                "&Værktøjer",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Ingen",
     "toolbar_filter_combo_active":   "Aktivt (ikke gemt)",
     "toolbar_refresh":              "Opdater",
+    "toolbar_context_menu":         "Værktøjslinje",
 
     # ── Statusbar ─────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter nulstillet",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Alle flag fjernet",
     "status_flagged_count":         "{flagged} af {total} caches er markeret",
     "status_db_name":               "Database: {db_name}",
+    "status_refresh_failed":        "Kunne ikke opdatere cache-listen",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Tilføj cache",
@@ -314,6 +328,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Maks. caches vist på kort:",
     "settings_map_unlimited":           "Ubegrænset",
     "settings_map_max_caches_note":     "Begrænser kortet til de nærmeste caches fra dit aktive hjemmepunkt — meget hurtigere ved store databaser, og et kort med hundredtusindvis af nåle er alligevel ikke særlig læsbart ved normalt zoom. Cache-listen påvirkes aldrig af denne grænse.",
+    "settings_map_nearby_radius_label":    "Radius for split-screen-kort:",
+    "settings_map_nearby_max_caches_label": "Cache-grænse for split-screen-kort:",
+    "settings_map_nearby_note":          "Styrer det individuelle cache-kort vist i split screen — viser caches inden for denne radius af den valgte cache, uafhængigt af oversigtskortets grænse ovenfor. En cirkel tegnes på kortet ved denne radius; hvis cache-grænsen nås inden for den, vises en label med hvor mange der er skjult. Gemmes per database.",
     "map_disabled_placeholder":         "Kort deaktiveret\n\nSlå det til igen under Indstillinger → Kort.",
     "settings_group_language":      "Sprog / Language",
     "settings_language_label":      "Sprog:",
@@ -484,6 +501,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Ingen caches at opdatere med det valgte omfang.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fejl — {msg}",
+    "update_loc_prefetch_progress": "Downloader manglende kommunedata: {done}/{total}…",
 
     # ── Grænsefladedata-dialoger ──────────────────────────────────────────────
     "boundary_dl_title":            "Download grænsefladedata",
@@ -554,6 +572,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Mappen eksisterer ikke:\n{path}",
     "db_err_no_write_permission":   "Ingen skriverettigheder til mappen:\n{path}",
     "db_err_create_failed":         "Kunne ikke oprette databasen.",
+    "db_err_switch_failed_title":   "Kunne ikke skifte database",
+    "db_err_switch_failed":         "Kunne ikke skifte til '{name}':\n{error}\n\nEn detaljeret log er gemt — se Hjælp > Åbn logfil.",
     "db_err_file_not_found":        "Databasefilen blev ikke fundet:\n{path}",
     "db_err_remove_active":         "Kan ikke fjerne den aktive database fra listen.",
     "db_err_delete_active":         "Kan ikke slette den aktive database — skift til en anden først.",
@@ -721,6 +741,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Brugerdata 4",
     "col_favorite_points":   "Fav. point",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Ændringsdato",
+    "col_creation_date":     "Oprettelsesdato",
+    "col_elevation":         "Højde",
+    "col_find_count":        "Antal fundet",
+    "col_gc_note":           "GC.com-note",
+    "col_guid":              "Guid",
+    "col_hints":             "Hints",
+    "col_notes":             "Notat",
+    "col_owner_id":          "Ejer-ID",
+    "col_owner_name":        "Ejernavn",
+    "col_source":            "Kilde",
+    "col_url":               "Url",
+    "col_watch":              "Overvågning",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Senest fundet",
+    "col_last_gpx_update":   "Seneste GPX-opdatering",
+    "col_last_four_logs":    "Seneste fire logs",
 
     # ── Højreklik kontekstmenu ────────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Åbn på geocaching.com",
@@ -804,6 +843,9 @@ STRINGS: dict[str, str] = {
 
     # ── Korrigerede koordinater ───────────────────────────────────────────────
     "map_home_label":               "Hjem",
+    "map_nearby_label":             "Viser nærmeste {shown} af {total} inden for {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kunne ikke starte",
+    "startup_db_error_msg":         "OpenSAK kunne ikke åbne din database og kan ikke starte.\n\n{error}\n\nEn detaljeret fejllog er gemt her:\n{path}\n\nDel venligst denne logfil på github.com/OpenSAK-Org/OpenSAK/issues eller hello@opensak.com, så vi kan hjælpe.",
     "map_ctx_copy_coords":          "Kopier {coords}",
     "map_ctx_copy_as":              "Kopier som...",
     "map_ctx_set_corrected":        "Sæt korrigerede koordinater",

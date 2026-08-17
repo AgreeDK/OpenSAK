@@ -3,21 +3,24 @@ src/opensak/gui/mainwindow.py — Main application window.
 """
 
 from __future__ import annotations
+import logging
+import time
 from typing import TYPE_CHECKING, Optional, cast
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QSplitter, QVBoxLayout,
     QFrame, QHBoxLayout, QLabel, QLineEdit, QStatusBar,
-    QToolBar, QPushButton, QComboBox,
+    QToolBar, QPushButton, QComboBox, QApplication,
     QSizePolicy, QMessageBox, QWidgetAction, QStackedWidget
 )
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
+from opensak.gui.refresh_worker import RefreshWorker
 from opensak.db.database import get_session, db_health_check
 from opensak.db.models import Cache
 from opensak.filters.engine import (
-    FilterSet, SortSpec, apply_filters_auto,
+    FilterSet, SortSpec, apply_filters_auto, get_nearby_caches,
     AvailableFilter, NotFoundFilter, CacheTypeFilter,
     DifficultyFilter, TerrainFilter
 )
@@ -32,6 +35,8 @@ from opensak.updater import UpdateCheckWorker, RELEASES_PAGE
 
 if TYPE_CHECKING:
     from opensak.gui.dialogs.trip_dialog import TripPlannerDialog
+
+logger = logging.getLogger(__name__)
 
 
 class ClickableLabel(QLabel):
@@ -198,9 +203,25 @@ class MainWindow(QMainWindow):
         self._active_filter_name = ""
         self._trip_planner_win: TripPlannerDialog | None = None
         self._db_count: int = 0
+        self._map_maximized: bool = False
+        self._pre_maximize_splitter_sizes: list[int] | None = None
+        self._pre_maximize_bottom_sizes: list[int] | None = None
+        self._map_popped_out: bool = False
+        self._map_popout_window = None
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._refresh_cache_list)
+        # Issue #740: apply_filters_auto()/cache_table/map_widget ran
+        # synchronously on the GUI thread and took 6-9+ seconds on 200k+
+        # cache databases with no progress feedback — long enough that
+        # Windows (or the user) would treat the app as frozen and force-close
+        # it during a database switch. _refresh_generation lets a stale
+        # RefreshWorker's result be discarded safely if a newer refresh was
+        # requested before it finished (e.g. two quick database switches),
+        # without needing to cancel/terminate the older QThread — see
+        # RefreshWorker's docstring and _on_refresh_result() below.
+        self._refresh_generation: int = 0
+        self._active_refresh_workers: list[RefreshWorker] = []
         self._setup_ui()
         self._setup_menu()
         self._setup_toolbar()
@@ -276,6 +297,8 @@ class MainWindow(QMainWindow):
         self._map_widget = MapWidget()
         self._map_widget.cache_selected.connect(self._on_map_cache_selected)
         self._map_widget.set_corrected_requested.connect(self._on_set_corrected_from_map)
+        self._map_widget.maximize_requested.connect(self._toggle_maximize_map)
+        self._map_widget.popout_requested.connect(self._toggle_popout_map)
         self._detail_panel.waypoints_tab_shown.connect(self._map_widget.show_waypoint_markers)
         self._detail_panel.waypoints_tab_hidden.connect(self._map_widget.clear_waypoint_markers)
         self._map_widget.setMinimumWidth(300)
@@ -438,6 +461,20 @@ class MainWindow(QMainWindow):
         act_columns.triggered.connect(self._open_column_chooser)
         view_menu.addAction(act_columns)
 
+        view_menu.addSeparator()
+
+        self._act_maximize_map = QAction(tr("action_maximize_map"), self)
+        self._act_maximize_map.setShortcut(QKeySequence("F11"))
+        self._act_maximize_map.triggered.connect(self._toggle_maximize_map)
+        view_menu.addAction(self._act_maximize_map)
+
+        import opensak.utils.flags as flags
+        self._act_popout_map = QAction(tr("action_popout_map"), self)
+        self._act_popout_map.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self._act_popout_map.triggered.connect(self._toggle_popout_map)
+        self._act_popout_map.setVisible(flags.map_popout)
+        view_menu.addAction(self._act_popout_map)
+
         # ── Funktioner ────────────────────────────────────────────────────────
         tools_menu = menubar.addMenu(tr("menu_tools"))
 
@@ -521,6 +558,14 @@ class MainWindow(QMainWindow):
         act_open_log.triggered.connect(self._open_log_file)
         help_menu.addAction(act_open_log)
 
+        # Issue #737: previous session's log is preserved via rotation in
+        # logger.setup_logging() — see get_previous_log_path(). Lets a
+        # crash/freeze from the last session be retrieved after
+        # restarting, without hunting the file down manually first.
+        act_open_previous_log = QAction(tr("action_open_previous_log_file"), self)
+        act_open_previous_log.triggered.connect(self._open_previous_log_file)
+        help_menu.addAction(act_open_previous_log)
+
         help_menu.addSeparator()
 
         act_support = QAction(tr("action_support_opensak"), self)
@@ -551,7 +596,7 @@ class MainWindow(QMainWindow):
         menubar.addAction(count_action)
 
     def _setup_toolbar(self) -> None:
-        tb = QToolBar("Værktøjslinje")
+        tb = QToolBar(tr("toolbar_context_menu"))
         tb.setObjectName("main_toolbar")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -721,6 +766,20 @@ class MainWindow(QMainWindow):
         tb.addAction(home_act)
 
         tb.addSeparator()
+
+        # Maksimér kort
+        self._act_tb_maximize_map = QAction("⛶", self)
+        self._act_tb_maximize_map.setToolTip(tr("toolbar_maximize_map_tooltip"))
+        self._act_tb_maximize_map.triggered.connect(self._toggle_maximize_map)
+        tb.addAction(self._act_tb_maximize_map)
+
+        # Pop-out kort (feature-gated)
+        import opensak.utils.flags as flags
+        self._act_tb_popout_map = QAction("⧉", self)
+        self._act_tb_popout_map.setToolTip(tr("toolbar_popout_map_tooltip"))
+        self._act_tb_popout_map.triggered.connect(self._toggle_popout_map)
+        self._act_tb_popout_map.setVisible(flags.map_popout)
+        tb.addAction(self._act_tb_popout_map)
 
         # Indstillinger — kun ikon
         settings_act = QAction("⚙", self)
@@ -906,7 +965,21 @@ class MainWindow(QMainWindow):
         manager = get_db_manager()
         if db == manager.active:
             return
-        manager.switch_to(db)
+        try:
+            manager.switch_to(db)
+        except Exception as e:
+            # Issue #738: show the failure instead of leaving the app
+            # looking frozen, and reset the dropdown back to the still-
+            # active database — switch_to() only updates manager.active
+            # on success, so _reload_db_combo() correctly re-selects the
+            # previous one rather than showing the failed switch as if it
+            # had gone through.
+            self._reload_db_combo()
+            QMessageBox.critical(
+                self, tr("db_err_switch_failed_title"),
+                tr("db_err_switch_failed", name=db.name, error=str(e)),
+            )
+            return
         self._on_database_switched(db)
 
     # Under denne pixel-grænse regnes en gendannet splitter-side som
@@ -967,7 +1040,118 @@ class MainWindow(QMainWindow):
         if total_h > 0:
             s.bottom_splitter_ratio_left = sizes_h[0] / total_h
 
+    def _toggle_maximize_map(self) -> None:
+        """Toggle map between maximized (full window) and normal panel layout."""
+        if self._map_popped_out:
+            return
+        if self._map_maximized:
+            # Restore previous layout
+            self._cache_table.setVisible(True)
+            self._info_bar.setVisible(True)
+            self._detail_panel.setVisible(True)
+            if self._pre_maximize_splitter_sizes:
+                self._splitter.setSizes(self._pre_maximize_splitter_sizes)
+            if self._pre_maximize_bottom_sizes:
+                self._bottom_splitter.setSizes(self._pre_maximize_bottom_sizes)
+            self._map_maximized = False
+            self._act_maximize_map.setText(tr("action_maximize_map"))
+            self._act_tb_maximize_map.setText("⛶")
+            self._act_tb_maximize_map.setToolTip(tr("toolbar_maximize_map_tooltip"))
+        else:
+            # Save current sizes and maximize map
+            self._pre_maximize_splitter_sizes = self._splitter.sizes()
+            self._pre_maximize_bottom_sizes = self._bottom_splitter.sizes()
+            self._cache_table.setVisible(False)
+            self._info_bar.setVisible(False)
+            self._detail_panel.setVisible(False)
+            total_v = sum(self._splitter.sizes())
+            self._splitter.setSizes([0, total_v])
+            total_h = sum(self._bottom_splitter.sizes())
+            self._bottom_splitter.setSizes([0, total_h])
+            self._map_maximized = True
+            self._act_maximize_map.setText(tr("action_restore_map"))
+            self._act_tb_maximize_map.setText("◻")
+            self._act_tb_maximize_map.setToolTip(tr("toolbar_restore_map_tooltip"))
+
+    def _toggle_popout_map(self) -> None:
+        """Pop out the map to its own floating window, or dock it back."""
+        if self._map_popped_out:
+            self._dock_map_back()
+        else:
+            self._popout_map()
+
+    def _popout_map(self) -> None:
+        """Move the map widget into a separate floating window."""
+        # Guard against double-invocation (e.g. rapid double-click)
+        if self._map_popped_out:
+            return
+        # If map is maximized, restore first
+        if self._map_maximized:
+            self._toggle_maximize_map()
+
+        from opensak.gui.map_popout import MapPopoutWindow
+        self._map_popout_window = MapPopoutWindow(self)
+        self._map_popout_window.closed.connect(self._on_popout_closed)
+
+        # Reparent map widget into the pop-out window
+        self._map_popout_window.take_widget(self._map_widget)
+        self._map_popout_window.show()
+
+        self._map_popped_out = True
+        # Hide the map stack so the detail panel expands to fill the bottom
+        self._map_stack.hide()
+        self._act_popout_map.setText(tr("action_dock_map"))
+        self._act_tb_popout_map.setText("↩")
+        self._act_tb_popout_map.setToolTip(tr("toolbar_dock_map_tooltip"))
+        # Disable maximize while popped out
+        self._act_maximize_map.setEnabled(False)
+        self._act_tb_maximize_map.setEnabled(False)
+
+    def _dock_map_back(self) -> None:
+        """Return the map widget to the main window's bottom splitter."""
+        # Guard against re-entrant calls (closeEvent → closed signal → here again)
+        if not self._map_popped_out:
+            return
+
+        self._map_popped_out = False
+
+        if self._map_popout_window:
+            # Save geometry once (only here, not in closeEvent to avoid duplication)
+            self._map_popout_window.save_geometry_to_settings()
+            get_settings().sync()
+            # Disconnect before closing to prevent re-entrant closed signal
+            self._map_popout_window.closed.disconnect(self._on_popout_closed)
+
+        # Reparent map widget back into the bottom splitter at position 1 (right)
+        self._map_stack.insertWidget(0, self._map_widget)
+        self._update_map_visibility()
+        self._map_widget.setMinimumWidth(300)
+        self._map_widget.show()
+        self._map_stack.show()
+
+        if self._map_popout_window:
+            self._map_popout_window.close()
+            self._map_popout_window.deleteLater()
+            self._map_popout_window = None
+
+        self._act_popout_map.setText(tr("action_popout_map"))
+        self._act_tb_popout_map.setText("⧉")
+        self._act_tb_popout_map.setToolTip(tr("toolbar_popout_map_tooltip"))
+        # Re-enable maximize
+        self._act_maximize_map.setEnabled(True)
+        self._act_tb_maximize_map.setEnabled(True)
+
+    def _on_popout_closed(self) -> None:
+        """Handle the user closing the pop-out window via its close button."""
+        self._dock_map_back()
+
     def closeEvent(self, event) -> None:
+        # Restore normal layout before saving so ratios reflect the user's
+        # intended panel sizes, not the maximized state.
+        if self._map_popped_out:
+            self._dock_map_back()
+        if self._map_maximized:
+            self._toggle_maximize_map()
         s = get_settings()
         s.window_geometry = self.saveGeometry()
         s.window_state    = self.saveState(2)
@@ -977,6 +1161,16 @@ class MainWindow(QMainWindow):
         for attr in ("_update_worker", "_manual_update_worker"):
             worker = getattr(self, attr, None)
             if worker is not None and worker.isRunning():
+                worker.quit()
+                worker.wait(500)
+        # Issue #740: let any in-flight RefreshWorker(s) finish before the
+        # window (and its DB session machinery) goes away. quit() is a no-op
+        # here (run() doesn't use an event loop) but wait() still blocks
+        # briefly for a natural finish, same pattern as the update workers
+        # above — best-effort, not a guarantee for a very slow query, but
+        # matches the level of rigor already established here.
+        for worker in list(self._active_refresh_workers):
+            if worker.isRunning():
                 worker.quit()
                 worker.wait(500)
         # Tear down the map's WebEngine page before its profile while the event
@@ -1000,7 +1194,18 @@ class MainWindow(QMainWindow):
         filter dialog) with the quick-filter / search-box filters so that
         returning from Settings or any other dialog never discards the active
         filter (fixes #128).
+
+        Issue #740: the actual DB query (apply_filters_auto(), for both the
+        table and the map) runs on a background RefreshWorker instead of
+        synchronously here. GUI-only work — cache_table.load_caches(),
+        map_widget.load_caches(), the count label, the info bar — stays on
+        the GUI thread and happens in _on_refresh_result() once the worker
+        reports back. If this method is called again before that worker
+        finishes (e.g. two quick database switches, or fast typing in the
+        search box), the older worker's result is discarded by generation
+        number rather than cancelled — see RefreshWorker's docstring.
         """
+        _t0 = time.monotonic()
         quick_fs = self._build_current_filterset()
 
         # Wrap both filtersets in a top-level AND so they work together.
@@ -1017,18 +1222,87 @@ class MainWindow(QMainWindow):
         else:
             fs = quick_fs
 
-        with get_session() as session:
-            caches = apply_filters_auto(session, fs, self._current_sort)
+        self._refresh_generation += 1
+        generation = self._refresh_generation
+        map_enabled = get_settings().map_enabled
 
-        self._cache_table.load_caches(caches)
+        # Issue #647: wait cursor while the worker runs, so a multi-second
+        # refresh on a large database no longer looks like nothing is
+        # happening. Paired 1:1 with restoreOverrideCursor() in
+        # _on_refresh_result()/_on_refresh_error() below — every worker we
+        # start here, however many are in flight at once, gets exactly one
+        # matching restore when it reports back, so the cursor only returns
+        # to normal once the last one finishes.
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        worker = RefreshWorker(
+            generation, fs, self._current_sort,
+            self._visible_table_columns(),
+            fetch_map=map_enabled,
+            map_max_caches=get_settings().map_max_caches,
+        )
+        worker.result.connect(
+            lambda gen, table_caches, map_caches, _t0=_t0:
+                self._on_refresh_result(gen, table_caches, map_caches, _t0)
+        )
+        worker.error.connect(self._on_refresh_error)
+        worker.finished.connect(lambda w=worker: self._cleanup_refresh_worker(w))
+        self._active_refresh_workers.append(worker)
+        worker.start()
+
+    def _on_refresh_result(
+        self, generation: int, table_caches: list, map_caches: list, _t0: float,
+    ) -> None:
+        """GUI-thread continuation of _refresh_cache_list() — see RefreshWorker."""
+        QApplication.restoreOverrideCursor()
+        if generation != self._refresh_generation:
+            # Superseded by a newer refresh request — discard silently.
+            return
+        logger.info(
+            "mainwindow: apply_filters_auto returned %s caches (+%.2fs)",
+            len(table_caches), time.monotonic() - _t0,
+        )
+
+        self._cache_table.load_caches(table_caches)
+        logger.info(
+            "mainwindow: cache_table.load_caches done (+%.2fs)",
+            time.monotonic() - _t0,
+        )
         if get_settings().map_enabled:
-            self._map_widget.load_caches(self._fetch_map_caches(fs, caches))
+            self._map_widget.load_caches(map_caches)
+            logger.info(
+                "mainwindow: map_widget.load_caches done (+%.2fs)",
+                time.monotonic() - _t0,
+            )
         count = self._cache_table.row_count()
         if count == 1:
             self._count_lbl.setText(tr("count_cache_single"))
         else:
             self._count_lbl.setText(tr("count_caches", count=count))
         self._update_info_bar()
+        logger.info(
+            "mainwindow: _refresh_cache_list done (+%.2fs total)",
+            time.monotonic() - _t0,
+        )
+
+    def _on_refresh_error(self, generation: int, message: str) -> None:
+        """A RefreshWorker's query raised — surface it without crashing the
+        refresh chain. Cursor is restored unconditionally (paired with the
+        setOverrideCursor() in _refresh_cache_list()) even for a stale
+        generation, so the cursor stack never gets left unbalanced."""
+        QApplication.restoreOverrideCursor()
+        logger.error("mainwindow: RefreshWorker failed (generation=%s): %s", generation, message)
+        if generation == self._refresh_generation:
+            self._statusbar.showMessage(tr("status_refresh_failed"), 6000)
+
+    def _cleanup_refresh_worker(self, worker: RefreshWorker) -> None:
+        """Drop our reference once a RefreshWorker's run() has returned, so it
+        can be garbage-collected. Without this, a still-running QThread being
+        destroyed can abort the process (same reasoning as ImportWorker's
+        completion-signal comment in import_dialog.py)."""
+        if worker in self._active_refresh_workers:
+            self._active_refresh_workers.remove(worker)
+        worker.deleteLater()
 
     def _update_info_bar(self) -> None:
         """Recalculate and update the GSAK-style info bar (issue #116)."""
@@ -1199,14 +1473,50 @@ class MainWindow(QMainWindow):
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 
+    def _build_nearby_label(self, shown: int, total: int, radius_km: float) -> str:
+        """Issue #718: 'Showing nearest X of Y within R km/mi' — only when
+        map_nearby_max_caches actually capped the result (total > shown);
+        empty string means "no label", so the radius circle alone is the
+        indicator, matching the agreed UX (Mike Wood, #718)."""
+        if total <= shown:
+            return ""
+        s = get_settings()
+        if s.use_miles:
+            radius_disp = radius_km * 0.621371
+            unit = "mi"
+        else:
+            radius_disp = radius_km
+            unit = "km"
+        return tr("map_nearby_label").format(
+            shown=shown, total=total, radius=f"{radius_disp:g}", unit=unit,
+        )
+
     def _on_cache_selected(self, cache: Cache) -> None:
         """Kaldes når brugeren klikker på en cache i tabellen."""
         full = self._load_full_cache(cache.gc_code)
         if not full:
             return
         self._detail_panel.show_cache(full)
-        self._map_widget.pan_to_cache(full.gc_code)
         self._map_widget.set_active_cache(full.gc_code)
+        if full.latitude is not None and full.longitude is not None:
+            # Issue #718: split-screen map shows the selected cache's own
+            # neighbourhood (radius query, independent of the overview
+            # map's map_max_caches cap) instead of relying on the
+            # overview's already-loaded marker set — a cache outside that
+            # set previously got no map update at all, or the wrong one.
+            s = get_settings()
+            with get_session() as session:
+                nearby, total = get_nearby_caches(
+                    session, full.latitude, full.longitude,
+                    s.map_nearby_radius_km, s.map_nearby_max_caches,
+                )
+            label = self._build_nearby_label(len(nearby), total, s.map_nearby_radius_km)
+            self._map_widget.show_nearby_for_selection(full, nearby, s.map_nearby_radius_km, label)
+        else:
+            # No coordinates to build a neighbourhood from — fall back to
+            # the old behaviour (pan only works if the cache happens to
+            # already be in the currently-loaded overview marker set).
+            self._map_widget.pan_to_cache(full.gc_code)
         self._act_wp_edit.setEnabled(True)
         self._act_wp_delete.setEnabled(True)
         if full.latitude and full.longitude:
@@ -1373,7 +1683,10 @@ class MainWindow(QMainWindow):
         """Reload cache-tabellen uden at opdatere kortet. Bruges efter import."""
         fs = self._build_current_filterset()
         with get_session() as session:
-            caches = apply_filters_auto(session, fs, self._current_sort)
+            caches = apply_filters_auto(
+                session, fs, self._current_sort,
+                columns=self._visible_table_columns(),
+            )
         self._cache_table.load_caches(caches)
         count = self._cache_table.row_count()
         if count == 1:
@@ -1383,6 +1696,14 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage(
             tr("import_table_loaded", count=count), 5000
         )
+
+    def _visible_table_columns(self) -> frozenset:
+        """Issue #658: currently visible column IDs, passed to
+        apply_filters_auto() so it can decide whether "Hints"/"Notes"
+        columns need the full ORM path instead of the lightweight one (see
+        apply_filters_lightweight()'s docstring)."""
+        from opensak.gui.dialogs.column_dialog import get_visible_columns
+        return frozenset(get_visible_columns())
 
     def _fetch_map_caches(self, fs, table_caches: list) -> list:
         """Issue #639: the map shows the nearest N caches (from the active
@@ -1477,6 +1798,8 @@ class MainWindow(QMainWindow):
             ("trip_planner",      "shortcut_trip_planner",      [self._act_trip_planner]),
             ("coord_converter",   "shortcut_coord_converter",   [self._act_coord_converter]),
             ("projection",        "shortcut_projection",        [self._act_projection]),
+            ("maximize_map",      "shortcut_maximize_map",      [self._act_maximize_map]),
+            ("popout_map",        "shortcut_popout_map",        [self._act_popout_map]),
         ]
 
     def _apply_saved_shortcuts(self) -> None:
@@ -1623,15 +1946,28 @@ class MainWindow(QMainWindow):
         database synkroniseret fra en anden maskine med et andet
         hjemmepunkt).
         """
+        logger.info("mainwindow: _initial_load starting")
+        _t0 = time.monotonic()
         s = get_settings()
         if s.home_lat and s.home_lon:
             from opensak.db.database import recalculate_distances, distances_up_to_date
             if not distances_up_to_date(s.home_lat, s.home_lon):
+                logger.info("mainwindow: distances stale, recalculating")
                 recalculate_distances(s.home_lat, s.home_lon)
+            else:
+                logger.info("mainwindow: distances already up to date, skipping recalc")
+        logger.info(
+            "mainwindow: _initial_load pre-refresh done (+%.2fs)",
+            time.monotonic() - _t0,
+        )
         if not self._map_widget.is_ready():
+            logger.info("mainwindow: map not ready, deferring refresh")
             self._map_widget.set_pending_refresh(self._refresh_cache_list)
         else:
             self._refresh_cache_list()
+        logger.info(
+            "mainwindow: _initial_load done (+%.2fs total)", time.monotonic() - _t0,
+        )
 
     def _check_setup_complete(self) -> None:
         """Vis velkomst-dialog hvis setup mangler."""
@@ -2047,7 +2383,10 @@ class MainWindow(QMainWindow):
 
     def _on_filter_applied(self, filterset, sort, profile_name: str) -> None:
         with get_session() as session:
-            caches = apply_filters_auto(session, filterset, sort)
+            caches = apply_filters_auto(
+                session, filterset, sort,
+                columns=self._visible_table_columns(),
+            )
 
         if not caches:
             # Issue #444: match GSAK's behavior — warn instead of silently
@@ -2250,7 +2589,10 @@ class MainWindow(QMainWindow):
         self._filter_lbl.setText(f"🔍 {profile.name}")
         self._quick_filter.setCurrentIndex(0)
         with get_session() as session:
-            caches = apply_filters_auto(session, profile.filterset, profile.sort)
+            caches = apply_filters_auto(
+                session, profile.filterset, profile.sort,
+                columns=self._visible_table_columns(),
+            )
         self._cache_table.load_caches(caches)
         if get_settings().map_enabled:
             self._map_widget.load_caches(self._fetch_map_caches(profile.filterset, caches))
@@ -2275,6 +2617,19 @@ class MainWindow(QMainWindow):
         self._populate_column_view_combo()
         if accepted:
             self._cache_table.reload_columns()
+            # Issue #658 follow-up: reload_columns() only swaps which
+            # columns are drawn — it reuses whatever cache objects are
+            # already in the model. If the user just turned on "Hints" or
+            # "Notes" and the currently loaded rows are LightweightCache
+            # (the fast path used whenever those columns were off), the
+            # very next repaint crashes with AttributeError (encoded_hints/
+            # user_note.note aren't carried — see LightweightCache's
+            # docstring). Re-query only when that's actually the case, so
+            # the common case (resizing/reordering/hiding columns) doesn't
+            # pay for an extra DB round trip it doesn't need.
+            if (self._visible_table_columns() & {"hints", "notes"}
+                    and self._cache_table._model.has_lightweight_caches()):
+                self._refresh_table_only()
 
     def _populate_column_view_combo(self) -> None:
         """Genindlæs alle gemte Column Views i toolbar-dropdown (#607).
@@ -2361,6 +2716,13 @@ class MainWindow(QMainWindow):
         set_container_display(view.container_display)
         set_type_display(view.type_display)
         self._cache_table.reload_columns()
+        # Issue #658 follow-up — same reasoning as _open_column_chooser():
+        # reload_columns() doesn't refetch data, so a view that turns on
+        # Hints/Notes over currently-loaded LightweightCache rows needs an
+        # explicit re-query to avoid an AttributeError on the next repaint.
+        if (self._visible_table_columns() & {"hints", "notes"}
+                and self._cache_table._model.has_lightweight_caches()):
+            self._refresh_table_only()
         self._statusbar.showMessage(
             tr("status_column_view_applied", name=view.name), 3000
         )
@@ -2580,6 +2942,25 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 tr("action_open_log_file"),
+                tr("log_file_not_found", path=str(log_path)),
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path)))
+
+    def _open_previous_log_file(self) -> None:
+        """Åbn forrige sessions logfil (issue #737) — bevaret via rotation
+        i logger.setup_logging(), så en session der endte i et crash/hæng
+        stadig kan hentes efter genstart, uden at brugeren selv skal finde
+        og gemme filen før OpenSAK åbnes igen."""
+        from opensak.config import get_previous_log_path
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        log_path = get_previous_log_path()
+        if not log_path.exists():
+            QMessageBox.information(
+                self,
+                tr("action_open_previous_log_file"),
                 tr("log_file_not_found", path=str(log_path)),
             )
             return

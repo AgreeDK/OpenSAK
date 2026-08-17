@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Sätt filter…",
     "action_clear_filter":          "❌  &Rensa filter",
     "action_columns":               "&Välj kolumner…",
+    "action_maximize_map":          "⛶  &Maximera karta",
+    "action_restore_map":           "◻  &Återställ paneler",
+    "toolbar_maximize_map_tooltip": "Maximera karta (F11)",
+    "toolbar_restore_map_tooltip":  "Återställ paneler (F11)",
+    "action_popout_map":            "⧉  &Koppla loss karta",
+    "action_dock_map":              "↩  &Docka tillbaka karta",
+    "toolbar_popout_map_tooltip":   "Koppla loss kartan till eget fönster (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Docka tillbaka kartan (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Karta",
 
     # Tools menu
     "action_settings":              "&Inställningar…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Tangentbordsgenvägar…",
 
     "action_open_log_file": "Öppna loggfil",
+    "action_open_previous_log_file": "Öppna logg från senaste omstart",
     "action_support_opensak": "♥  Stöd OpenSAK…",
     "log_file_not_found": "Loggfilen hittades inte än: {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Reseplanerare",
     "shortcut_coord_converter":     "Koordinatomvandlare",
     "shortcut_projection":          "Koordinatprojektion",
+    "shortcut_maximize_map":        "Maximera karta",
+    "shortcut_popout_map":          "Koppla loss karta",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Verktyg",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Inget",
     "toolbar_filter_combo_active":   "Aktivt (ej sparat)",
     "toolbar_refresh":              "Uppdatera",
+    "toolbar_context_menu":         "Verktygsfält",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter rensat",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Alla flaggor rensade",
     "status_flagged_count":         "{flagged} av {total} cachar markerade",
     "status_db_name":               "Databas: {db_name}",
+    "status_refresh_failed":        "Det gick inte att uppdatera cachelistan",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Lägg till cache",
@@ -313,6 +327,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Max antal caches på kartan:",
     "settings_map_unlimited":           "Obegränsat",
     "settings_map_max_caches_note":     "Begränsar kartan till de närmaste cacherna från din aktiva hempunkt — mycket snabbare på stora databaser, och en karta med hundratusentals nålar är ändå inte särskilt läsbar vid normal zoom. Cache-listan påverkas aldrig av denna gräns.",
+    "settings_map_nearby_radius_label":    "Radie för delad skärm-karta:",
+    "settings_map_nearby_max_caches_label": "Cachegräns för delad skärm-karta:",
+    "settings_map_nearby_note":          "Styr den enskilda cachekartan som visas i delad skärm — visar cacher inom denna radie från den valda cachen, oberoende av översiktskartans gräns ovan. En cirkel ritas på kartan vid denna radie; om cachegränsen nås inom den visas en etikett med hur många som är dolda. Sparas per databas.",
     "map_disabled_placeholder":         "Karta inaktiverad\n\nSlå på den igen under Inställningar → Karta.",
     "settings_date_format_locale":  "OS-språkinställning",
     "settings_group_language":      "Språk",
@@ -484,6 +501,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Inga cacher att uppdatera med det valda omfånget.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fel — {msg}",
+    "update_loc_prefetch_progress": "Laddar ner saknad kommundata: {done}/{total}…",
 
     # ── Gränspaket-dialoger ───────────────────────────────────────────────────
     "boundary_dl_title":            "Ladda ner gränspaket",
@@ -554,6 +572,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Mappen finns inte:\n{path}",
     "db_err_no_write_permission":   "Ingen skrivbehörighet för mappen:\n{path}",
     "db_err_create_failed":         "Kunde inte skapa databasen.",
+    "db_err_switch_failed_title":   "Kunde inte byta databas",
+    "db_err_switch_failed":         "Kunde inte byta till '{name}':\n{error}\n\nEn detaljerad logg har sparats — se Hjälp > Öppna loggfil.",
     "db_err_file_not_found":        "Databasfilen hittades inte:\n{path}",
     "db_err_remove_active":         "Den aktiva databasen kan inte tas bort från listan.",
     "db_err_delete_active":         "Den aktiva databasen kan inte raderas — byt till en annan först.",
@@ -675,7 +695,7 @@ STRINGS: dict[str, str] = {
     "detail_no_logs":               "(Inga loggar)",
 
     # ── Toolbar extras ────────────────────────────────────────────────────────
-    
+
     # ── Cache table columns ───────────────────────────────────────────────────
     "col_gc_code":      "GC Kod",
     "col_name":         "Namn",
@@ -721,6 +741,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Användardata 4",
     "col_favorite_points":   "Fav.-poäng",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache-Id",
+    "col_changed_date":      "Ändringsdatum",
+    "col_creation_date":     "Skapandedatum",
+    "col_elevation":         "Höjd",
+    "col_find_count":        "Antal funna",
+    "col_gc_note":           "GC.com-anteckning",
+    "col_guid":              "Guid",
+    "col_hints":             "Ledtrådar",
+    "col_notes":             "Anteckning",
+    "col_owner_id":          "Ägar-ID",
+    "col_owner_name":        "Ägarnamn",
+    "col_source":            "Källa",
+    "col_url":               "Url",
+    "col_watch":              "Bevakning",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Senast hittad",
+    "col_last_gpx_update":   "Senaste GPX-uppdatering",
+    "col_last_four_logs":    "Senaste fyra loggarna",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Öppna hos geocaching.com",
@@ -804,6 +843,9 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Hem",
+    "map_nearby_label":             "Visar närmaste {shown} av {total} inom {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kunde inte starta",
+    "startup_db_error_msg":         "OpenSAK kunde inte öppna din databas och kan inte starta.\n\n{error}\n\nEn detaljerad felllogg har sparats här:\n{path}\n\nDela gärna denna loggfil på github.com/OpenSAK-Org/OpenSAK/issues eller hello@opensak.com så vi kan hjälpa till.",
     "map_ctx_copy_coords":          "Kopiera {coords}",
     "map_ctx_copy_as":              "Kopiera som...",
     "map_ctx_set_corrected":        "Ange korrigerade koordinater",
@@ -1001,7 +1043,7 @@ STRINGS: dict[str, str] = {
     "trip_btn_preview_map_tooltip":            "Öppna valda cacher på en interaktiv karta",
     "trip_map_preview_title":                  "Ruttplanerare — Förhandsvisning",
     "trip_map_preview_info":                   "{count} cacher visas — ruttplaneraren hålls öppen",
-    
+
     # Trip planner — save to database
     "trip_btn_save_db":                        "🗄️  Spara till databas…",
     "trip_btn_save_db_tooltip":                "Spara den valda rutten till en ny eller en existerande OpenSAK databas",

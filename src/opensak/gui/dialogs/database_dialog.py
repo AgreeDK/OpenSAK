@@ -276,7 +276,18 @@ class DatabaseManagerDialog(QDialog):
         db = self._selected_db()
         if not db or db == self._manager.active:
             return
-        self._manager.switch_to(db)
+        try:
+            self._manager.switch_to(db)
+        except Exception as e:
+            # Issue #738: show the failure instead of leaving the app
+            # looking frozen — switch_to() only updates the active
+            # database on success, so the dialog's own list/selection
+            # already still reflects the previous (still-active) database.
+            QMessageBox.critical(
+                self, tr("db_err_switch_failed_title"),
+                tr("db_err_switch_failed", name=db.name, error=str(e)),
+            )
+            return
         self._refresh_list(select_db=db)
         self.database_switched.emit(db)
         QMessageBox.information(
@@ -289,18 +300,32 @@ class DatabaseManagerDialog(QDialog):
         if dlg.exec():
             try:
                 db = self._manager.new_database(dlg.name, dlg.custom_path)
-                # Sæt centerpoint til Home Location eller sidst aktive koordinat
-                self._manager.switch_to(db)
-                from opensak.gui.settings import get_settings
-                get_settings().apply_default_center_for_new_db()
-                self._refresh_list(select_db=db)
-                self.database_switched.emit(db)
-                QMessageBox.information(
-                    self, tr("db_created_title"),
-                    tr("db_created_msg", name=db.name)
-                )
             except ValueError as e:
                 QMessageBox.warning(self, tr("warning"), str(e))
+                return
+            try:
+                # Sæt centerpoint til Home Location eller sidst aktive koordinat
+                self._manager.switch_to(db)
+            except Exception as e:
+                # Issue #738: the database itself was created fine — only
+                # the follow-up switch failed — so refresh the list (the
+                # new, still-inactive database should show up in it) and
+                # report the switch failure specifically, rather than
+                # letting the app appear to hang.
+                self._refresh_list()
+                QMessageBox.critical(
+                    self, tr("db_err_switch_failed_title"),
+                    tr("db_err_switch_failed", name=db.name, error=str(e)),
+                )
+                return
+            from opensak.gui.settings import get_settings
+            get_settings().apply_default_center_for_new_db()
+            self._refresh_list(select_db=db)
+            self.database_switched.emit(db)
+            QMessageBox.information(
+                self, tr("db_created_title"),
+                tr("db_created_msg", name=db.name)
+            )
 
     def _open_database(self) -> None:
         from opensak.config import get_app_data_dir

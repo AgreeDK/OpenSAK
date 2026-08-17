@@ -103,6 +103,7 @@ from opensak.importer import (
     _load_existing_gc_map,
 )
 from opensak.utils.constants import ATTRIBUTES
+from opensak.utils.constants import FOUND_LOG_TYPES
 
 
 # ── GSAK CacheType single-letter code -> OpenSAK cache_type string ──────────
@@ -840,6 +841,33 @@ def _upsert_cache_from_gsak(
     # ── Issue #87/#186: cached log_count / last_log_date for fast UI display
     cache.log_count = len(seen_log_ids)
     cache.last_log_date = max(log_dates) if log_dates else None
+
+    # ── Issue #716: last_found_date (most recent found-type log by ANY
+    # finder, unlike found_date which is the current user's own log). GSAK
+    # databases carry full log history and log_rows is fully rebuilt each
+    # import (not merged like the GPX importer), so this reads directly
+    # from log_rows rather than a merged existing_logs set. ─────────────────
+    found_log_dates = [
+        lg["log_date"] for lg in log_rows
+        if lg["log_type"] in FOUND_LOG_TYPES and lg["log_date"] is not None
+    ]
+    cache.last_found_date = max(found_log_dates) if found_log_dates else None
+
+    # ── Issue #716: last_four_logs (cached summary — logs relationship is
+    # noload'ed in the grid, same reasoning as last_log_date above) ────────
+    _recent = sorted(
+        (lg for lg in log_rows if lg["log_date"] is not None),
+        key=lambda lg: lg["log_date"], reverse=True,
+    )[:4]
+    cache.last_four_logs = "\n".join(
+        f"{lg['log_date'].strftime('%Y-%m-%dT%H:%M:%S')}\t{lg['log_type']}\t{lg['finder'] or ''}"
+        for lg in _recent
+    ) or None
+
+    # ── Issue #716: last_gpx_update — local timestamp of this import pass,
+    # set unconditionally (even for locked caches — it reflects import
+    # activity, not listing content, same as source_file above) ───────────
+    cache.last_gpx_update = datetime.now()
 
     # ── Issue #552: cached count of the user's own found-type logs ──────────
     # GSAK databases hold the full log history (unlike a PQ's 5-log window),

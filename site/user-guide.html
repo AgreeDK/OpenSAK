@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenSAK User Guide — v1.16.3</title>
+<title>OpenSAK User Guide — v1.17.0</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -473,7 +473,7 @@
 <nav>
   <div class="nav-header">
     <span class="nav-logo">OpenSAK</span>
-    <div class="nav-version">User Guide · v1.16.3</div>
+    <div class="nav-version">User Guide · v1.17.0</div>
   </div>
 
   <div class="nav-section-heading">Getting Started</div>
@@ -535,7 +535,7 @@
     <div class="hero-eyebrow">Complete User Guide</div>
     <h1>OpenSAK</h1>
     <p class="hero-sub">The open-source geocache management tool for Windows, Linux, and macOS.</p>
-    <div class="hero-meta">Version 1.16.3 &nbsp;·&nbsp; MIT Licence &nbsp;·&nbsp; <a href="https://github.com/OpenSAK-Org/opensak">github.com/OpenSAK-Org/opensak</a></div>
+    <div class="hero-meta">Version 1.17.0 &nbsp;·&nbsp; MIT Licence &nbsp;·&nbsp; <a href="https://github.com/OpenSAK-Org/opensak">github.com/OpenSAK-Org/opensak</a></div>
   </div>
 
   <figure class="screenshot" style="margin-top:-0.5rem;">
@@ -600,7 +600,7 @@ python run.py</code></pre>
         <tr><td>Intel</td><td><code>OpenSAK-macOS-x86_64.dmg</code></td></tr>
       </tbody>
     </table>
-    <p>Open the <code>.dmg</code> and drag OpenSAK to Applications. On first launch, <strong>right-click → Open</strong> to bypass Gatekeeper.</p>
+    <p>Open the <code>.dmg</code> and drag OpenSAK to Applications. The app is signed and notarized by Apple, so it opens normally — no Gatekeeper warning.</p>
 
     <h3>System Requirements</h3>
     <table>
@@ -660,7 +660,7 @@ python run.py</code></pre>
     <div class="callout note"><div class="callout-icon">ℹ️</div><div>Re-importing an updated Pocket Query is safe — existing caches are updated automatically. No duplicates are created.</div></div>
 
     <h3>Auto-geocoding</h3>
-    <p>After import, OpenSAK automatically runs an <strong>offline reverse-geocode pass</strong> to fill in Country, State/Region, and County for any caches that are missing these fields. This works with no internet connection.</p>
+    <p>After import, OpenSAK automatically runs an <strong>offline reverse-geocode pass</strong> to fill in Country, State/Region, and County for any caches that are missing these fields. This works with no internet connection, and is <strong>enabled by default</strong> — no setup required.</p>
 
     <h3>Supported Formats</h3>
     <table>
@@ -804,6 +804,24 @@ python run.py</code></pre>
       <li>Corrected coordinates are shown as a separate pin (📍) linked to the original.</li>
       <li>Use the <strong>⌂ button</strong> in the toolbar to pan the map to your active home point.</li>
     </ul>
+
+    <h3>Maximize &amp; Pop-out</h3>
+    <p>Two ways to work with a bigger map, both reachable from the two small buttons in the map's own corner, the toolbar, or the <strong>View</strong> menu:</p>
+    <ul>
+      <li><strong>⛶ Maximize map</strong> (<kbd>F11</kbd>) — expands the map to fill the whole main window, hiding the cache list and detail panel. Press <kbd>F11</kbd> again, or click the button again, to restore the normal 3-panel layout.</li>
+      <li><strong>⧉ Pop out map</strong> (<kbd>Ctrl+Shift+M</kbd>) — opens the map in its own floating window, so it can be moved to a second monitor while the main window keeps the cache list and detail panel. The pop-out window's size and position are remembered between sessions. Closing it, or pressing <kbd>Ctrl+Shift+M</kbd> again, docks the map back into the main window.</li>
+    </ul>
+    <div class="callout note"><div class="callout-icon">ℹ️</div><div>Both stay in sync with the cache list and active filter, exactly like the docked map.</div></div>
+
+    <figure class="screenshot">
+      <img src="assets/screenshots/map-maximized.png" alt="OpenSAK main window with the map maximized to fill the whole window, cache list and detail panel hidden">
+      <figcaption>Maximized map — the cache list and detail panel are hidden until you restore the layout.</figcaption>
+    </figure>
+
+    <figure class="screenshot">
+      <img src="assets/screenshots/map-popout.png" alt="The OpenSAK map open in its own floating pop-out window, separate from the main window">
+      <figcaption>Pop-out map in its own window — move it to a second monitor while the main window keeps the list and details.</figcaption>
+    </figure>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════ -->
@@ -1445,7 +1463,7 @@ python run.py</code></pre>
         <tr><td>Bug reports &amp; feature requests</td><td><a href="https://github.com/OpenSAK-Org/opensak/issues">github.com/OpenSAK-Org/opensak/issues</a></td></tr>
         <tr><td>Community discussion</td><td><a href="https://www.facebook.com/groups/opensak">Facebook group: OpenSAK</a></td></tr>
         <tr><td>Releases &amp; downloads</td><td><a href="https://github.com/OpenSAK-Org/opensak/releases">github.com/OpenSAK-Org/opensak/releases</a></td></tr>
-        <tr><td>Changelog</td><td><a href="https://github.com/OpenSAK-Org/opensak/blob/v1.16.3/CHANGELOG.md">CHANGELOG.md on GitHub</a></td></tr>
+        <tr><td>Changelog</td><td><a href="https://github.com/OpenSAK-Org/opensak/blob/v1.17.0/CHANGELOG.md">CHANGELOG.md on GitHub</a></td></tr>
         <tr><td>Contributing</td><td><a href="https://github.com/OpenSAK-Org/opensak/blob/main/CONTRIBUTING.md">CONTRIBUTING.md on GitHub</a></td></tr>
         <tr><td>Support the project</td><td><a href="https://opencollective.com/opensak">opencollective.com/opensak</a></td></tr>
         <tr><td>Website</td><td><a href="https://opensak.com">opensak.com</a></td></tr>
@@ -1455,7 +1473,7 @@ python run.py</code></pre>
     <div class="callout tip"><div class="callout-icon">💡</div><div>OpenSAK is free and open-source software released under the MIT licence. Contributions of any kind — code, translations, documentation, or testing — are very welcome.</div></div>
 
     <p style="margin-top:2rem;color:var(--ink-light);font-size:0.85rem;font-style:italic;">
-      This guide was generated from the OpenSAK source code (v1.16.3). Last updated July 2026.
+      This guide was generated from the OpenSAK source code (v1.17.0). Last updated August 2026.
     </p>
   </section>
 

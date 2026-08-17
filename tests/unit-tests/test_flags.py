@@ -9,7 +9,8 @@ import opensak.utils.flags as flags_module
 class TestLoad:
     def test_absent_file_returns_release_defaults(self, no_features_file):
         assert flags_module._flags == {
-            "reverse-geocoding": False,
+            "reverse-geocoding": True,
+            "map-popout": True,
         }
 
     def test_present_file_overrides_defaults(self, patch_features_file):
@@ -22,7 +23,8 @@ class TestLoad:
         monkeypatch.setattr(flags_module, "_FEATURES_FILE", f)
         result = flags_module._load()
         assert result == {
-            "reverse-geocoding": False,
+            "reverse-geocoding": True,
+            "map-popout": True,
         }
 
     def test_unknown_keys_in_file_are_ignored(self, patch_features_file):
@@ -31,15 +33,15 @@ class TestLoad:
 
     def test_partial_file_keeps_unset_flags_as_defaults(self, patch_features_file):
         patch_features_file({})
-        assert flags_module._flags["reverse-geocoding"] is False
+        assert flags_module._flags["reverse-geocoding"] is True
 
 
 # ── Module-level attribute ────────────────────────────────────────────────────
 
 
 class TestReverseGeocoding:
-    def test_false_by_default_when_file_absent(self, no_features_file):
-        assert flags_module.reverse_geocoding is False
+    def test_true_by_default_when_file_absent(self, no_features_file):
+        assert flags_module.reverse_geocoding is True
 
     def test_true_when_enabled_in_file(self, patch_features_file):
         patch_features_file({"reverse-geocoding": True})

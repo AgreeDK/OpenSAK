@@ -11,6 +11,7 @@ pytest.importorskip("pytestqt")
 import opensak.gui.icon as icon_mod
 from opensak.gui.mainwindow import MainWindow
 from opensak.lang import tr
+from tests.data import wait_for_refresh
 
 # Captured before conftest's autouse fixture no-ops them on the class.
 _REAL_INITIAL_LOAD = MainWindow._initial_load
@@ -263,6 +264,7 @@ class TestCacheList:
 
         seeded_window._quick_filter.setCurrentIndex(5)  # "Archived" quick filter
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
         assert "GC12345" in codes
 
@@ -277,6 +279,7 @@ class TestCacheList:
 
         seeded_window._quick_filter.setCurrentIndex(0)
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
         assert "GC12345" in codes
 
@@ -286,7 +289,7 @@ class TestCacheList:
         fs.add(GcCodeFilter("GC12345"))
         seeded_window._current_filterset = fs
         seeded_window._refresh_cache_list()
-
+        wait_for_refresh(seeded_window)
     def test_update_info_bar(self, seeded_window):
         seeded_window._update_info_bar()
 
@@ -329,6 +332,7 @@ class TestCacheList:
 
         get_settings().gc_username = "AdoptedOwner"
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert seeded_window._info_bar._owned_lbl.text() == "1"
 
         # Clicking the owned tile must filter by owner — a PlacedByFilter
@@ -350,6 +354,7 @@ class TestCacheList:
             session.commit()
 
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert seeded_window._info_bar._found_lbl.text() == "25"
 
     def test_found_count_falls_back_to_one_when_found_log_count_zero(self, seeded_window):
@@ -367,6 +372,7 @@ class TestCacheList:
             session.commit()
 
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         found_text = seeded_window._info_bar._found_lbl.text()
         assert int(found_text) >= 1
 
@@ -385,6 +391,7 @@ class TestCacheList:
             session.commit()
 
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         codes_found = [
             c.found_log_count for c in seeded_window._cache_table.get_all_caches()
             if c.gc_code == "GC12345"
@@ -412,6 +419,7 @@ class TestMapEnabledSetting:
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert calls == []
 
     def test_map_load_runs_when_enabled(self, seeded_window, monkeypatch):
@@ -422,6 +430,7 @@ class TestMapEnabledSetting:
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert len(calls) == 1
 
     def test_table_unaffected_when_map_disabled(self, seeded_window):
@@ -430,10 +439,12 @@ class TestMapEnabledSetting:
         from opensak.gui.settings import get_settings
         get_settings().map_enabled = True
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         with_map = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
 
         get_settings().map_enabled = False
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         without_map = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
 
         assert with_map == without_map
@@ -446,13 +457,14 @@ class TestMapEnabledSetting:
         from opensak.gui.settings import get_settings
         get_settings().map_enabled = False
         seeded_window._refresh_cache_list()
-
+        wait_for_refresh(seeded_window)
         get_settings().map_enabled = True
         calls = []
         monkeypatch.setattr(
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert len(calls) == 1
 
     def test_placeholder_shown_when_disabled(self, seeded_window):
@@ -517,6 +529,7 @@ class TestMapMaxCaches:
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         table_caches = seeded_window._cache_table.get_all_caches()
         assert len(calls) == 1
         assert calls[0] is table_caches or [c.gc_code for c in calls[0]] == [
@@ -536,7 +549,7 @@ class TestMapMaxCaches:
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
-
+        wait_for_refresh(seeded_window)
         table_codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
         assert len(table_codes) > 2  # table unaffected — still shows everything
         assert len(calls) == 1
@@ -555,7 +568,7 @@ class TestMapMaxCaches:
             seeded_window._map_widget, "load_caches", lambda caches: calls.append(caches)
         )
         seeded_window._refresh_cache_list()
-
+        wait_for_refresh(seeded_window)
         table_codes = [c.gc_code for c in seeded_window._cache_table.get_all_caches()]
         assert len(calls) == 1
         assert len(calls[0]) == len(table_codes)
@@ -574,6 +587,7 @@ class TestMapMaxCaches:
             lambda fs, caches: fetch_calls.append(1) or original(fs, caches),
         )
         seeded_window._refresh_cache_list()
+        wait_for_refresh(seeded_window)
         assert fetch_calls == []
 
 
@@ -937,7 +951,7 @@ class TestBulkAndFlags:
             c = s.query(Cache).filter_by(gc_code=gc_code).first()
             c.user_flag = True
         window._refresh_cache_list()
-
+        wait_for_refresh(window)
     def test_delete_flagged_none(self, seeded_window, mbox_ok):
         seeded_window._delete_flagged_caches()  # info, returns
 
@@ -951,6 +965,7 @@ class TestBulkAndFlags:
 
     def test_delete_filtered_confirmed(self, seeded_window, mbox_yes):
         seeded_window._delete_filtered_caches()
+        wait_for_refresh(seeded_window)
         assert seeded_window._cache_table.row_count() == 0
 
     def test_bulk_delete_empty_codes(self, seeded_window):

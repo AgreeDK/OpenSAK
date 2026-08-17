@@ -1,5 +1,6 @@
 # tests/unit-tests/test_update_location_dialog.py — reverse-geocode location updater.
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -17,16 +18,21 @@ from opensak.gui.dialogs.update_location_dialog import (
     UpdateLocationResult,
     _CacheRow,
 )
+from opensak.geo.store import Region
 
 
 def _loc(country="DK", state="ZL", county="CPH"):
     return SimpleNamespace(country=country, state=state, county=county)
 
 
-def _fake_store(available=True, version="42"):
+def _fake_store(available=True, version="42", data_dir=None):
     store = MagicMock()
     store.available.return_value = available
     store.dataset_version.return_value = version
+    # No candidates by default — Phase 0 pre-fetch (#722) cleanly finds
+    # nothing to do rather than falling through the try/except by accident.
+    store.candidates.return_value = []
+    store.data_dir = data_dir or Path("/tmp/opensak-test-boundaries")
     return store
 
 
@@ -48,8 +54,8 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def geo_mocks(monkeypatch):
-    store = _fake_store()
+def geo_mocks(monkeypatch, tmp_path):
+    store = _fake_store(data_dir=tmp_path / "boundaries")
     resolver = _fake_resolver()
     monkeypatch.setattr("opensak.geo.store.BoundaryStore", lambda: store)
     monkeypatch.setattr("opensak.geo.boundaries.TerritoryResolver", lambda s: resolver)
@@ -146,6 +152,33 @@ class TestReverseGeocodeWorker:
                 assert c.country == "DK"
                 assert c.state == "ZL"
 
+    def test_run_chunks_large_bulk_write(self, db, geo_mocks, monkeypatch):
+        # Regression (#60): a large DB overflowed SQLite's bound-parameter limit
+        # because the bulk write bound every gc_code in one IN(...). The write is
+        # chunked so no single IN exceeds 500 codes.
+        with get_session() as s:
+            for i in range(3, 1103):
+                s.add(Cache(gc_code=f"GC{i}", name="x",
+                            cache_type="Traditional Cache",
+                            latitude=55.0, longitude=12.0))
+        rows = [_CacheRow(f"GC{i}", 55.0, 12.0) for i in range(1, 1103)]
+
+        sizes = []
+        real_in = type(Cache.gc_code).in_
+        def spy(self, other):
+            other = list(other)
+            sizes.append(len(other))
+            return real_in(self, other)
+        monkeypatch.setattr(type(Cache.gc_code), "in_", spy)
+
+        w = ReverseGeocodeWorker(rows)
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+
+        assert done[0].updated == 1102
+        assert sizes and max(sizes) <= 500
+
     def test_default_basis_is_posted(self):
         row = _CacheRow("GC1", 55.0, 12.0)
         assert row.basis == "posted"
@@ -153,6 +186,121 @@ class TestReverseGeocodeWorker:
     def test_explicit_basis_corrected(self):
         row = _CacheRow("GC1", 55.0, 12.0, basis="corrected")
         assert row.basis == "corrected"
+
+
+# ── ReverseGeocodeWorker Phase 0: county pre-fetch (#722) ──────────────────────
+
+class TestPreFetchPhase:
+    def test_collects_and_downloads_needed_packs(self, db, geo_mocks, monkeypatch):
+        store, _resolver = geo_mocks
+        store.candidates.return_value = [1]
+        store.region.return_value = Region(
+            id=1, name="AlphaCounty", parent=None, pack="aa.geojson", feature_index=0
+        )
+        calls = []
+        monkeypatch.setattr(
+            "opensak.geo.packs.fetch_packs",
+            lambda names, dest, **kw: calls.append((list(names), dest)) or 1,
+        )
+        w = ReverseGeocodeWorker([_CacheRow("GC1", 55.0, 12.0)])
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+        assert len(calls) == 1
+        names, dest = calls[0]
+        assert names == ["aa.geojson"]
+        assert dest == store.data_dir / "counties"
+        assert done[0].updated == 1  # Phase 1 still ran normally afterwards
+
+    def test_skips_fetch_when_no_candidates(self, db, geo_mocks, monkeypatch):
+        # geo_mocks defaults store.candidates to [] — nothing needed.
+        calls = []
+        monkeypatch.setattr(
+            "opensak.geo.packs.fetch_packs",
+            lambda *a, **kw: calls.append(a) or 0,
+        )
+        w = ReverseGeocodeWorker([_CacheRow("GC1", 55.0, 12.0)])
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+        assert calls == []
+        assert done[0].updated == 1
+
+    def test_deduplicates_packs_needed_by_multiple_rows(self, db, geo_mocks, monkeypatch):
+        store, _resolver = geo_mocks
+        store.candidates.return_value = [1]
+        store.region.return_value = Region(
+            id=1, name="AlphaCounty", parent=None, pack="aa.geojson", feature_index=0
+        )
+        calls = []
+        monkeypatch.setattr(
+            "opensak.geo.packs.fetch_packs",
+            lambda names, dest, **kw: calls.append(list(names)) or 1,
+        )
+        rows = [_CacheRow("GC1", 55.0, 12.0), _CacheRow("GC2", 56.0, 10.0)]
+        w = ReverseGeocodeWorker(rows)
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+        assert len(calls) == 1
+        assert calls[0] == ["aa.geojson"]  # both rows needed it, fetched once
+
+    def test_progress_emitted_via_row_done_signal(self, db, geo_mocks, monkeypatch):
+        # Language state is global (opensak.lang._translations) and can be
+        # left loaded by an earlier test in the same session — pin it
+        # explicitly so this assertion doesn't depend on run order.
+        from opensak.lang import load_language
+        load_language("en")
+
+        store, _resolver = geo_mocks
+        store.candidates.return_value = [1]
+        store.region.return_value = Region(
+            id=1, name="AlphaCounty", parent=None, pack="aa.geojson", feature_index=0
+        )
+
+        def _fake_fetch_packs(names, dest, progress_cb=None, **kw):
+            if progress_cb:
+                progress_cb(1, 1)
+            return 1
+
+        monkeypatch.setattr("opensak.geo.packs.fetch_packs", _fake_fetch_packs)
+        w = ReverseGeocodeWorker([_CacheRow("GC1", 55.0, 12.0)])
+        lines = []
+        w.row_done.connect(lambda gc_code, line: lines.append((gc_code, line)))
+        w.run()
+        # An empty gc_code marks an informational line (not a resolved row),
+        # matching the existing update_loc_no_boundaries convention.
+        prefetch_lines = [line for gc_code, line in lines if gc_code == ""]
+        assert any("1/1" in line for line in prefetch_lines)
+
+    def test_prefetch_failure_falls_back_gracefully(self, db, geo_mocks, monkeypatch):
+        # Any unexpected error scanning candidates must not abort the whole
+        # geocode run — Phase 1's normal on-demand fetch is the fallback.
+        store, _resolver = geo_mocks
+        store.candidates.side_effect = RuntimeError("boom")
+        w = ReverseGeocodeWorker([_CacheRow("GC1", 55.0, 12.0)])
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+        assert done[0].updated == 1
+        assert done[0].errors == 0
+
+    def test_fetch_packs_error_falls_back_gracefully(self, db, geo_mocks, monkeypatch):
+        store, _resolver = geo_mocks
+        store.candidates.return_value = [1]
+        store.region.return_value = Region(
+            id=1, name="AlphaCounty", parent=None, pack="aa.geojson", feature_index=0
+        )
+        monkeypatch.setattr(
+            "opensak.geo.packs.fetch_packs",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("network boom")),
+        )
+        w = ReverseGeocodeWorker([_CacheRow("GC1", 55.0, 12.0)])
+        done = []
+        w.all_done.connect(done.append)
+        w.run()
+        assert done[0].updated == 1
+        assert done[0].errors == 0
 
 
 # ── UpdateLocationDialog ──────────────────────────────────────────────────────

@@ -1,0 +1,49 @@
+name: "Codesign macOS artifact"
+description: "Sign a .app bundle or .dmg with the Developer ID Application identity, hardened runtime, and OpenSAK's entitlements."
+
+inputs:
+  target-path:
+    description: "Path to the .app bundle or .dmg to sign"
+    required: true
+  entitlements-path:
+    description: "Path to the entitlements .plist (only applied to .app bundles, not .dmg)"
+    required: false
+    default: "packaging/macos/entitlements.plist"
+  identity:
+    description: "Codesign identity substring to match (\"Developer ID Application\" matches our only cert)"
+    required: false
+    default: "Developer ID Application"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Codesign
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        TARGET="${{ inputs.target-path }}"
+
+        if [[ "$TARGET" == *.app ]]; then
+          echo "Signing app bundle with hardened runtime + entitlements: $TARGET"
+          codesign --force --deep --strict \
+            --options runtime \
+            --entitlements "${{ inputs.entitlements-path }}" \
+            --timestamp \
+            --sign "${{ inputs.identity }}" \
+            "$TARGET"
+        else
+          echo "Signing disk image: $TARGET"
+          codesign --force \
+            --options runtime \
+            --timestamp \
+            --sign "${{ inputs.identity }}" \
+            "$TARGET"
+        fi
+
+    - name: Verify signature
+      shell: bash
+      run: |
+        set -euo pipefail
+        codesign --verify --deep --strict --verbose=4 "${{ inputs.target-path }}"
+        codesign -dv --verbose=4 "${{ inputs.target-path }}"

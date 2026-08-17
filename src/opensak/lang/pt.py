@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Definir filtro",
     "action_clear_filter":          "❌  &Limpar filtro",
     "action_columns":               "&Escolher colunas…",
+    "action_maximize_map":          "⛶  &Maximizar mapa",
+    "action_restore_map":           "◻  &Restaurar painéis",
+    "toolbar_maximize_map_tooltip": "Maximizar mapa (F11)",
+    "toolbar_restore_map_tooltip":  "Restaurar painéis (F11)",
+    "action_popout_map":            "⧉  &Destacar mapa",
+    "action_dock_map":              "↩  &Reintegrar mapa",
+    "toolbar_popout_map_tooltip":   "Destacar mapa em janela própria (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Reintegrar mapa na janela principal (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Mapa",
 
     # Tools menu
     "action_settings":              "&Definições…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Atalhos de teclado…",
 
     "action_open_log_file": "Abrir ficheiro de registo",
+    "action_open_previous_log_file": "Abrir registo do último arranque",
     "action_support_opensak": "♥  Apoiar o OpenSAK…",
     "log_file_not_found": "Ficheiro de registo ainda não encontrado: {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Planeador de percurso",
     "shortcut_coord_converter":     "Conversor de coordenadas",
     "shortcut_projection":          "Projeção de coordenadas",
+    "shortcut_maximize_map":        "Maximizar mapa",
+    "shortcut_popout_map":          "Destacar mapa",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Ferramentas de geocaching",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Nenhum",
     "toolbar_filter_combo_active":   "Ativo (não guardado)",
     "toolbar_refresh":              "Atualizar",
+    "toolbar_context_menu":         "Barra de ferramentas",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Limpar filtro",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Todos os marcadores limpos",
     "status_flagged_count":         "{flagged} de {total} caches marcados",
     "status_db_name":               "Base de dados: {db_name}",
+    "status_refresh_failed":        "Falha ao atualizar a lista de caches",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Adicionar cache",
@@ -313,6 +327,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Máx. de caches no mapa:",
     "settings_map_unlimited":           "Ilimitado",
     "settings_map_max_caches_note":     "Limita o mapa às caches mais próximas da sua coordenada de partida ativa — muito mais rápido em bases de dados grandes, e um mapa com centenas de milhares de marcadores não é muito legível com o zoom normal de qualquer forma. A lista de caches nunca é afetada por este limite.",
+    "settings_map_nearby_radius_label":    "Raio do mapa em ecrã dividido:",
+    "settings_map_nearby_max_caches_label": "Limite de caches do mapa em ecrã dividido:",
+    "settings_map_nearby_note":          "Controla o mapa de cache individual mostrado no ecrã dividido — mostra caches dentro deste raio da cache selecionada, independentemente do limite do mapa geral acima. É desenhado um círculo no mapa com este raio; se o limite de caches for atingido dentro dele, uma etiqueta mostra quantas estão ocultas. Guardado por base de dados.",
     "map_disabled_placeholder":         "Mapa desativado\n\nAtive-o novamente em Definições → Mapa.",
     "settings_date_format_locale":  "Idioma do sistema",
     "settings_group_language":      "Idioma",
@@ -484,6 +501,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Nenhuma cache para atualizar com o âmbito selecionado.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: erro — {msg}",
+    "update_loc_prefetch_progress": "A transferir dados de município em falta: {done}/{total}…",
 
     # ── Diálogos de pacotes de fronteiras ─────────────────────────────────────
     "boundary_dl_title":            "Transferir pacotes de fronteiras",
@@ -554,6 +572,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "A pasta não existe:\n{path}",
     "db_err_no_write_permission":   "Sem permissão de escrita na pasta:\n{path}",
     "db_err_create_failed":         "Não foi possível criar a base de dados.",
+    "db_err_switch_failed_title":   "Não foi possível mudar de base de dados",
+    "db_err_switch_failed":         "Não foi possível mudar para '{name}':\n{error}\n\nFoi guardado um registo detalhado — ver Ajuda > Abrir ficheiro de registo.",
     "db_err_file_not_found":        "Ficheiro de base de dados não encontrado:\n{path}",
     "db_err_remove_active":         "Não é possível remover a base de dados ativa da lista.",
     "db_err_delete_active":         "Não é possível eliminar a base de dados ativa — mude primeiro para outra.",
@@ -722,6 +742,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Dados util. 4",
     "col_favorite_points":   "Pts. favoritos",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Data de alteração",
+    "col_creation_date":     "Data de criação",
+    "col_elevation":         "Altitude",
+    "col_find_count":        "Nº de achados",
+    "col_gc_note":           "Nota do GC.com",
+    "col_guid":              "Guid",
+    "col_hints":             "Dicas",
+    "col_notes":             "Nota",
+    "col_owner_id":          "ID do dono",
+    "col_owner_name":        "Nome do dono",
+    "col_source":            "Origem",
+    "col_url":               "Url",
+    "col_watch":              "Vigiar",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Último achado",
+    "col_last_gpx_update":   "Última atualização GPX",
+    "col_last_four_logs":    "Últimos quatro logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Abrir em geocaching.com",
@@ -805,6 +844,9 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Casa",
+    "map_nearby_label":             "A mostrar as {shown} mais próximas de {total} num raio de {radius} {unit}",
+    "startup_db_error_title":       "O OpenSAK não conseguiu iniciar",
+    "startup_db_error_msg":         "O OpenSAK não conseguiu abrir a sua base de dados e não pode iniciar.\n\n{error}\n\nFoi guardado um registo de erro detalhado em:\n{path}\n\nPor favor partilhe este ficheiro de registo em github.com/OpenSAK-Org/OpenSAK/issues ou hello@opensak.com para que possamos ajudar.",
     "map_ctx_copy_coords":          "Copiar {coords}",
     "map_ctx_copy_as":              "Copiar como...",
     "map_ctx_set_corrected":        "Definir coordenadas corrigidas",

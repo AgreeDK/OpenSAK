@@ -51,6 +51,9 @@ class MapBridge(QObject):
     cache_clicked = Signal(str)   # gc_code
     # Signal afsendt når brugeren højreklikker på kortet (ikke på en pin)
     map_right_clicked = Signal(float, float)   # lat, lon
+    # Signals for map control buttons (maximize / pop-out)
+    maximize_clicked = Signal()
+    popout_clicked = Signal()
 
     @Slot(str)
     def on_cache_clicked(self, gc_code: GcCode) -> None:
@@ -61,6 +64,16 @@ class MapBridge(QObject):
     def on_map_right_click(self, lat: float, lon: float) -> None:
         """Kaldes fra JavaScript når brugeren højreklikker på kortet."""
         self.map_right_clicked.emit(lat, lon)
+
+    @Slot()
+    def on_maximize_clicked(self) -> None:
+        """Kaldes fra JavaScript når maximize-knappen klikkes."""
+        self.maximize_clicked.emit()
+
+    @Slot()
+    def on_popout_clicked(self) -> None:
+        """Kaldes fra JavaScript når pop-out-knappen klikkes."""
+        self.popout_clicked.emit()
 
 
 # ── HTML template med Leaflet.js ──────────────────────────────────────────────
@@ -116,6 +129,35 @@ MAP_HTML = """<!DOCTYPE html>
     text-align: center;
     line-height: 22px;
   }
+  .leaflet-control-mapactions a {
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    font-size: 16px;
+    display: block;
+    text-decoration: none;
+    color: #333;
+    background: #fff;
+    border-bottom: 1px solid #ccc;
+    cursor: pointer;
+  }
+  .leaflet-control-mapactions a:hover {
+    background: #f4f4f4;
+  }
+  .leaflet-control-mapactions a:last-child {
+    border-bottom: none;
+  }
+  .leaflet-control-nearbylabel {
+    background: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    font-size: 11px;
+    font-family: sans-serif;
+    color: #333;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -160,6 +202,9 @@ var homeMarker = null;
 var selectedGcCode = null;
 var bridge = null;
 var waypointMarkers = [];
+var panRequestSeq = 0;     // issue #718 — see panToCache()
+var nearbyCircle = null;   // issue #718 — split-screen map radius overlay
+var nearbyLabelControl = null;   // issue #718 — "showing nearest X of Y" label
 
 // ── WebChannel setup ──────────────────────────────────────────────────────────
 new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -172,6 +217,41 @@ map.on('contextmenu', function(e) {
         bridge.on_map_right_click(e.latlng.lat, e.latlng.lng);
     }
 });
+
+// ── Map action buttons (maximize / pop-out) ──────────────────────────────────
+L.Control.MapActions = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function(map) {
+        var container = L.DomUtil.create('div', 'leaflet-control-mapactions leaflet-bar');
+
+        var maxBtn = L.DomUtil.create('a', '', container);
+        maxBtn.innerHTML = '⛶';
+        maxBtn.title = 'MAP_TIP_MAXIMIZE';
+        maxBtn.href = '#';
+        maxBtn.setAttribute('role', 'button');
+        L.DomEvent.disableClickPropagation(maxBtn);
+        L.DomEvent.on(maxBtn, 'click', function(e) {
+            L.DomEvent.preventDefault(e);
+            if (bridge) bridge.on_maximize_clicked();
+        });
+
+        if (MAP_POPOUT_ENABLED) {
+            var popBtn = L.DomUtil.create('a', '', container);
+            popBtn.innerHTML = '⧉';
+            popBtn.title = 'MAP_TIP_POPOUT';
+            popBtn.href = '#';
+            popBtn.setAttribute('role', 'button');
+            L.DomEvent.disableClickPropagation(popBtn);
+            L.DomEvent.on(popBtn, 'click', function(e) {
+                L.DomEvent.preventDefault(e);
+                if (bridge) bridge.on_popout_clicked();
+            });
+        }
+
+        return container;
+    }
+});
+new L.Control.MapActions().addTo(map);
 
 // ── Hjælpefunktioner ──────────────────────────────────────────────────────────
 function makePinIcon(pinHtml, found, corrected) {
@@ -200,6 +280,12 @@ function makeHomeIcon() {
 // ── Public API kaldt fra Python ───────────────────────────────────────────────
 
 function loadCaches(cachesJson) {
+    // Issue #718: any call to the general load path (filter change, table
+    // refresh, etc.) means we're back in overview mode — clear any
+    // leftover nearby-selection circle/label from loadNearbyCaches() below,
+    // so it never lingers over an unrelated marker set.
+    clearNearbyOverlay();
+
     var caches = JSON.parse(cachesJson);
 
     // Recreate the cluster group to avoid stale internal state from clearLayers()
@@ -298,21 +384,40 @@ function setHomeLocation(lat, lon, label) {
 function panToCache(gcCode) {
     var marker = markers[gcCode];
     if (!marker) return;
-    try {
-        clusterGroup.zoomToShowLayer(marker, function() {
-            try {
-                map.panTo(marker.getLatLng());
-                if (marker._icon) {
-                    marker.openPopup();
-                }
-            } catch (e) {
-                // marker may have been invalidated during animation
-            }
-        });
-    } catch (e) {
-        map.panTo(marker.getLatLng());
-    }
     selectMarker(gcCode);
+
+    // Issue #718 (Mike, Mac ARM, beta.7): selecting a new cache in the grid
+    // updates the detail text but the map sometimes doesn't pan/pop up,
+    // ~60% of the time. Root cause: Leaflet.markercluster's
+    // zoomToShowLayer() registers a one-shot moveend/zoomend listener and
+    // resolves it via that listener — but if this function is called again
+    // (a new cache selected) before the previous call's listener has fired,
+    // the plugin's internal bookkeeping can drop one of the two callbacks
+    // silently (a known upstream race, worse here because WebEngine's
+    // animation timing makes back-to-back selections more likely to
+    // overlap — matches "fails about 60%+ of the time" on rapid grid
+    // clicking). panRequestSeq ensures only the most recently requested
+    // pan actually moves the map (a stale callback becomes a no-op instead
+    // of yanking the view back to an old cache), and the setTimeout is a
+    // safety net for when zoomToShowLayer's callback never fires at all.
+    var mySeq = ++panRequestSeq;
+    var doPan = function() {
+        if (mySeq !== panRequestSeq) return;  // superseded by a later selection
+        try {
+            map.panTo(marker.getLatLng());
+            if (marker._icon) {
+                marker.openPopup();
+            }
+        } catch (e) {
+            // marker may have been invalidated during animation
+        }
+    };
+    try {
+        clusterGroup.zoomToShowLayer(marker, doPan);
+        setTimeout(doPan, 400);
+    } catch (e) {
+        doPan();
+    }
 }
 
 function selectMarker(gcCode) {
@@ -325,6 +430,69 @@ function selectMarker(gcCode) {
         }
     }
     selectedGcCode = gcCode;
+}
+
+// ── Issue #718: split-screen "nearby caches" view ────────────────────────────
+//
+// Called when a cache is selected in the table/detail panel — replaces
+// whatever marker set is currently loaded with just that cache's
+// neighbourhood (within radius_km, see get_nearby_caches() in
+// filters/engine.py), draws a circle at radius_km so the user can see
+// exactly where the view ends, and shows an optional "showing nearest X
+// of Y" label when max_caches actually capped the result. Any subsequent
+// call to loadCaches() (a normal overview refresh) clears this overlay —
+// see the clearNearbyOverlay() call at the top of loadCaches() above.
+function loadNearbyCaches(cachesJson, centerLat, centerLon, radiusKm, gcCode, labelText) {
+    loadCaches(cachesJson);
+    drawNearbyCircle(centerLat, centerLon, radiusKm);
+    updateNearbyLabel(labelText);
+    panToCache(gcCode);
+}
+
+function drawNearbyCircle(lat, lon, radiusKm) {
+    clearNearbyCircle();
+    if (!(radiusKm > 0)) return;
+    nearbyCircle = L.circle([lat, lon], {
+        radius: radiusKm * 1000,
+        color: '#1976d2',
+        weight: 2,
+        fillColor: '#1976d2',
+        fillOpacity: 0.05,
+        interactive: false
+    }).addTo(map);
+}
+
+function clearNearbyCircle() {
+    if (nearbyCircle) {
+        map.removeLayer(nearbyCircle);
+        nearbyCircle = null;
+    }
+}
+
+function updateNearbyLabel(labelText) {
+    clearNearbyLabel();
+    if (!labelText) return;   // cap not reached — circle alone is the indicator
+    var Label = L.Control.extend({
+        options: { position: 'bottomleft' },
+        onAdd: function() {
+            var div = L.DomUtil.create('div', 'leaflet-control-nearbylabel');
+            div.textContent = labelText;
+            return div;
+        }
+    });
+    nearbyLabelControl = new Label().addTo(map);
+}
+
+function clearNearbyLabel() {
+    if (nearbyLabelControl) {
+        map.removeControl(nearbyLabelControl);
+        nearbyLabelControl = null;
+    }
+}
+
+function clearNearbyOverlay() {
+    clearNearbyCircle();
+    clearNearbyLabel();
 }
 
 function fitAllMarkers() {
@@ -439,6 +607,8 @@ class MapWidget(QWidget):
 
     cache_selected = Signal(str)   # gc_code
     set_corrected_requested = Signal(str, float, float)  # gc_code, lat, lon
+    maximize_requested = Signal()
+    popout_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -469,6 +639,8 @@ class MapWidget(QWidget):
             self._channel = None
             self._bridge = MapBridge()
             self._bridge.cache_clicked.connect(self.cache_selected)
+            self._bridge.maximize_clicked.connect(self.maximize_requested)
+            self._bridge.popout_clicked.connect(self.popout_requested)
             self._ready = False
             layout.addWidget(QLabel("Map disabled (headless test mode)"))
             return
@@ -491,6 +663,8 @@ class MapWidget(QWidget):
         self._bridge = MapBridge()
         self._bridge.cache_clicked.connect(self.cache_selected)
         self._bridge.map_right_clicked.connect(self._on_map_right_click)
+        self._bridge.maximize_clicked.connect(self.maximize_requested)
+        self._bridge.popout_clicked.connect(self.popout_requested)
         self._channel.registerObject("bridge", self._bridge)
         self._page.setWebChannel(self._channel)
 
@@ -502,9 +676,7 @@ class MapWidget(QWidget):
         s = get_settings()
         init_lat = s.home_lat
         init_lon = s.home_lon
-        html = MAP_HTML.replace("INIT_LAT", str(init_lat))
-        html = html.replace("INIT_LON", str(init_lon))
-        html = html.replace("INIT_ZOOM", "12")
+        html = self._render_map_html(init_lat, init_lon)
         self._page.setHtml(html, QUrl(f"qrc:///{int(time.time())}"))
 
         layout.addWidget(self._view)
@@ -546,6 +718,18 @@ class MapWidget(QWidget):
             self._pending_refresh = None
             cb()
 
+    @staticmethod
+    def _render_map_html(lat: float, lon: float) -> str:
+        """Render MAP_HTML template with dynamic values and localized tooltips."""
+        import opensak.utils.flags as flags
+        html = MAP_HTML.replace("INIT_LAT", str(lat))
+        html = html.replace("INIT_LON", str(lon))
+        html = html.replace("INIT_ZOOM", "12")
+        html = html.replace("MAP_TIP_MAXIMIZE", tr("toolbar_maximize_map_tooltip"))
+        html = html.replace("MAP_TIP_POPOUT", tr("toolbar_popout_map_tooltip"))
+        html = html.replace("MAP_POPOUT_ENABLED", "true" if flags.map_popout else "false")
+        return html
+
     def _run_js(self, js: str) -> None:
         """Kør JavaScript i kortvisningen."""
         if self._page is None:
@@ -560,7 +744,10 @@ class MapWidget(QWidget):
         else:
             self._pending_caches = caches
 
-    def _do_load_caches(self, caches: list[Cache]) -> None:
+    def _build_marker_data(self, caches: list[Cache]) -> list[dict]:
+        """Shared marker-payload builder for load_caches()/show_nearby_for_selection()
+        — see #718's docstring on show_nearby_for_selection() for why the
+        latter needed this factored out rather than duplicated."""
         from opensak.gps.garmin import _effective_coords
         data = []
         for c in caches:
@@ -584,11 +771,54 @@ class MapWidget(QWidget):
                 "pin_html":       _cache_pin_html(c.cache_type or "", bool(c.found), bool(c.dnf)),
                 "found":          c.found,
             })
+        return data
 
+    def _do_load_caches(self, caches: list[Cache]) -> None:
+        data = self._build_marker_data(caches)
         json_str = json.dumps(data, ensure_ascii=False)
         # Escape backticks for JS template literal
         json_str = json_str.replace("\\", "\\\\").replace("`", "\\`")
         self._run_js(f"loadCaches(`{json_str}`)")
+
+    def show_nearby_for_selection(
+        self,
+        cache: Cache,
+        nearby_caches: list[Cache],
+        radius_km: float,
+        label_text: str,
+    ) -> None:
+        """Issue #718: replace the currently-loaded marker set with just
+        *cache*'s neighbourhood (already computed by
+        filters.engine.get_nearby_caches() and passed in as
+        *nearby_caches*) — independent of the overview map's own
+        map_max_caches cap. Draws a radius circle at radius_km around
+        *cache* so the user can see exactly where the view ends (Mike
+        Wood's suggestion on #718), and shows *label_text* (pre-formatted
+        by the caller, e.g. "Showing nearest 500 of 1,240 within 2 km")
+        only when it's non-empty — the caller passes "" when max_caches
+        didn't actually cap the result, so the circle alone is the
+        indicator in the common case, matching the agreed UX.
+
+        Requires the map to already be ready/loaded — unlike load_caches(),
+        this deliberately does not queue itself for the not-yet-ready case:
+        selecting a cache before the map has finished loading is an edge
+        case not worth the extra state, and the general load_caches()
+        pending-queue path already covers the startup race for the
+        overview map that matters in practice.
+        """
+        if not self._ready:
+            return
+        if cache.latitude is None or cache.longitude is None:
+            return
+        data = self._build_marker_data(nearby_caches)
+        json_str = json.dumps(data, ensure_ascii=False)
+        json_str = json_str.replace("\\", "\\\\").replace("`", "\\`")
+        safe_gc = cache.gc_code.replace("'", "\\'")
+        safe_label = json.dumps(label_text, ensure_ascii=False)
+        self._run_js(
+            f"loadNearbyCaches(`{json_str}`, {cache.latitude}, {cache.longitude}, "
+            f"{radius_km}, '{safe_gc}', {safe_label})"
+        )
 
     def pan_to_cache(self, gc_code: GcCode) -> None:
         """Centrér kortet på en bestemt cache."""
@@ -672,9 +902,7 @@ class MapWidget(QWidget):
         s = get_settings()
         init_lat = s.home_lat
         init_lon = s.home_lon
-        html = MAP_HTML.replace("INIT_LAT", str(init_lat))
-        html = html.replace("INIT_LON", str(init_lon))
-        html = html.replace("INIT_ZOOM", "12")
+        html = self._render_map_html(init_lat, init_lon)
         self._ready = False
         self._page.setHtml(html, QUrl(f"qrc:///{int(time.time())}"))
 

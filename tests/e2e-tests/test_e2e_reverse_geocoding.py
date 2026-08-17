@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("pytestqt")
 
-from tests.data import build_boundary_test_data
+from tests.data import build_boundary_test_data, wait_for_refresh
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_update_location_resolves_through_real_dialog(empty_window, qtbot, geo_d
 
     _add_cache("GCTEST1", 11.0, 11.0)  # far square -> Gamma County, single R-Tree hit
     empty_window._refresh_cache_list()
-
+    wait_for_refresh(empty_window)
     dialog = UpdateLocationDialog(parent=empty_window)
     qtbot.addWidget(dialog)
     dialog._rb_all.setChecked(True)
@@ -73,7 +73,7 @@ def test_update_location_resolves_multiple_regions_in_parallel(empty_window, qtb
     _add_cache("GCBORDER", 20.5, 20.5)   # isolated triangle, outside the big square -> no country/state
     _add_cache("GCOUTSIDE", 21.5, 21.5)  # inside bbox, outside triangle (above the hypotenuse) -> no county either
     empty_window._refresh_cache_list()
-
+    wait_for_refresh(empty_window)
     dialog = UpdateLocationDialog(parent=empty_window)
     qtbot.addWidget(dialog)
     dialog._rb_all.setChecked(True)
@@ -108,7 +108,7 @@ def test_update_location_no_boundaries_available_degrades_gracefully(empty_windo
     monkeypatch.setattr("opensak.geo.store.ensure_baseline_seeded", lambda: None)
     _add_cache("GCTEST1", 11.0, 11.0)
     empty_window._refresh_cache_list()
-
+    wait_for_refresh(empty_window)
     dialog = UpdateLocationDialog(parent=empty_window)
     qtbot.addWidget(dialog)
     dialog._rb_all.setChecked(True)

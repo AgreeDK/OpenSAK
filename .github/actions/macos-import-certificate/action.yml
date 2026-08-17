@@ -1,0 +1,49 @@
+name: "Import macOS signing certificate"
+description: "Decode the Developer ID Application .p12 and import it into a temporary CI keychain so codesign can use it."
+
+inputs:
+  p12-base64:
+    description: "Base64-encoded Developer ID Application .p12 certificate"
+    required: true
+  p12-password:
+    description: "Export password for the .p12 certificate"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Import certificate into temporary keychain
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        KEYCHAIN_PATH="$RUNNER_TEMP/opensak-signing.keychain-db"
+        KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+        CERTIFICATE_PATH="$RUNNER_TEMP/developer_id.p12"
+
+        # Decode the certificate from the secret
+        echo -n "${{ inputs.p12-base64 }}" | base64 --decode -o "$CERTIFICATE_PATH"
+
+        # Create a fresh keychain scoped to this job only
+        security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+        # Import the certificate, allowing codesign to use it without a UI prompt
+        security import "$CERTIFICATE_PATH" -P "${{ inputs.p12-password }}" \
+          -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: \
+          -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+        # Make it the default/search keychain for this job so codesign finds it
+        security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+        security default-keychain -s "$KEYCHAIN_PATH"
+
+        # Clean up the decoded certificate file (the keychain copy remains)
+        rm -f "$CERTIFICATE_PATH"
+
+        echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+    - name: Verify identity is importable
+      shell: bash
+      run: security find-identity -v -p codesigning "$KEYCHAIN_PATH"

@@ -337,6 +337,64 @@ class AppSettings:
     def map_max_caches(self, value: int) -> None:
         get_store().set("display.map_max_caches", max(0, int(value)))
 
+    # ── Split-screen kort: nærliggende caches (issue #718) ──────────────────────
+    #
+    # Per database (samme mønster som home_lat/home_lon ovenfor) — en tæt
+    # database (fx ét land) og en spredt database (fx verdensomspændende)
+    # har ofte brug for forskellig radius/loft, se diskussion med Mike Wood
+    # (lignumaqua) på #718.
+
+    @property
+    def map_nearby_radius_km(self) -> float:
+        """Radius (km) omkring den valgte cache på split-screen-kortet.
+        Uafhængig af map_max_caches ovenfor, som styrer oversigtskortet.
+        Default 2.0 km — Mikes forslag på #718."""
+        s = get_store()
+        val = s.get(self._db_key("map_nearby_radius_km"))
+        if val is not None and val != "":
+            try:
+                return max(0.0, float(val))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return max(0.0, float(s.get("display.map_nearby_radius_km", 2.0)))
+        except (TypeError, ValueError):
+            return 2.0
+
+    @map_nearby_radius_km.setter
+    def map_nearby_radius_km(self, value: float) -> None:
+        v = max(0.0, float(value))
+        get_store().set_many({
+            self._db_key("map_nearby_radius_km"): v,
+            "display.map_nearby_radius_km":       v,
+        })
+
+    @property
+    def map_nearby_max_caches(self) -> int:
+        """Sikkerheds-loft (performance) på antal caches vist på
+        split-screen-kortet inden for map_nearby_radius_km — rammes
+        normalt ikke (radius er den primære, brugervendte kontrol), men
+        beskytter mod meget tætte områder. Default 500."""
+        s = get_store()
+        val = s.get(self._db_key("map_nearby_max_caches"))
+        if val is not None and val != "":
+            try:
+                return max(1, int(val))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return max(1, int(s.get("display.map_nearby_max_caches", 500)))
+        except (TypeError, ValueError):
+            return 500
+
+    @map_nearby_max_caches.setter
+    def map_nearby_max_caches(self, value: int) -> None:
+        v = max(1, int(value))
+        get_store().set_many({
+            self._db_key("map_nearby_max_caches"): v,
+            "display.map_nearby_max_caches":       v,
+        })
+
     # ── Koordinatformat ───────────────────────────────────────────────────────
 
     @property
@@ -532,6 +590,14 @@ class AppSettings:
     @bottom_splitter_ratio_left.setter
     def bottom_splitter_ratio_left(self, value: float) -> None:
         get_store().set("window.bottom_splitter_ratio_left", float(value))
+
+    @property
+    def map_popout_geometry(self):
+        return get_store().get("window.map_popout_geometry", None)
+
+    @map_popout_geometry.setter
+    def map_popout_geometry(self, value) -> None:
+        get_store().set("window.map_popout_geometry", value)
 
     # ── Search thresholds ─────────────────────────────────────────────────────
 

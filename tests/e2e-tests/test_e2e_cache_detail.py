@@ -140,7 +140,7 @@ def test_logs_tab_renders_when_some_logs_have_no_date(qtbot, tmp_path, monkeypat
     pytest.importorskip("pytestqt")
     from tests.data import (
         cache_wpt, build_gpx, write_gpx,
-        make_fake_manager, seed_standard_caches,
+        make_fake_manager, seed_standard_caches, wait_for_refresh,
     )
     from opensak.db.database import init_db, get_session
     from opensak.importer import import_gpx
@@ -173,6 +173,7 @@ def test_logs_tab_renders_when_some_logs_have_no_date(qtbot, tmp_path, monkeypat
     window.show()
     qtbot.waitExposed(window)
     window._refresh_cache_list()
+    wait_for_refresh(window)
 
     _select_by_gc(window, qtbot, "GCNOLOG")
 

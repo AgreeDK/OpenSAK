@@ -1,3 +1,4 @@
 {
-  "reverse-geocoding": false
+  "reverse-geocoding": true,
+  "map-popout": true
 }

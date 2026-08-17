@@ -8,6 +8,319 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.0] — 2026-08-17
+
+> First stable release of the 1.17.0 cycle. Replaces the run of
+> `1.17.0-beta.1` … `1.17.0-beta.14` builds — see git history for the
+> detailed beta-by-beta log if needed. Headline of this cycle: full-screen
+> and pop-out map support, offline reverse-geocoding enabled by default,
+> and a fix for the long-standing GUI freeze on large-database switch/load.
+>
+> Summarises net changes since v1.16.3 (the beta.1/4/5 releases that folded
+> the v1.16.1–v1.16.3 hotfixes back into `beta` are not repeated here, since
+> those fixes already shipped as stable patch releases).
+
+### Added
+
+- **Full-screen / pop-out map (#696, #598)** — maximize the map within the
+  main window (`F11`), or pop it out to its own floating window that can be
+  moved to a second monitor (`Ctrl+Shift+M`). Thanks @blazerat!
+- **14 new GSAK-compatible columns (#658)** — Cache Id, Changed date,
+  Creation date, Elevation, Found count, GC.com note, Guid, Hints, Notes,
+  Owner ID, Owner name, Source, Url, Watch.
+- **Last found / Last GPX update / Last four logs columns (#716)** —
+  closing out long-standing GSAK-parity requests #518, #542, #534. Thanks
+  Allyn56 and ianwok.
+- **Wait cursor during cache-list refresh (#647)** — including at startup
+  with a large database, so a multi-second refresh is no longer
+  indistinguishable from the app doing nothing.
+- **Previous session's log preserved across restarts (#737)** — a new Help
+  menu action, "Open log from last restart", makes it possible to inspect a
+  crash or hang from the previous session.
+
+### Changed
+
+- **Offline reverse-geocoding (Country/State/County) enabled by default
+  (#60)** — no longer requires manual opt-in.
+
+### Fixed
+
+- **GUI freeze / force-close on large-database switch, filter, or load
+  (#740)** — the cache list and map now refresh on a background thread
+  instead of blocking the GUI thread for up to 85+ seconds on very large
+  databases.
+- **App could hang or silently crash on startup for large or existing
+  databases (#723)** — root cause was a missing index on `logs.cache_id`
+  causing full table scans during startup migrations, plus a separate
+  migration bug that could crash startup entirely on databases that had
+  already run a later schema migration.
+- **PQ import appeared to hang on Windows when county boundary packs
+  weren't cached locally (#722)** — missing packs are now pre-fetched in
+  parallel with progress feedback, instead of retried on demand for every
+  affected cache.
+- **Migration and database-switch failures could fail silently (#738)** —
+  these now log the full error and show a clear dialog instead of leaving
+  the app in a half-switched or broken state.
+- **Reverse-geocode bulk write could crash on large databases (#710)** —
+  fixed a "too many SQL variables" error by chunking the write.
+- **Archived caches hidden by default in the Set Filter dialog, and the
+  setting wasn't remembered (#576)** — now defaults to shown, matching
+  GSAK, and the choice persists correctly.
+- **Map didn't reliably pan to the selected cache, and the split-screen map
+  didn't update for caches outside the overview map's display range
+  (#718)**.
+- **Toolbar title was hardcoded in Danish regardless of UI language
+  (#683)** — thanks @urs-beeli.
+
+---
+
+## [1.17.0-beta.14] — 2026-08-16
+
+### Fixed
+
+- **GUI thread blocked 20-90s on large-database switch/filter/load, appearing
+  as a freeze or force-close (#740)** — reported by Ron Radix (Facebook
+  community) on a 232,149-cache database: switching to another database
+  could make OpenSAK close itself, with the previous database reopening
+  afterward. A submitted `opensak.log` ruled out both an uncaught exception
+  and a migration (schema was already current throughout) — the log simply
+  stopped, mid-flow, right after a successful database switch, with no
+  traceback. Root cause: `apply_filters_auto()` → `cache_table.load_caches()`
+  → `map_widget.load_caches()` ran synchronously on the GUI thread and
+  consistently took 16-28s on 39k-232k cache databases, reaching 85+ seconds
+  of continuous blocking when combined with a distance recalculation — long
+  enough that Windows' "Not Responding" detection (or the user via Task
+  Manager) would terminate the process. Confirmed via measured timings
+  across three real databases (98k/198k/348k caches). The DB query now runs
+  on a new background `RefreshWorker` (`QThread`); the GUI thread applies
+  the result once ready. A generation counter discards results from a
+  superseded refresh (e.g. two quick database switches) without needing to
+  cancel the older worker. Verified against the same three databases:
+  switching between them no longer freezes or force-closes, at the cost of
+  a measured increase in total completion time on first (cold) access —
+  tracked separately as a performance follow-up in #746, since the query's
+  cost is largely GIL-bound ORM row hydration rather than I/O wait, so
+  backgrounding it doesn't make it faster on its own.
+
+### Added
+
+- **Wait cursor during cache-list refresh (#647)** — a multi-second refresh
+  on a large database (see #740 above) previously gave no visual feedback
+  at all, indistinguishable from the app doing nothing. A wait cursor is now
+  shown for the duration of any refresh, including at startup with a large
+  database.
+
+---
+
+## [1.17.0-beta.13] — 2026-08-15
+
+### Added
+
+- **Previous session's log is preserved across restarts (#737)** — `setup_logging()`
+  now renames `opensak.log` to `opensak.log.previous` at startup instead of deleting
+  it, so a crash or hang from the last session can still be inspected after
+  restarting. A new Help menu action, "Open log from last restart", opens it
+  directly. Falls back to the old delete-and-recreate behaviour if rotation fails
+  (e.g. a locked file) rather than blocking startup.
+
+### Fixed
+
+- **Migration and database-switch failures could still fail silently (#738)** —
+  `switch_to()` now logs the full exception once at the source and re-raises,
+  instead of the error being swallowed somewhere along the way. All three GUI call
+  sites (toolbar database dropdown, Switch button, new-database auto-switch) catch
+  it, show a clear error dialog, and avoid leaving the UI in a half-switched state.
+  Startup (`ensure_active_initialised`, the original #723 code path) now shows a
+  clear error and exits cleanly instead of continuing into a MainWindow with no
+  valid database engine. This doesn't fix any specific unknown migration bug, but
+  turns any future occurrence — known or unknown — into a visible error with a full
+  traceback in the log, which is now preserved across restart thanks to #737.
+
+---
+
+## [1.17.0-beta.12] — 2026-08-14
+
+### Fixed
+
+- **App could still silently crash (appearing to hang) on startup for
+  some existing databases (#723 follow-up)** — migration 2 checked for
+  an outdated index name (`uq_waypoint_cache_prefix_name`) that
+  migration 22 had long since replaced with `uq_waypoint_cache_wp_code`
+  when it relaxed the constraint from (cache_id, prefix, name) to
+  (cache_id, wp_code) (issue #536). Any database that had already run
+  migration 22 didn't have the old index name, so migration 2 wrongly
+  believed it had never run and tried to recreate its own old, stricter
+  constraint — which real-world data can legitimately violate (that's
+  exactly why migration 22 replaced it in the first place). The
+  resulting error was never caught anywhere in the startup path, so the
+  app crashed with no visible error message — indistinguishable from a
+  hang. Root-caused with a local repro against a real 405MB/12,600-cache
+  database; fixed by having migration 2 recognise either index name as
+  evidence it can skip.
+
+---
+
+## [1.17.0-beta.11] — 2026-08-13
+
+### Fixed
+
+- **Split-screen map didn't update for caches outside the overview map's
+  display limit (#718)** — reported by Mike Wood (lignumaqua): selecting a
+  cache in the table sometimes left the map unchanged, or centred on the
+  wrong area, depending on the table's current sort order. Root cause: the
+  split-screen map reused the overview map's own capped/sorted marker set
+  (the "Map Display" max-caches limit), so a selected cache outside that
+  set simply had no marker to pan to — `panToCache()` silently did
+  nothing. Selecting a cache now loads that cache's own neighbourhood
+  (within a configurable radius, independent of the overview limit) and
+  draws a circle on the map at that radius so it's always clear where the
+  view ends; a small label appears only when a new safety cap actually
+  limited the result in a dense area. Two new per-database settings
+  (Settings → Map: split-screen map radius and cache limit) control this,
+  defaulting to 2 km / 500 caches.
+
+---
+
+## [1.17.0-beta.10] — 2026-08-12
+
+### Added
+
+- **Startup and migration timing diagnostics (#723 follow-up)** — a report
+  surfaced that the app could still appear to hang on startup for some
+  large existing databases even after the beta.9 fix. To pin down exactly
+  where, the full startup path now logs timestamped checkpoints to
+  `opensak.log`: each phase in `app.py` (language load, database check,
+  database load, main window build), every one of the 24 schema
+  migrations individually, and — for the migrations most likely to be
+  slow on a large database — each underlying query separately rather than
+  the migration as a whole (the three backfills in migration 24, each of
+  the index creations in migrations 6 and 12, and the waypoints table
+  rebuild in migration 2). The one-off distance/bearing recalculation
+  that can run on first launch after an upgrade is also broken down by
+  phase (fetch / compute / write). No behaviour changes — this release is
+  diagnostics only, so the next report comes with an exact trace instead
+  of a stopwatch guess.
+
+---
+
+## [1.17.0-beta.9] — 2026-08-12
+
+### Fixed
+
+- **PQ import appeared to hang on Windows when county boundary packs
+  aren't cached locally (#722)** — a missing county pack needed by the
+  offline reverse-geocoding step was fetched on demand inside the resolve
+  loop, but a *failed* fetch was never remembered: the same missing pack
+  needed by a later cache in the same import batch retried the full
+  network fetch (up to 60s) every single time. A PQ spanning many counties
+  combined with slow/blocked outbound requests could stall for a very long
+  time with no visible progress. Fixed with three changes: (1) failed
+  fetches are now cached negatively for the rest of the run, so a missing
+  pack is only attempted once; (2) a new pre-fetch phase collects every
+  distinct county pack a batch will need and downloads them all in
+  parallel with real progress *before* resolving starts, so the on-demand
+  fetch is now a fallback rather than the common path; (3) a short
+  reachability probe runs before the pre-fetch batch, so a fully blocked
+  network fails fast instead of costing up to 60s per pack.
+- **App appeared to hang on startup for large existing databases (#723)** —
+  the startup migrations backfill several cached columns on `caches`
+  (`log_count`, `last_log_date`, `last_found_date`, `last_gpx_update`,
+  `last_four_logs`) using correlated subqueries against the `logs` table.
+  On older databases without an index on `logs.cache_id`, each of these ran
+  as a full table scan per row in `caches`, confirmed by benchmark on the
+  issue. Added a migration that creates `ix_logs_cache_id` and
+  `ix_logs_log_date`, placed before the three migrations that need it, so
+  the index is guaranteed to exist before any of the heavy queries run.
+
+---
+
+## [1.17.0-beta.8] — 2026-08-12
+
+### Fixed
+
+- **Archived caches hidden by default in the Set Filter dialog (#576)** —
+  the Availability tab's Archived checkbox defaulted to unchecked, silently
+  hiding archived caches even with no other filter criteria set at all
+  (GSAK, by contrast, always shows archived caches unless you explicitly
+  filter them out). Also fixed a related persistence bug: explicitly
+  checking Archived was silently forgotten the next time the filter dialog
+  was reopened, because the "all three availability checkboxes checked"
+  state was treated internally as "no filter needed" and nothing was saved
+  to restore it from. Archived now defaults to checked, matching GSAK, and
+  hiding archived caches is a deliberate, persisted choice like any other
+  filter — it now also counts correctly toward the "N active" badge.
+- **Map didn't pan to the selected cache ~60% of the time (#718)** —
+  quickly selecting a different cache in the list updated the detail panel
+  text but left the map pin unmoved. Leaflet.markercluster's
+  `zoomToShowLayer()` reveal animation can silently drop its completion
+  callback if a new cache is selected before the previous call's callback
+  has fired — worse on macOS, where WebEngine's animation timing makes
+  back-to-back selections more likely to overlap. Fixed with a sequence
+  guard (a stale callback can no longer move the map to the wrong cache)
+  and a timeout fallback for when the callback never fires at all.
+
+Thanks to Mike for both reports.
+
+---
+
+## [1.17.0-beta.7] — 2026-08-11
+
+### Added
+
+- **14 new GSAK-compatible columns (#658)** — Cache Id, Changed date,
+  Creation date, Elevation, Found count, GC.com note, Guid, Hints,
+  Notes, Owner ID, Owner name, Source, Url, Watch. All backed by
+  existing data — available immediately via the Column Chooser.
+- **Last found / Last GPX update / Last four logs columns (#716)** —
+  follow-up to #658 for the 3 remaining GSAK fields that needed new
+  derived data rather than just exposing existing columns:
+  - **Last found** — most recent "Found it"-type log by any finder
+    (unlike the existing "Date found by me" column, which is
+    specifically your own found date).
+  - **Last GPX update** — local timestamp of the most recent import
+    that touched a given cache.
+  - **Last four logs** — shown as 4 GSAK-style colored squares (green
+    = found, red = DNF, yellow = other, blank = no log), matching
+    GSAK's own compact display.
+
+  Existing databases backfill automatically on first launch after
+  updating.
+
+Thanks to Allyn56 and ianwok for the underlying GSAK-parity requests
+this closes out (#518, #542, #534).
+
+---
+
+## [1.17.0-beta.6] — 2026-08-11
+
+### Changed
+
+- **Offline reverse-geocoding (Country/State/County) enabled by default (#60)** —
+  the feature is now on out of the box instead of requiring manual opt-in.
+
+### Fixed
+
+- **Reverse-geocode bulk write could crash on large databases (#710)** — the
+  bulk write hit SQLite's parameter limit on very large databases,
+  producing a "too many SQL variables" error. The write is now chunked,
+  so it works regardless of database size.
+
+---
+
+## [1.17.0-beta.5] — 2026-08-10
+
+> Folds the v1.16.3 stable hotfix (#695 re-fix) back into `beta`. No
+> other beta-only changes in this release.
+
+---
+
+## [1.17.0-beta.4] — 2026-08-10
+
+> Folds the v1.16.2 stable hotfix (7 bugs) back into `beta`. No other
+> beta-only changes in this release — see v1.16.2 below for details.
+
+---
+
 ## [1.16.3] — 2026-08-10
 
 > Corrects a mistake in v1.16.2: the #695 fix (GPX/GGZ export IDs) was
@@ -32,7 +345,8 @@ re-testing after the first fix didn't actually land.
 
 ---
 
-## [1.16.2] — 2026-08-XX
+## [1.16.2] — 2026-08-10
+
 
 > Bugfix release — no new features. Seven issues reported by urs-beeli and
 > pjacklam, all fixed and verified.
@@ -74,6 +388,53 @@ re-testing after the first fix didn't actually land.
 
 Thanks to urs-beeli and pjacklam for the detailed bug reports that made
 this release possible.
+
+---
+
+## [v1.17.0-beta.3] - 2026-08-09
+
+### Fixed
+- Fixed layout issue where docking the map back after using fullscreen/popout
+  would leave the map view split incorrectly (#696)
+
+### Added
+- Full screen and popout map support — pop the map out to its own window or
+  monitor, or maximize it within the app (#696, thanks @blazerat!)
+
+---
+
+## [1.17.0-beta.2] — 2026-08-02
+
+### Fixed
+
+- Toolbar title was hardcoded in Danish ("Værktøjslinje") regardless of the
+  selected UI language, showing incorrectly in the toolbar's right-click
+  context menu for all non-Danish users (#683, thanks @urs-beeli)
+
+---
+
+## [1.17.0-beta.1] — 2026-07-31
+
+> Brings the `beta` line back in sync with `main`. Beta had drifted 12
+> commits behind after the v1.15.1, v1.16.0, and v1.16.1 stable releases
+> went out without being merged back — this release folds all of that in,
+> including the #577 splitter fix below. No other beta-only changes.
+
+### Fixed
+
+- **Status bar / bottom panel could disappear with no way back (#577)** —
+  ported from the v1.16.1 stable patch. Dragging the main vertical
+  splitter all the way down let the bottom panel (info bar + detail/map)
+  collapse fully to 0px, with the collapsed position then persisted and
+  restored on every subsequent launch. Both the main and the detail/map
+  splitter now refuse to collapse their panels completely
+  (`setChildrenCollapsible(False)`), and restoring a previously-saved
+  splitter ratio that would still leave either side below a small
+  minimum size now falls back to the default layout instead of
+  reproducing the stuck state.
+
+---
+
 
 ---
 

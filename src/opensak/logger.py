@@ -4,10 +4,13 @@ src/opensak/logger.py — Central logging-opsætning til OpenSAK.
 Issue #232: lightweight, always-on debug logging system.
 
   - Altid aktiveret — ingen brugerhandling nødvendig.
-  - Nulstilles ved hver opstart (mode="w") så filen aldrig vokser
-    ubegrænset fra session til session.
-  - Roterer ved 1 MB med 1 backup (RotatingFileHandler) — fanger også
-    langvarige sessioner uden at logfilen vokser uendeligt.
+  - Roterer ved hver opstart (issue #737) — forrige sessions fulde log
+    gemmes som opensak.log.previous i stedet for at blive slettet, så en
+    session der endte i et crash/hæng stadig kan hentes efter genstart.
+    Kun den ene seneste tidligere session bevares (samme #232-mål om
+    aldrig at vokse ubegrænset — se setup_logging()).
+  - Roterer også ved 1 MB med 1 backup (RotatingFileHandler) — fanger
+    også langvarige sessioner uden at logfilen vokser uendeligt.
   - Per-modul kontrol via debug_flags.py — ingen kodeændringer nødvendige
     for at slå debug til/fra for et modul.
 
@@ -38,7 +41,7 @@ def setup_logging() -> Path:
     """
     global _initialized
 
-    from opensak.config import get_log_path
+    from opensak.config import get_log_path, get_previous_log_path
     log_path = get_log_path()
 
     if _initialized:
@@ -46,14 +49,23 @@ def setup_logging() -> Path:
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Nulstil loggen eksplicit ved hver opstart (issue #232 krav).
-    # RotatingFileHandler's mode="w" trunkerer ikke altid en eksisterende
-    # fil pålideligt på tværs af Python-versioner, så vi sletter den selv
-    # før handleren oprettes — det er den robuste tilgang.
+    # Issue #737: bevar forrige sessions log i stedet for at slette den —
+    # gør den nuværende opensak.log til opensak.log.previous (overskriver
+    # en evt. ældre .previous-fil, så kun den seneste forrige session
+    # bevares). replace() overskriver atomisk på tværs af platforme
+    # (Windows inkl.), i modsætning til rename()/Path.rename() som fejler
+    # hvis målfilen allerede findes på Windows.
     try:
-        log_path.unlink(missing_ok=True)
+        if log_path.exists():
+            log_path.replace(get_previous_log_path())
     except OSError:
-        pass
+        # Best-effort — hvis rotation fejler (fx låst fil), falder vi
+        # tilbage til den gamle adfærd: slet, så den nye session ikke
+        # skriver oven på forældede rester.
+        try:
+            log_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     root_logger = logging.getLogger("opensak")
     root_logger.setLevel(logging.DEBUG)

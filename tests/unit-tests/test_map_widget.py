@@ -299,6 +299,22 @@ class TestJsMethods:
         w.pan_to_cache("GC'1")
         assert any("panToCache" in js for js in w._page.js)
 
+    def test_pan_to_cache_js_has_stale_callback_guard(self):
+        # Issue #718 (Mike, Mac ARM beta.7): the map pin sometimes didn't
+        # pan/pop up when a new cache was selected, ~60% of the time.
+        # Root cause: Leaflet.markercluster's zoomToShowLayer() callback can
+        # silently be dropped when panToCache() is called again (a new
+        # selection) before the previous call's moveend/zoomend listener has
+        # fired. Two safeguards are required: a sequence token so a stale
+        # callback can't move the map to the wrong (old) cache, and a
+        # setTimeout fallback for when the callback never fires at all.
+        start = mw_mod.MAP_HTML.index("function panToCache")
+        end = mw_mod.MAP_HTML.index("\nfunction selectMarker", start)
+        body = mw_mod.MAP_HTML[start:end]
+        assert "panRequestSeq" in body
+        assert "mySeq !== panRequestSeq" in body
+        assert "setTimeout(doPan" in body
+
     def test_fit_all(self, w):
         w.fit_all()
         assert w._page.js == ["fitAllMarkers()"]
@@ -514,3 +530,115 @@ class TestCleanup:
         w._view = SimpleNamespace(setPage=boom)
         w._cleanup_webengine()  # RuntimeError caught
         assert w._cleaned is True
+
+
+# ── show_nearby_for_selection() (issue #718) ──────────────────────────────────
+#
+# Split-screen map: when a cache is selected, mainwindow.py replaces the
+# currently-loaded marker set with just that cache's neighbourhood (from
+# get_nearby_caches(), filters/engine.py) instead of relying on whatever the
+# overview map happened to have loaded — the root cause of #718 was exactly
+# that reuse: a selected cache outside the overview's capped/sorted dataset
+# got no map update at all, or the wrong one.
+
+class TestShowNearbyForSelection:
+    @pytest.fixture
+    def w(self, qtbot, fake_settings):
+        widget = MapWidget()
+        qtbot.addWidget(widget)
+        widget._ready = True
+        widget._page = FakePage()
+        return widget
+
+    def test_happy_path_calls_loadNearbyCaches(self, w):
+        selected = _cache(gc_code="GCSEL", latitude=51.5074, longitude=-0.1278)
+        neighbours = [selected, _cache(gc_code="GCNBR", latitude=51.51, longitude=-0.13)]
+        w.show_nearby_for_selection(selected, neighbours, 2.0, "")
+        js = next(j for j in w._page.js if "loadNearbyCaches" in j)
+        assert "GCSEL" in js and "GCNBR" in js
+        assert "51.5074" in js and "-0.1278" in js
+        assert "'GCSEL'" in js   # centre gc_code arg, quote-escaped like pan_to_cache
+        assert "2.0" in js
+
+    def test_label_text_forwarded_verbatim(self, w):
+        selected = _cache(gc_code="GCSEL")
+        w.show_nearby_for_selection(selected, [selected], 2.0, "Showing nearest 5 of 40 within 2 km")
+        js = next(j for j in w._page.js if "loadNearbyCaches" in j)
+        assert "Showing nearest 5 of 40 within 2 km" in js
+
+    def test_empty_label_forwarded_as_empty_json_string(self, w):
+        # Empty string means "cap not reached" — the caller (mainwindow's
+        # _build_nearby_label) decides this; show_nearby_for_selection just
+        # forwards it, and the JS side treats a falsy value as "no label".
+        selected = _cache(gc_code="GCSEL")
+        w.show_nearby_for_selection(selected, [selected], 2.0, "")
+        js = next(j for j in w._page.js if "loadNearbyCaches" in j)
+        assert ', ""' in js or ",\"\"" in js.replace(" ", "")
+
+    def test_gc_code_with_quote_is_escaped(self, w):
+        selected = _cache(gc_code="GC'SEL")
+        w.show_nearby_for_selection(selected, [selected], 2.0, "")
+        js = next(j for j in w._page.js if "loadNearbyCaches" in j)
+        assert "GC\\'SEL" in js
+
+    def test_noop_when_not_ready(self, qtbot, fake_settings):
+        widget = MapWidget()
+        qtbot.addWidget(widget)
+        widget._page = FakePage()  # _ready stays False
+        selected = _cache(gc_code="GCSEL")
+        widget.show_nearby_for_selection(selected, [selected], 2.0, "")
+        assert widget._page.js == []
+
+    def test_noop_when_selected_cache_missing_coords(self, w):
+        selected = _cache(gc_code="GCSEL", latitude=None)
+        w.show_nearby_for_selection(selected, [selected], 2.0, "")
+        assert w._page.js == []
+
+    def test_neighbours_missing_coords_are_skipped_not_erroring(self, w):
+        # Same guard as _do_load_caches — a neighbour without coordinates
+        # (shouldn't happen from get_nearby_caches, but duck-typed callers
+        # could pass anything) must be silently skipped, not raise.
+        selected = _cache(gc_code="GCSEL")
+        bad = _cache(gc_code="GCBAD", latitude=None)
+        w.show_nearby_for_selection(selected, [selected, bad], 2.0, "")
+        js = next(j for j in w._page.js if "loadNearbyCaches" in j)
+        assert "GCSEL" in js
+        assert "GCBAD" not in js
+
+
+# ── loadNearbyCaches() / circle / label JS (issue #718) ───────────────────────
+
+class TestNearbyOverlayJs:
+    def _fn_body(self, fn_name: str, next_fn_name: str) -> str:
+        start = mw_mod.MAP_HTML.index(f"function {fn_name}")
+        end = mw_mod.MAP_HTML.index(f"\nfunction {next_fn_name}", start)
+        return mw_mod.MAP_HTML[start:end]
+
+    def test_loadCaches_clears_nearby_overlay_first(self):
+        # Any call to the general load path (filter change, table refresh)
+        # must reset leftover circle/label from a previous nearby-selection —
+        # see show_nearby_for_selection()'s docstring.
+        body = self._fn_body("loadCaches", "afterCachesLoaded")
+        assert "clearNearbyOverlay();" in body
+        assert body.index("clearNearbyOverlay();") < body.index("JSON.parse(cachesJson)")
+
+    def test_loadNearbyCaches_composes_expected_calls(self):
+        body = self._fn_body("loadNearbyCaches", "drawNearbyCircle")
+        assert "loadCaches(cachesJson);" in body
+        assert "drawNearbyCircle(centerLat, centerLon, radiusKm);" in body
+        assert "updateNearbyLabel(labelText);" in body
+        assert "panToCache(gcCode);" in body
+
+    def test_drawNearbyCircle_uses_metres_and_skips_nonpositive_radius(self):
+        body = self._fn_body("drawNearbyCircle", "clearNearbyCircle")
+        assert "radiusKm * 1000" in body
+        assert "if (!(radiusKm > 0)) return;" in body
+
+    def test_updateNearbyLabel_hides_when_empty(self):
+        body = self._fn_body("updateNearbyLabel", "clearNearbyLabel")
+        assert "if (!labelText) return;" in body
+
+    def test_clearNearbyOverlay_clears_both_circle_and_label(self):
+        body = self._fn_body("clearNearbyOverlay", "fitAllMarkers")
+        assert "clearNearbyCircle();" in body
+        assert "clearNearbyLabel();" in body

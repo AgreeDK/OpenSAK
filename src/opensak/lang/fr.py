@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Définir le filtre…",
     "action_clear_filter":          "❌  &Effacer le filtre",
     "action_columns":               "&Choisir les colonnes…",
+    "action_maximize_map":          "⛶  &Agrandir la carte",
+    "action_restore_map":           "◻  &Restaurer les panneaux",
+    "toolbar_maximize_map_tooltip": "Agrandir la carte (F11)",
+    "toolbar_restore_map_tooltip":  "Restaurer les panneaux (F11)",
+    "action_popout_map":            "⧉  &Détacher la carte",
+    "action_dock_map":              "↩  &Réintégrer la carte",
+    "toolbar_popout_map_tooltip":   "Détacher la carte (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Réintégrer la carte (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Carte",
 
     # Tools menu
     "action_settings":              "&Paramètres…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Raccourcis clavier…",
 
     "action_open_log_file": "Ouvrir le fichier journal",
+    "action_open_previous_log_file": "Ouvrir le journal du dernier redémarrage",
     "action_support_opensak": "♥  Soutenir OpenSAK…",
     "log_file_not_found": "Fichier journal introuvable : {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Planificateur de voyage",
     "shortcut_coord_converter":     "Convertisseur de coordonnées",
     "shortcut_projection":          "Projection de coordonnées",
+    "shortcut_maximize_map":        "Agrandir la carte",
+    "shortcut_popout_map":          "Détacher la carte",
 
     # ── Menu Outils de géocaching ─────────────────────────────────────────────
     "menu_gc_tools":                "&Outils géo",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Aucun",
     "toolbar_filter_combo_active":   "Actif (non enregistré)",
     "toolbar_refresh":              "Rafraîchir",
+    "toolbar_context_menu":         "Barre d’outils",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filtre effacé",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Tous les drapeaux effacés",
     "status_flagged_count":         "{flagged} sur {total} caches marquées",
     "status_db_name":               "Base de données : {db_name}",
+    "status_refresh_failed":        "Échec de l'actualisation de la liste des caches",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Ajouter une cache",
@@ -313,6 +327,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Nombre max. de caches affichées :",
     "settings_map_unlimited":           "Illimité",
     "settings_map_max_caches_note":     "Limite la carte aux caches les plus proches de votre point de départ actif — bien plus rapide sur les grandes bases de données, et une carte avec des centaines de milliers d'épingles n'est de toute façon pas très lisible au zoom normal. La liste des caches n'est jamais affectée par cette limite.",
+    "settings_map_nearby_radius_label":    "Rayon de la carte en écran partagé :",
+    "settings_map_nearby_max_caches_label": "Limite de caches pour la carte en écran partagé :",
+    "settings_map_nearby_note":          "Contrôle la carte de cache individuelle affichée en écran partagé — montre les caches dans ce rayon autour de la cache sélectionnée, indépendamment de la limite de la carte d'ensemble ci-dessus. Un cercle est dessiné sur la carte à ce rayon ; si la limite de caches est atteinte à l'intérieur, une étiquette indique combien sont masquées. Enregistré par base de données.",
     "map_disabled_placeholder":         "Carte désactivée\n\nRéactivez-la dans Paramètres → Carte.",
     "settings_date_format_locale":  "Paramètres régionaux",
     "settings_group_language":      "Langue",
@@ -485,6 +502,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Aucun waypoint à mettre à jour avec le périmètre sélectionné.",
     "update_loc_row":               "{gc_code} : {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code} : erreur — {msg}",
+    "update_loc_prefetch_progress": "Téléchargement des données de département manquantes : {done}/{total}…",
 
     # ── Boîtes de dialogue packs de frontières ────────────────────────────────
     "boundary_dl_title":            "Télécharger les packs de frontières",
@@ -555,6 +573,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Le dossier n'existe pas :\n{path}",
     "db_err_no_write_permission":   "Pas de permission d'écriture pour le dossier :\n{path}",
     "db_err_create_failed":         "Impossible de créer la base de données.",
+    "db_err_switch_failed_title":   "Impossible de changer de base de données",
+    "db_err_switch_failed":         "Impossible de passer à '{name}' :\n{error}\n\nUn journal détaillé a été enregistré — voir Aide > Ouvrir le fichier journal.",
     "db_err_file_not_found":        "Fichier de base de données introuvable :\n{path}",
     "db_err_remove_active":         "Impossible de retirer la base de données active de la liste.",
     "db_err_delete_active":         "Impossible de supprimer la base de données active — basculez d'abord vers une autre.",
@@ -722,6 +742,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Données util. 4",
     "col_favorite_points":   "Points fav.",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Date de modification",
+    "col_creation_date":     "Date de création",
+    "col_elevation":         "Altitude",
+    "col_find_count":        "Nombre de trouvailles",
+    "col_gc_note":           "Note GC.com",
+    "col_guid":              "Guid",
+    "col_hints":             "Indices",
+    "col_notes":             "Note",
+    "col_owner_id":          "ID propriétaire",
+    "col_owner_name":        "Nom du propriétaire",
+    "col_source":            "Source",
+    "col_url":               "Url",
+    "col_watch":              "Surveillance",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Dernière trouvaille",
+    "col_last_gpx_update":   "Dernière mise à jour GPX",
+    "col_last_four_logs":    "Quatre derniers logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Ouvrir sur geocaching.com",
@@ -805,6 +844,9 @@ STRINGS: dict[str, str] = {
 
     # ── Coordonnées corrigées ─────────────────────────────────────────────────
     "map_home_label":               "Domicile",
+    "map_nearby_label":             "Affiche les {shown} plus proches sur {total} dans un rayon de {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK n'a pas pu démarrer",
+    "startup_db_error_msg":         "OpenSAK n'a pas pu ouvrir votre base de données et ne peut pas démarrer.\n\n{error}\n\nUn journal d'erreurs détaillé a été enregistré ici :\n{path}\n\nVeuillez partager ce fichier journal sur github.com/OpenSAK-Org/OpenSAK/issues ou hello@opensak.com afin que nous puissions vous aider.",
     "map_ctx_copy_coords":          "Copier {coords}",
     "map_ctx_copy_as":              "Copier comme...",
     "map_ctx_set_corrected":        "Définir les coordonnées corrigées",

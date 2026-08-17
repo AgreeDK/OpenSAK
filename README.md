@@ -45,6 +45,8 @@ A modern, cross-platform geocaching management tool for **Linux**, **Windows** a
 - 🎨 **Color-coded status** — found (yellow) and your own caches (green) in the GC Code column and info bar, archived/disabled caches in red; clickable info-bar counts filter the list instantly
 - 🔗 **Click GC code** → opens cache page on geocaching.com
 - 🗺️ **Click coordinates** → opens in Google Maps or OpenStreetMap
+- 🖥️ **Full-screen / popout map** — enlarge the map to a bigger, dedicated view
+- 🌍 **Offline Country/State/County lookup** — automatic reverse-geocoding on import, no internet connection required
 
 ### Cache Details
 - 📋 **Cache details** — description, hints, logs, attributes, personal notes, and child waypoints, each in their own tab
@@ -89,7 +91,7 @@ A modern, cross-platform geocaching management tool for **Linux**, **Windows** a
 - Favourite points cannot be imported from GPX/PQ files (requires Geocaching.com API)
 - No Geocaching.com Live API integration
 - GPS auto-detection on Linux may not find all Garmin devices automatically
-- macOS builds are not signed with an Apple Developer certificate (right-click → Open on first launch)
+- Windows builds are not yet signed with a code-signing certificate (SmartScreen may warn on first launch)
 
 ---
 
@@ -137,8 +139,8 @@ Please use [GitHub Issues](https://github.com/OpenSAK-Org/opensak/issues) and in
 - [ ] HTML/PDF reports and statistics
 - [ ] GPS export — improve auto-detection on all Linux distros
 - [ ] Favourite points (requires Geocaching.com API)
-- [ ] GGZ export — Garmin's compressed GPX container format (lifts the 10,000-cache device limit)
 - [ ] More languages (Finnish, Polish, …)
+- [x] **GGZ export** — Garmin's compressed GPX container format (lifts the 10,000-cache device limit)
 - [x] **Lock caches** — protect against being overwritten by a later import
 - [x] **Personal notes** — round-trippable with GSAK
 - [x] **Child waypoints** — visible in the cache list, detail panel, and on the map
@@ -148,6 +150,8 @@ Please use [GitHub Issues](https://github.com/OpenSAK-Org/opensak/issues) and in
 - [x] **Trip Planner** — radius and multi-point route corridor with map preview
 - [x] **Home points list** — named locations with toolbar quick-switch
 - [x] **Corrected coordinates** — store and use solved puzzle coordinates
+- [x] **Full-screen / popout map** — enlarge the map to a bigger, dedicated view
+- [x] **Offline Country/State/County lookup** — automatic reverse-geocoding on import
 - [x] Geocaching Tools menu — coordinate converter, projection, checksum, midpoint, distance & bearing
 - [x] Coordinate format preference (DMM / DMS / DD)
 - [x] French language — contributed by @theyoungstone

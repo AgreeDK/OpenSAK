@@ -12,7 +12,9 @@ Usage
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
@@ -22,6 +24,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from opensak.db.models import Base
+
+logger = logging.getLogger(__name__)
 
 
 # ── Engine factory ────────────────────────────────────────────────────────────
@@ -63,7 +67,7 @@ _migrated_paths: set = set()  # undgår at køre migrationer to gange på samme 
 # bumped to the highest migration number whenever a new migration is added
 # below — _run_migrations() skips the whole block when the database already
 # reports this version, so a stale constant means new migrations never run.
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 24
 
 
 def init_db(db_path: Path | None = None) -> Engine:
@@ -109,7 +113,10 @@ def init_db(db_path: Path | None = None) -> Engine:
     # Create all tables that don't exist yet (safe to call multiple times).
     # Do this before touching the globals — if the file is not a valid SQLite
     # database create_all() raises here and the current engine is unaffected.
+    logger.info("init_db: opening %s", db_path)
+    t0 = time.monotonic()
     Base.metadata.create_all(new_engine)
+    logger.info("init_db: create_all() done (+%.2fs)", time.monotonic() - t0)
 
     # Kør schema-migrationer for eksisterende databaser (kun én gang per DB-sti)
     if db_path not in _migrated_paths:
@@ -119,6 +126,7 @@ def init_db(db_path: Path | None = None) -> Engine:
     # Only swap the global pointers after everything above succeeded.
     _engine = new_engine
     _SessionLocal = new_session
+    logger.info("init_db: ready (+%.2fs total)", time.monotonic() - t0)
     return _engine
 
 
@@ -141,9 +149,19 @@ def _run_migrations(engine: Engine) -> None:
         # stamped and subsequent launches short-circuit here.
         current_version = conn.execute(text("PRAGMA user_version")).scalar() or 0
         if current_version >= SCHEMA_VERSION:
+            logger.info(
+                "migrations: db already at schema %s, skipping", current_version
+            )
             return
 
+        logger.info(
+            "migrations: starting, current_version=%s target=%s",
+            current_version, SCHEMA_VERSION,
+        )
+        _mig_t0 = time.monotonic()
+
         # ── Migration 1: Tilføj is_corrected til user_notes ──────────────────
+        logger.debug("[migrations] entering migration 1 (+%.2fs)", time.monotonic() - _mig_t0)
         existing_notes = [
             row[1]
             for row in conn.execute(text("PRAGMA table_info(user_notes)")).fetchall()
@@ -156,6 +174,7 @@ def _run_migrations(engine: Engine) -> None:
             print("Migration: tilføjede user_notes.is_corrected")
 
         # ── Migration 2: Udvid waypoints unique constraint ────────────────────
+        logger.debug("[migrations] entering migration 2 (+%.2fs)", time.monotonic() - _mig_t0)
         # Den gamle constraint (cache_id, prefix) fejler når GSAK eksporterer
         # flere waypoints med samme prefix (f.eks. "WP") for samme cache.
         # Ny constraint: (cache_id, prefix, name) — tillader flere WP-waypoints
@@ -165,7 +184,24 @@ def _run_migrations(engine: Engine) -> None:
         )).fetchall()
         idx_names = [r[0] for r in idx_rows]
 
-        if "uq_waypoint_cache_prefix_name" not in idx_names:
+        # Bug fundet 14/8-2026 (issue #723-opfølgning, Mikes 405MB database):
+        # migration 22 nedenfor erstatter SENERE dette constraint med et nyt,
+        # bedre ét — (cache_id, wp_code) i stedet for (cache_id, prefix, name),
+        # fordi prefix+name legitimt KAN gentages på samme cache (se Waypoint-
+        # modellens docstring, issue #536). For enhver database der allerede
+        # har kørt migration 22, hedder indexet "uq_waypoint_cache_wp_code" —
+        # "uq_waypoint_cache_prefix_name" findes ikke længere. Uden dette tjek
+        # troede migration 2 fejlagtigt den aldrig var kørt og forsøgte at
+        # genskabe det gamle, for strenge constraint — hvilket fejlede med en
+        # UNIQUE constraint-fejl på ægte data med legitime prefix+name-
+        # dubletter. Fejlen var ufanget hele vejen op gennem opstartskæden, så
+        # appen crashede stille uden fejlbesked — det så ud som et hang.
+        if (
+            "uq_waypoint_cache_prefix_name" not in idx_names
+            and "uq_waypoint_cache_wp_code" not in idx_names
+        ):
+            logger.debug("[migrations] 2: waypoints table rebuild starting")
+            _step_t0 = time.monotonic()
             # SQLite understøtter ikke DROP CONSTRAINT — vi recreater tabellen.
             # Unik-constraint laves som et NAVNGIVET index (ikke inline UNIQUE,
             # der ville få et auto-genereret sqlite_autoindex-navn) så gaten
@@ -200,9 +236,14 @@ def _run_migrations(engine: Engine) -> None:
             ))
             conn.execute(text("PRAGMA foreign_keys=ON"))
             conn.commit()
+            logger.debug(
+                "[migrations] 2: waypoints table rebuild done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
             print("Migration: opdaterede waypoints unique constraint til (cache_id, prefix, name)")
 
         # ── Migration 3: Tilføj county til caches ────────────────────────────
+        logger.debug("[migrations] entering migration 3 (+%.2fs)", time.monotonic() - _mig_t0)
         existing_caches = [
             row[1]
             for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
@@ -213,6 +254,7 @@ def _run_migrations(engine: Engine) -> None:
             print("Migration: tilføjede caches.county")
 
         # ── Migration 4: GSAK field parity (issue #33) ───────────────────────
+        logger.debug("[migrations] entering migration 4 (+%.2fs)", time.monotonic() - _mig_t0)
         # Re-læs eksisterende kolonner efter migration 3 kan have tilføjet county
         existing_caches = [
             row[1]
@@ -244,6 +286,7 @@ def _run_migrations(engine: Engine) -> None:
             print(f"Migration: tilføjede GSAK-felter til caches: {', '.join(added)}")
 
         # ── Migration 5: Normaliser GPS Adventures cache_type varianter ─────
+        logger.debug("[migrations] entering migration 5 (+%.2fs)", time.monotonic() - _mig_t0)
         result = conn.execute(text("""
             UPDATE caches
             SET cache_type = 'GPS Adventures Maze'
@@ -256,7 +299,47 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: normaliserede {result.rowcount} GPS Adventures cache_type værdier")
 
-        # ── Migration 6: log_count kolonne (issue #87) ───────────────────────
+        # ── Migration 6: indexes on logs table (issue #723) ──────────────────
+        logger.debug("[migrations] entering migration 6 (+%.2fs)", time.monotonic() - _mig_t0)
+        # Migrations 7, 23 and 24 below run correlated subqueries against the
+        # logs table (COUNT/MAX per cache_id, and ordering by log_date) to
+        # backfill cached columns on `caches`. Without an index on
+        # logs.cache_id these are effectively a full table scan per row in
+        # `caches`, which is what made startup appear to hang on large
+        # existing databases (confirmed by benchmark on issue #723). This
+        # migration is placed before all three so the index is guaranteed to
+        # exist by the time those heavier queries run. CREATE INDEX IF NOT
+        # EXISTS is idempotent and cheap once the index exists, so it is safe
+        # to run on every startup.
+        existing_log_idx = {
+            row[0]
+            for row in conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='logs'"
+            )).fetchall()
+        }
+        log_index_specs = [
+            ("ix_logs_cache_id", "cache_id"),
+            ("ix_logs_log_date", "log_date"),
+        ]
+        created_log_idx = []
+        for idx_name, cols in log_index_specs:
+            if idx_name not in existing_log_idx:
+                logger.debug("[migrations] 6: creating %s starting", idx_name)
+                _step_t0 = time.monotonic()
+                conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS {idx_name} ON logs ({cols})"
+                ))
+                logger.debug(
+                    "[migrations] 6: creating %s done (+%.2fs)",
+                    idx_name, time.monotonic() - _step_t0,
+                )
+                created_log_idx.append(idx_name)
+        if created_log_idx:
+            conn.commit()
+            print(f"Migration: oprettede {len(created_log_idx)} indexes på logs ({', '.join(created_log_idx)})")
+
+        # ── Migration 7: log_count kolonne (issue #87) ───────────────────────
+        logger.debug("[migrations] entering migration 7 (+%.2fs)", time.monotonic() - _mig_t0)
         # log_count caches the number of logs per cache so the UI can display
         # it without loading the logs relationship. apply_filters() uses
         # noload(Cache.logs) for performance, which made cache.logs always
@@ -284,7 +367,8 @@ def _run_migrations(engine: Engine) -> None:
             print(f"Migration: tilføjede caches.log_count og opdaterede {result.rowcount} caches")
 
 
-        # ── Migration 7: Nano → Micro (data normalisation) ───────────────────
+        # ── Migration 8: Nano → Micro (data normalisation) ───────────────────
+        logger.debug("[migrations] entering migration 8 (+%.2fs)", time.monotonic() - _mig_t0)
         # "Nano" is not an official Geocaching.com container size — it is an
         # informal community term for very small Micro caches (< 10 ml).
         # Geocaching.com exports these as "Micro" in GPX/PQ files. Only GSAK
@@ -298,7 +382,8 @@ def _run_migrations(engine: Engine) -> None:
             print(f"Migration: konverterede {result.rowcount} 'Nano' container værdier til 'Micro'")
 
 
-        # ── Migration 8: parent_gc_code (issue #141) ─────────────────────────
+        # ── Migration 9: parent_gc_code (issue #141) ─────────────────────────
+        logger.debug("[migrations] entering migration 9 (+%.2fs)", time.monotonic() - _mig_t0)
         # Custom waypoints (CW...) can optionally reference a parent geocache.
         # NULL for all real geocaches — added silently, no data backfill needed.
         existing_caches = [
@@ -312,7 +397,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.parent_gc_code")
 
-        # ── Migration 9: owner_name (issue #158) ─────────────────────────────
+        # ── Migration 10: owner_name (issue #158) ─────────────────────────────
+        logger.debug("[migrations] entering migration 10 (+%.2fs)", time.monotonic() - _mig_t0)
         # Stores the gs:owner display name separately from placed_by, which may
         # differ when a cache is adopted or placed under a pseudonym.
         existing_caches = [
@@ -326,7 +412,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.owner_name")
 
-        # ── Migration 10: last_log_date (issue #186) ─────────────────────────
+        # ── Migration 11: last_log_date (issue #186) ─────────────────────────
+        logger.debug("[migrations] entering migration 11 (+%.2fs)", time.monotonic() - _mig_t0)
         # Caches the date of the most recent log so the "Latest Log" column can
         # display it without loading the noload'ed logs relationship.
         # Populated from existing log data so users don't need to re-import.
@@ -349,7 +436,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede caches.last_log_date og opdaterede {result.rowcount} caches")
 
-        # ── Migration 11: indexes for filter/sort columns (#214 phase 3) ─────
+        # ── Migration 12: indexes for filter/sort columns (#214 phase 3) ─────
+        logger.debug("[migrations] entering migration 12 (+%.2fs)", time.monotonic() - _mig_t0)
         # Phase 2 pushed the common filters into the SQL WHERE clause; these
         # indexes let SQLite satisfy those predicates (and ORDER BY) without a
         # full table scan on large databases. CREATE INDEX IF NOT EXISTS is
@@ -386,15 +474,22 @@ def _run_migrations(engine: Engine) -> None:
         created_idx = []
         for idx_name, cols in index_specs:
             if idx_name not in existing_idx:
+                logger.debug("[migrations] 12: creating %s starting", idx_name)
+                _step_t0 = time.monotonic()
                 conn.execute(text(
                     f"CREATE INDEX IF NOT EXISTS {idx_name} ON caches ({cols})"
                 ))
+                logger.debug(
+                    "[migrations] 12: creating %s done (+%.2fs)",
+                    idx_name, time.monotonic() - _step_t0,
+                )
                 created_idx.append(idx_name)
         if created_idx:
             conn.commit()
             print(f"Migration: oprettede {len(created_idx)} indexes på caches ({', '.join(created_idx)})")
 
-        # ── Migration 12: location provenance columns (issue #60 phase 3) ──────
+        # ── Migration 13: location provenance columns (issue #60 phase 3) ──────
+        logger.debug("[migrations] entering migration 13 (+%.2fs)", time.monotonic() - _mig_t0)
         # Four nullable columns record where territory values came from and which
         # dataset version produced them — needed by the Phase 4 GUI and the
         # stale-indicator logic. All default to NULL ("unknown / imported").
@@ -417,7 +512,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede provenance-kolonner til caches: {', '.join(added)}")
 
-        # ── Migration 13: parent_gc_code on waypoints (issue #376) ───────────
+        # ── Migration 14: parent_gc_code on waypoints (issue #376) ───────────
+        logger.debug("[migrations] entering migration 14 (+%.2fs)", time.monotonic() - _mig_t0)
         # Stores the parent cache's GC code directly on the waypoint row —
         # mirrors cParent in GSAK and enables JOIN-free filter queries.
         existing_wpts = [
@@ -438,7 +534,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede waypoints.parent_gc_code")
 
-        # ── Migration 14: waypoint_count on caches (issue #377) ──────────────
+        # ── Migration 15: waypoint_count on caches (issue #377) ──────────────
+        logger.debug("[migrations] entering migration 15 (+%.2fs)", time.monotonic() - _mig_t0)
         # Cached count of child waypoints so the grid can show a visual cue
         # without loading the noload'ed waypoints relationship.
         existing_caches_14 = [
@@ -458,7 +555,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.waypoint_count")
 
-        # ── Migration 15: locked flag on caches (issue #202) ─────────────────
+        # ── Migration 16: locked flag on caches (issue #202) ─────────────────
+        logger.debug("[migrations] entering migration 16 (+%.2fs)", time.monotonic() - _mig_t0)
         # When set, _upsert_cache() skips overwriting scalar GPX-sourced
         # fields on re-import, so a manually corrected/locked cache survives
         # later PQ/GPX imports unchanged.
@@ -473,7 +571,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.locked")
 
-        # ── Migration 16: trackables table (issue #491) ───────────────────────
+        # ── Migration 17: trackables table (issue #491) ───────────────────────
+        logger.debug("[migrations] entering migration 17 (+%.2fs)", time.monotonic() - _mig_t0)
         # The Trackable model (travel bugs / geocoins seen in a cache) has
         # shipped since v1.14.0 with no corresponding migration to create its
         # table. Any existing database crashes with "no such table:
@@ -504,11 +603,12 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: oprettede trackables-tabellen (manglede siden v1.14.0)")
 
-        # ── Migration 17: trackable_count kolonne (issue #489/#491) ──────────
-        # Mirrors log_count (Migration 6): cache the trackable count on the
+        # ── Migration 18: trackable_count kolonne (issue #489/#491) ──────────
+        logger.debug("[migrations] entering migration 18 (+%.2fs)", time.monotonic() - _mig_t0)
+        # Mirrors log_count (Migration 7): cache the trackable count on the
         # caches row so the new "Trackables" table column can display it
         # without loading the trackables relationship for every row. Depends
-        # on Migration 16 above having created the trackables table.
+        # on Migration 17 above having created the trackables table.
         existing_caches_17 = [
             row[1]
             for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
@@ -528,7 +628,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede caches.trackable_count og opdaterede {result.rowcount} caches")
 
-        # ── Migration 18: GSAK database import schema additions (issue #469) ─
+        # ── Migration 19: GSAK database import schema additions (issue #469) ─
+        logger.debug("[migrations] entering migration 19 (+%.2fs)", time.monotonic() - _mig_t0)
         # Adds fields identified during the #469 field-by-field comparison
         # against real GSAK databases, ahead of building the importer itself
         # (session 1), so the mapping code can target the final schema
@@ -593,7 +694,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print(f"Migration: tilføjede GSAK-import-felter til logs: {', '.join(added)}")
 
-        # ── Migration 19: find_count on caches (issue #517) ──────────────────
+        # ── Migration 20: find_count on caches (issue #517) ──────────────────
+        logger.debug("[migrations] entering migration 20 (+%.2fs)", time.monotonic() - _mig_t0)
         # GC API field prep. Also populated straight away by the GSAK
         # importer from Caches.FoundCount (see #469 gsak_importer.py).
         existing_caches_19 = [
@@ -607,7 +709,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: tilføjede caches.find_count")
 
-        # ── Migration 20: remove leftover favorite_point column (issue #530) ─
+        # ── Migration 21: remove leftover favorite_point column (issue #530) ─
+        logger.debug("[migrations] entering migration 21 (+%.2fs)", time.monotonic() - _mig_t0)
         # `favorite_point` (singular, Boolean NOT NULL) was briefly introduced
         # in v1.14.0 without a migration to add it to already-existing
         # databases, which surfaced as "no such column" errors (#488). The fix
@@ -641,7 +744,8 @@ def _run_migrations(engine: Engine) -> None:
                     "DROP COLUMN (kræver 3.35+). Kontakt hello@opensak.com."
                 )
 
-        # ── Migration 21: waypoints unique constraint on wp_code, not name (#536) ─
+        # ── Migration 22: waypoints unique constraint on wp_code, not name (#536) ─
+        logger.debug("[migrations] entering migration 22 (+%.2fs)", time.monotonic() - _mig_t0)
         # GSAK's own uniqueness for a waypoint is per-cache by its own code
         # (cCode, stored here as wp_code) — not by prefix+name. The
         # (cache_id, prefix, name) constraint added in Migration 2 was too
@@ -713,7 +817,8 @@ def _run_migrations(engine: Engine) -> None:
             conn.commit()
             print("Migration: opdaterede waypoints unique constraint til (cache_id, wp_code)")
 
-        # ── Migration 22: found_log_count kolonne (issue #552) ───────────────
+        # ── Migration 23: found_log_count kolonne (issue #552) ───────────────
+        logger.debug("[migrations] entering migration 23 (+%.2fs)", time.monotonic() - _mig_t0)
         # Cache.found is a boolean ("have I found this cache at least once"),
         # which undercounts relocatable/multi-visit caches where the same
         # user can legitimately log a found-type entry more than once —
@@ -773,11 +878,113 @@ def _run_migrations(engine: Engine) -> None:
                     "(intet gc_username/gc_finder_id sat — springer backfill over)"
                 )
 
+        # ── Migration 24: last_found_date, last_gpx_update, last_four_logs
+        # (issue #716) ─────────────────────────────────────────────────────
+        logger.debug("[migrations] entering migration 24 (+%.2fs)", time.monotonic() - _mig_t0)
+        # Follow-up to #658's GSAK-compatible columns. Unlike those (which
+        # just exposed existing data), these 3 are genuinely new derived
+        # data, so a fresh column needs a one-off backfill from what's
+        # already in the database — new values are populated on every
+        # import from here on (see _upsert_cache() in importer/__init__.py
+        # and gsak_importer.py).
+        existing_caches_23 = [
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(caches)")).fetchall()
+        ]
+        added_23 = []
+
+        if "last_found_date" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_found_date DATETIME"
+            ))
+            logger.debug("[migrations] 24: last_found_date backfill starting")
+            _step_t0 = time.monotonic()
+            # Most recent "Found it"-type log by ANY finder — same
+            # FOUND_LOG_TYPES set used everywhere else in the codebase
+            # (see opensak.utils.constants.FOUND_LOG_TYPES).
+            conn.execute(text("""
+                UPDATE caches
+                SET last_found_date = (
+                    SELECT MAX(log_date)
+                    FROM logs
+                    WHERE logs.cache_id = caches.id
+                      AND logs.log_type IN ('Found it', 'Attended', 'Webcam Photo Taken')
+                )
+            """))
+            logger.debug(
+                "[migrations] 24: last_found_date backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
+            added_23.append("last_found_date")
+
+        if "last_gpx_update" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_gpx_update DATETIME"
+            ))
+            logger.debug("[migrations] 24: last_gpx_update backfill starting")
+            _step_t0 = time.monotonic()
+            # No historical import-timestamp data exists yet — imported_at
+            # (set once, on first creation) is the best available proxy
+            # until the next real import sets this properly.
+            conn.execute(text(
+                "UPDATE caches SET last_gpx_update = imported_at"
+            ))
+            logger.debug(
+                "[migrations] 24: last_gpx_update backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
+            added_23.append("last_gpx_update")
+
+        if "last_four_logs" not in existing_caches_23:
+            conn.execute(text(
+                "ALTER TABLE caches ADD COLUMN last_four_logs TEXT"
+            ))
+            logger.debug("[migrations] 24: last_four_logs backfill starting")
+            _step_t0 = time.monotonic()
+            # One line per log ("ISO date<TAB>log type<TAB>finder"), most
+            # recent first, matching the format _upsert_cache() writes on
+            # import (see importer/__init__.py). The inner derived table's
+            # ORDER BY + LIMIT 4 fixes the row order group_concat sees —
+            # SQLite doesn't reshuffle rows for an aggregate with no GROUP
+            # BY, so this reliably comes out newest-first without needing
+            # window functions.
+            conn.execute(text("""
+                UPDATE caches
+                SET last_four_logs = (
+                    SELECT group_concat(line, char(10))
+                    FROM (
+                        SELECT (
+                            strftime('%Y-%m-%dT%H:%M:%S', log_date) || char(9) ||
+                            log_type || char(9) || COALESCE(finder, '')
+                        ) AS line
+                        FROM logs
+                        WHERE logs.cache_id = caches.id
+                          AND log_date IS NOT NULL
+                        ORDER BY log_date DESC
+                        LIMIT 4
+                    )
+                )
+                WHERE EXISTS (SELECT 1 FROM logs WHERE logs.cache_id = caches.id)
+            """))
+            logger.debug(
+                "[migrations] 24: last_four_logs backfill done (+%.2fs)",
+                time.monotonic() - _step_t0,
+            )
+            added_23.append("last_four_logs")
+
+        if added_23:
+            conn.commit()
+            print(f"Migration: tilføjede caches.{', caches.'.join(added_23)}")
+
         # ── Stamp the schema version so the next launch skips the probes ─────
         # PRAGMA does not accept bind parameters; SCHEMA_VERSION is a trusted
         # int constant, so inlining it is safe.
         conn.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
         conn.commit()
+        logger.info(
+            "migrations: done, now at schema %s (+%.2fs total)",
+            SCHEMA_VERSION, time.monotonic() - _mig_t0,
+        )
 
 
 def dispose_engine(db_path: Path | None = None) -> None:
@@ -912,6 +1119,9 @@ def recalculate_distances(lat: float, lon: float) -> int:
     """
     from opensak.filters.engine import distance_km_batch
 
+    logger.info("recalculate_distances: starting for center (%s, %s)", lat, lon)
+    _t0 = time.monotonic()
+
     def _bearing_batch(lat0: float, lon0: float, lats: list, lons: list) -> list:
         # Bearing computation — vectorised with numpy when available.
         import math
@@ -941,7 +1151,13 @@ def recalculate_distances(lat: float, lon: float) -> int:
         ).fetchall()
 
         if not rows:
+            logger.info("recalculate_distances: no rows with coordinates, skipping")
             return 0
+
+        logger.info(
+            "recalculate_distances: fetched %s rows (+%.2fs)",
+            len(rows), time.monotonic() - _t0,
+        )
 
         ids  = [r[0] for r in rows]
         lats = [r[1] for r in rows]
@@ -949,10 +1165,17 @@ def recalculate_distances(lat: float, lon: float) -> int:
 
         dists = distance_km_batch(lat, lon, lats, lons)
         bears = _bearing_batch(lat, lon, lats, lons)
+        logger.info(
+            "recalculate_distances: distance/bearing computed (+%.2fs)",
+            time.monotonic() - _t0,
+        )
 
         session.execute(
             text("UPDATE caches SET distance = :d, bearing = :b WHERE id = :id"),
             [{"d": float(dists[i]), "b": float(bears[i]), "id": ids[i]} for i in range(len(ids))],
+        )
+        logger.info(
+            "recalculate_distances: UPDATE done (+%.2fs)", time.monotonic() - _t0,
         )
 
     # Persist the center + method this recalculation used, so
@@ -964,6 +1187,10 @@ def recalculate_distances(lat: float, lon: float) -> int:
     s.dist_calc_lon = lon
     s.dist_calc_method = s.distance_method
 
+    logger.info(
+        "recalculate_distances: done, %s caches updated (+%.2fs total)",
+        len(ids), time.monotonic() - _t0,
+    )
     return len(ids)
 
 

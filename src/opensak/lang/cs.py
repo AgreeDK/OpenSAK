@@ -69,6 +69,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Nastavit filtr…",
     "action_clear_filter":          "❌  &Zrušit filtr",
     "action_columns":               "&Vybrat sloupce…",
+    "action_maximize_map":          "⛶  &Maximalizovat mapu",
+    "action_restore_map":           "◻  &Obnovit panely",
+    "toolbar_maximize_map_tooltip": "Maximalizovat mapu (F11)",
+    "toolbar_restore_map_tooltip":  "Obnovit panely (F11)",
+    "action_popout_map":            "⧉  &Odpojit mapu",
+    "action_dock_map":              "↩  &Připojit mapu zpět",
+    "toolbar_popout_map_tooltip":   "Odpojit mapu do vlastního okna (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Připojit mapu zpět (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Mapa",
 
     # Tools menu
     "action_settings":              "&Nastavení…",
@@ -85,6 +94,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Klávesové zkratky…",
 
     "action_open_log_file": "Otevřít soubor protokolu",
+    "action_open_previous_log_file": "Otevřít protokol z posledního spuštění",
     "action_support_opensak": "♥  Podpořit OpenSAK…",
     "log_file_not_found": "Soubor protokolu ještě nebyl nalezen: {path}",
 
@@ -107,6 +117,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Plánování trasy",
     "shortcut_coord_converter":     "Převodník souřadnic",
     "shortcut_projection":          "Projekce souřadnic",
+    "shortcut_maximize_map":        "Maximalizovat mapu",
+    "shortcut_popout_map":          "Odpojit mapu",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Nástroje",
@@ -126,6 +138,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Žádný",
     "toolbar_filter_combo_active":   "Aktivní (neuloženo)",
     "toolbar_refresh":              "Obnovit",
+    "toolbar_context_menu":         "Panel nástrojů",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filtr zrušen",
@@ -137,6 +150,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Všechny příznaky odebrány",
     "status_flagged_count":         "{flagged} z {total} kešů označeno",
     "status_db_name":               "Databáze: {db_name}",
+    "status_refresh_failed":        "Nepodařilo se obnovit seznam kešek",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Přidat keš",
@@ -200,7 +214,7 @@ STRINGS: dict[str, str] = {
     "gsak_prescan_title":           "Některé osobní poznámky obsahují obrázky",
     "gsak_prescan_body":            "{notes} vašich osobních poznámek obsahuje {images} obrázek/obrázky, které GSAK stáhl do vašeho starého počítače. Ty nelze automaticky zkopírovat, takže OpenSAK místo nich zobrazí zástupný text jako [image: filename.jpg]. Samotný text poznámky bude importován normálně.\n\nPokračovat v importu?",
     "gsak_prescan_continue":        "Pokračovat v importu",
-    
+
     # ── Filter dialog ─────────────────────────────────────────────────────────
     "filter_dialog_title":          "Nastavit filtr",
     "filter_tab_dates":             "Data",
@@ -313,6 +327,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Max. kešek na mapě:",
     "settings_map_unlimited":           "Neomezeno",
     "settings_map_max_caches_note":     "Omezí mapu na nejbližší kešky od vašeho aktivního domovského bodu — mnohem rychlejší u velkých databází, a mapa se stovkami tisíc špendlíků stejně není při běžném přiblížení moc čitelná. Seznam kešek tímto omezením nikdy není ovlivněn.",
+    "settings_map_nearby_radius_label":    "Poloměr mapy v rozděleném zobrazení:",
+    "settings_map_nearby_max_caches_label": "Limit kešek pro mapu v rozděleném zobrazení:",
+    "settings_map_nearby_note":          "Ovládá mapu jednotlivé kešky zobrazenou v rozděleném zobrazení — zobrazuje kešky v tomto poloměru od vybrané kešky, nezávisle na limitu přehledové mapy výše. Na mapě je v tomto poloměru vykreslen kruh; pokud je v něm dosaženo limitu kešek, štítek zobrazí, kolik jich je skryto. Ukládá se pro každou databázi zvlášť.",
     "map_disabled_placeholder":         "Mapa vypnuta\n\nZapněte ji znovu v Nastavení → Mapa.",
     "settings_date_format_locale":  "Systémové prostředí",
     "settings_group_language":      "Jazyk",
@@ -484,6 +501,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Žádné kešky k aktualizaci s vybraným rozsahem.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: chyba — {msg}",
+    "update_loc_prefetch_progress": "Stahování chybějících dat okresu: {done}/{total}…",
 
     # ── Boundary packs dialogs ────────────────────────────────────────────────
     "boundary_dl_title":            "Download Boundary Packs",
@@ -554,6 +572,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Složka neexistuje:\n{path}",
     "db_err_no_write_permission":   "Nemáte oprávnění k zápisu do složky:\n{path}",
     "db_err_create_failed":         "Nepodařilo se vytvořit databázi.",
+    "db_err_switch_failed_title":   "Nepodařilo se přepnout databázi",
+    "db_err_switch_failed":         "Nepodařilo se přepnout na '{name}':\n{error}\n\nByl uložen podrobný protokol — viz Nápověda > Otevřít soubor protokolu.",
     "db_err_file_not_found":        "Soubor databáze nebyl nalezen:\n{path}",
     "db_err_remove_active":         "Aktivní databázi nelze odebrat ze seznamu.",
     "db_err_delete_active":         "Aktivní databázi nelze smazat — nejprve přepněte na jinou.",
@@ -722,6 +742,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Uživatelská data 4",
     "col_favorite_points":   "Obl. body",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Datum změny",
+    "col_creation_date":     "Datum vytvoření",
+    "col_elevation":         "Nadmořská výška",
+    "col_find_count":        "Počet nálezů",
+    "col_gc_note":           "Poznámka GC.com",
+    "col_guid":              "Guid",
+    "col_hints":             "Nápovědy",
+    "col_notes":             "Poznámka",
+    "col_owner_id":          "ID vlastníka",
+    "col_owner_name":        "Jméno vlastníka",
+    "col_source":            "Zdroj",
+    "col_url":               "Url",
+    "col_watch":              "Sledování",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Naposledy nalezeno",
+    "col_last_gpx_update":   "Poslední aktualizace GPX",
+    "col_last_four_logs":    "Poslední čtyři logy",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Otevřít na geocaching.com",
@@ -805,6 +844,9 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Domov",
+    "map_nearby_label":             "Zobrazeno {shown} nejbližších z {total} v okruhu {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK se nepodařilo spustit",
+    "startup_db_error_msg":         "OpenSAK se nepodařilo otevřít vaši databázi a nelze jej spustit.\n\n{error}\n\nPodrobný protokol chyb byl uložen do:\n{path}\n\nProsím, sdílejte tento soubor protokolu na github.com/OpenSAK-Org/OpenSAK/issues nebo hello@opensak.com, abychom mohli pomoci.",
     "map_ctx_copy_coords":          "Kopírovat {coords}",
     "map_ctx_copy_as":              "Kopírovat jako...",
     "map_ctx_set_corrected":        "Nastavit opravené souřadnice",

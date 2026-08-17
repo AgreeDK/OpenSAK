@@ -72,6 +72,15 @@ STRINGS: dict[str, str] = {
     "action_filter":                "🔍  &Filter instellen…",
     "action_clear_filter":          "❌  &Filter wissen",
     "action_columns":               "&Kolommen kiezen…",
+    "action_maximize_map":          "⛶  &Kaart maximaliseren",
+    "action_restore_map":           "◻  &Panelen herstellen",
+    "toolbar_maximize_map_tooltip": "Kaart maximaliseren (F11)",
+    "toolbar_restore_map_tooltip":  "Panelen herstellen (F11)",
+    "action_popout_map":            "⧉  &Kaart loskoppelen",
+    "action_dock_map":              "↩  &Kaart terugplaatsen",
+    "toolbar_popout_map_tooltip":   "Kaart in eigen venster (Ctrl+Shift+M)",
+    "toolbar_dock_map_tooltip":     "Kaart terug in hoofdvenster (Ctrl+Shift+M)",
+    "map_popout_title":             "OpenSAK — Kaart",
 
     # Tools menu
     "action_settings":              "&Instellingen…",
@@ -88,6 +97,7 @@ STRINGS: dict[str, str] = {
     "action_shortcuts":             "⌨️  &Sneltoetsen…",
 
     "action_open_log_file": "Logbestand openen",
+    "action_open_previous_log_file": "Log van vorige herstart openen",
     "action_support_opensak": "♥  OpenSAK steunen…",
     "log_file_not_found": "Logbestand nog niet gevonden: {path}",
 
@@ -110,6 +120,8 @@ STRINGS: dict[str, str] = {
     "shortcut_trip_planner":        "Routeplanner",
     "shortcut_coord_converter":     "Coördinatenomzetter",
     "shortcut_projection":          "Coördinatenprojectie",
+    "shortcut_maximize_map":        "Kaart maximaliseren",
+    "shortcut_popout_map":          "Kaart loskoppelen",
 
     # ── Geocaching Tools menu ─────────────────────────────────────────────────
     "menu_gc_tools":                "&Extra's",
@@ -129,6 +141,7 @@ STRINGS: dict[str, str] = {
     "toolbar_filter_combo_none":     "Geen",
     "toolbar_filter_combo_active":   "Actief (niet opgeslagen)",
     "toolbar_refresh":              "Vernieuwen",
+    "toolbar_context_menu":         "Werkbalk",
 
     # ── Status bar ────────────────────────────────────────────────────────────
     "status_filter_reset":          "Filter gewist",
@@ -140,6 +153,7 @@ STRINGS: dict[str, str] = {
     "status_flags_cleared":         "Alle markeringen gewist",
     "status_flagged_count":         "{flagged} van {total} caches gemarkeerd",
     "status_db_name":               "Database: {db_name}",
+    "status_refresh_failed":        "Vernieuwen van cachelijst mislukt",
 
     # ── Waypoint dialog ───────────────────────────────────────────────────────
     "wp_dialog_title_add":          "Cache toevoegen",
@@ -316,6 +330,9 @@ STRINGS: dict[str, str] = {
     "settings_map_max_caches_label":    "Max. caches op kaart:",
     "settings_map_unlimited":           "Onbeperkt",
     "settings_map_max_caches_note":     "Beperkt de kaart tot de dichtstbijzijnde caches vanaf uw actieve thuiscoördinaat — veel sneller bij grote databases, en een kaart met honderdduizenden pinnen is bij normale zoom toch niet erg leesbaar. De cachelijst wordt nooit door deze limiet beïnvloed.",
+    "settings_map_nearby_radius_label":    "Straal voor split-screen-kaart:",
+    "settings_map_nearby_max_caches_label": "Cache-limiet voor split-screen-kaart:",
+    "settings_map_nearby_note":          "Bepaalt de individuele cache-kaart die in split screen wordt getoond — toont caches binnen deze straal van de geselecteerde cache, onafhankelijk van de bovenstaande limiet van de overzichtskaart. Er wordt een cirkel op de kaart getekend op deze straal; als de cachelimiet binnen die cirkel wordt bereikt, toont een label hoeveel er verborgen zijn. Wordt per database opgeslagen.",
     "map_disabled_placeholder":         "Kaart uitgeschakeld\n\nSchakel deze weer in bij Instellingen → Kaart.",
     "settings_date_format_locale":  "OS-landinstelling",
     "settings_group_language":      "Taal",
@@ -487,6 +504,7 @@ STRINGS: dict[str, str] = {
     "update_loc_nothing_to_do":     "Geen waypoints om bij te werken met het geselecteerde bereik.",
     "update_loc_row":               "{gc_code}: {country} / {state} / {county}",
     "update_loc_row_error":         "{gc_code}: fout — {msg}",
+    "update_loc_prefetch_progress": "Ontbrekende gemeentegegevens downloaden: {done}/{total}…",
 
     # ── Grenspakket-dialoogvensters ───────────────────────────────────────────
     "boundary_dl_title":            "Grenspakketten downloaden",
@@ -557,6 +575,8 @@ STRINGS: dict[str, str] = {
     "db_err_dir_not_found":         "Map bestaat niet:\n{path}",
     "db_err_no_write_permission":   "Geen schrijfrechten voor map:\n{path}",
     "db_err_create_failed":         "Kan de database niet aanmaken.",
+    "db_err_switch_failed_title":   "Kan niet van database wisselen",
+    "db_err_switch_failed":         "Kan niet wisselen naar '{name}':\n{error}\n\nEr is een gedetailleerd logbestand opgeslagen — zie Help > Logbestand openen.",
     "db_err_file_not_found":        "Databasebestand niet gevonden:\n{path}",
     "db_err_remove_active":         "Kan de actieve database niet uit de lijst verwijderen.",
     "db_err_delete_active":         "Kan de actieve database niet verwijderen — schakel eerst over naar een andere.",
@@ -723,6 +743,25 @@ STRINGS: dict[str, str] = {
     "col_user_data_4":       "Gebruikersdata 4",
     "col_favorite_points":   "Fav. punten",
     "col_trackables":        "Trackables",
+    # ── Issue #658: additional GSAK-compatible columns ────────────────────────
+    "col_gc_cache_id":       "Cache Id",
+    "col_changed_date":      "Wijzigingsdatum",
+    "col_creation_date":     "Aanmaakdatum",
+    "col_elevation":         "Hoogte",
+    "col_find_count":        "Aantal gevonden",
+    "col_gc_note":           "GC.com-notitie",
+    "col_guid":              "Guid",
+    "col_hints":             "Hints",
+    "col_notes":             "Notitie",
+    "col_owner_id":          "Eigenaar-ID",
+    "col_owner_name":        "Eigenaarnaam",
+    "col_source":            "Bron",
+    "col_url":               "Url",
+    "col_watch":              "Volgen",
+    # ── Issue #716: follow-up derived columns ──────────────────────────────
+    "col_last_found_date":   "Laatst gevonden",
+    "col_last_gpx_update":   "Laatste GPX-update",
+    "col_last_four_logs":    "Laatste vier logs",
 
     # ── Right-click context menu ──────────────────────────────────────────────
     "ctx_open_geocaching":  "🌐  Openen op geocaching.com",
@@ -806,6 +845,9 @@ STRINGS: dict[str, str] = {
 
     # ── Corrected coordinates ─────────────────────────────────────────────────
     "map_home_label":               "Thuis",
+    "map_nearby_label":             "Toont de {shown} dichtstbijzijnde van {total} binnen {radius} {unit}",
+    "startup_db_error_title":       "OpenSAK kon niet starten",
+    "startup_db_error_msg":         "OpenSAK kon uw database niet openen en kan niet starten.\n\n{error}\n\nEen gedetailleerd foutenlogboek is hier opgeslagen:\n{path}\n\nDeel dit logbestand op github.com/OpenSAK-Org/OpenSAK/issues of hello@opensak.com, zodat we kunnen helpen.",
     "map_ctx_copy_coords":          "Kopieer {coords}",
     "map_ctx_copy_as":              "Kopieer als...",
     "map_ctx_set_corrected":        "Gecorrigeerde coördinaten instellen",
