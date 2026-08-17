@@ -660,7 +660,7 @@ python run.py</code></pre>
     <div class="callout note"><div class="callout-icon">ℹ️</div><div>Re-importing an updated Pocket Query is safe — existing caches are updated automatically. No duplicates are created.</div></div>
 
     <h3>Auto-geocoding</h3>
-    <p>After import, OpenSAK automatically runs an <strong>offline reverse-geocode pass</strong> to fill in Country, State/Region, and County for any caches that are missing these fields. This works with no internet connection.</p>
+    <p>After import, OpenSAK automatically runs an <strong>offline reverse-geocode pass</strong> to fill in Country, State/Region, and County for any caches that are missing these fields. This works with no internet connection, and is <strong>enabled by default</strong> — no setup required.</p>
 
     <h3>Supported Formats</h3>
     <table>
@@ -804,6 +804,14 @@ python run.py</code></pre>
       <li>Corrected coordinates are shown as a separate pin (📍) linked to the original.</li>
       <li>Use the <strong>⌂ button</strong> in the toolbar to pan the map to your active home point.</li>
     </ul>
+
+    <h3>Maximize &amp; Pop-out</h3>
+    <p>Two ways to work with a bigger map, both reachable from the two small buttons in the map's own corner, the toolbar, or the <strong>View</strong> menu:</p>
+    <ul>
+      <li><strong>⛶ Maximize map</strong> (<kbd>F11</kbd>) — expands the map to fill the whole main window, hiding the cache list and detail panel. Press <kbd>F11</kbd> again, or click the button again, to restore the normal 3-panel layout.</li>
+      <li><strong>⧉ Pop out map</strong> (<kbd>Ctrl+Shift+M</kbd>) — opens the map in its own floating window, so it can be moved to a second monitor while the main window keeps the cache list and detail panel. The pop-out window's size and position are remembered between sessions. Closing it, or pressing <kbd>Ctrl+Shift+M</kbd> again, docks the map back into the main window.</li>
+    </ul>
+    <div class="callout note"><div class="callout-icon">ℹ️</div><div>Both stay in sync with the cache list and active filter, exactly like the docked map.</div></div>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════ -->
