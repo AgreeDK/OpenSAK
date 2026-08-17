@@ -337,8 +337,7 @@ jobs:
             ### macOS
 
             1. Download the correct .dmg for your Mac (arm64 or x86_64)
-            2. Open the .dmg and drag OpenSAK to your Applications folder
-            3. First launch: right-click → Open (required as the app is not signed with an Apple certificate)
+            2. Open the .dmg and drag OpenSAK to your Applications folder — the app is signed and notarized by Apple, so it opens normally on first launch
 
             ---
             See [CHANGELOG.md](https://github.com/OpenSAK-Org/OpenSAK/blob/${{ steps.version.outputs.VERSION }}/CHANGELOG.md) for details.
