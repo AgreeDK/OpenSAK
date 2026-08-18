@@ -75,6 +75,7 @@ def _cache(
     gc_cache_id=None,
     owner_name=None,
     owner_id=None,
+    waypoints=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=cache_id,
@@ -103,6 +104,31 @@ def _cache(
         long_description=long_description,
         long_desc_html=long_desc_html,
         attributes=attributes or [],
+        waypoints=waypoints or [],
+    )
+
+
+def _child_wpt(
+    prefix="01",
+    wp_type="Reference Point",
+    name="Juvenesvegen",
+    description="Juvenesvegen",
+    comment="Leave Fv98. Drive up here.",
+    latitude=59.891617,
+    longitude=9.355417,
+    url=None,
+    wp_date=None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        prefix=prefix,
+        wp_type=wp_type,
+        name=name,
+        description=description,
+        comment=comment,
+        latitude=latitude,
+        longitude=longitude,
+        url=url,
+        wp_date=wp_date,
     )
 
 
@@ -597,6 +623,143 @@ class TestGenerateGpx:
         dt = datetime(2024, 6, 1, tzinfo=timezone.utc)
         result = generate_gpx([_cache(hidden_date=dt)])
         assert "2024-06-01" in result
+
+
+# ── Child waypoint export (issue #753) ──────────────────────────────────────
+# generate_gpx() used to only ever emit the ONE <wpt> for the cache's own
+# listing — cache.waypoints (parking areas, trailheads, stages, final
+# locations, etc.) were silently dropped from GPX/GGZ export and Send-to-GPS
+# entirely. Verified end-to-end against the reporter's real GC1YB0C.gpx /
+# opensak_GC1YB0C.gpx pair (2 <wpt> in the original, 1 in OpenSAK's export).
+
+class TestChildWaypointExport:
+    def test_no_waypoints_unaffected(self):
+        # Backward compatibility: existing callers/tests build _cache()
+        # without a waypoints= arg at all (defaults to []) — must still
+        # produce exactly the one cache <wpt>, same as before this fix.
+        result = generate_gpx([_cache()])
+        assert result.count("<wpt ") == 1
+
+    def test_single_child_waypoint_adds_second_wpt(self):
+        result = generate_gpx([_cache(waypoints=[_child_wpt()])])
+        assert result.count("<wpt ") == 2
+
+    def test_multiple_child_waypoints_all_exported(self):
+        wps = [
+            _child_wpt(prefix="PK", wp_type="Parking Area", latitude=55.0, longitude=12.0),
+            _child_wpt(prefix="TH", wp_type="Trailhead", latitude=55.1, longitude=12.1),
+            _child_wpt(prefix="FN", wp_type="Final Location", latitude=55.2, longitude=12.2),
+        ]
+        result = generate_gpx([_cache(waypoints=wps)])
+        assert result.count("<wpt ") == 4  # 1 cache + 3 children
+
+    def test_child_waypoint_coordinates(self):
+        result = generate_gpx([_cache(waypoints=[
+            _child_wpt(latitude=59.891617, longitude=9.355417),
+        ])])
+        assert 'lat="59.891617"' in result
+        assert 'lon="9.355417"' in result
+
+    def test_child_waypoint_name_reconstructed_from_prefix_and_gc_code(self):
+        # Regression for the exact reporter scenario: gc_code "GC1YB0C",
+        # child prefix "01" -> reconstructed name "011YB0C", byte-identical
+        # to the original geocaching.com GPX in this case.
+        result = generate_gpx([_cache(
+            gc_code="GC1YB0C",
+            waypoints=[_child_wpt(prefix="01")],
+        )])
+        assert "<name>011YB0C</name>" in result
+
+    def test_child_waypoint_missing_prefix_falls_back_to_wp(self):
+        result = generate_gpx([_cache(
+            gc_code="GC1YB0C",
+            waypoints=[_child_wpt(prefix=None)],
+        )])
+        assert "<name>WP1YB0C</name>" in result
+
+    def test_child_waypoint_comment_and_description(self):
+        result = generate_gpx([_cache(waypoints=[_child_wpt(
+            comment="Leave Fv98. Drive up here.",
+            description="Juvenesvegen",
+        )])])
+        assert "<cmt>Leave Fv98. Drive up here.</cmt>" in result
+        assert "<desc>Juvenesvegen</desc>" in result
+
+    def test_child_waypoint_sym_and_type_from_wp_type(self):
+        result = generate_gpx([_cache(waypoints=[
+            _child_wpt(wp_type="Reference Point"),
+        ])])
+        assert "<sym>Reference Point</sym>" in result
+        assert "<type>Waypoint|Reference Point</type>" in result
+
+    def test_child_waypoint_missing_wp_type_falls_back_to_waypoint(self):
+        result = generate_gpx([_cache(waypoints=[_child_wpt(wp_type=None)])])
+        assert "<sym>Waypoint</sym>" in result
+        assert "<type>Waypoint|Waypoint</type>" in result
+
+    def test_child_waypoint_url_included_when_present(self):
+        result = generate_gpx([_cache(waypoints=[
+            _child_wpt(url="https://www.geocaching.com/seek/wpt.aspx?WID=abc123"),
+        ])])
+        assert "<url>https://www.geocaching.com/seek/wpt.aspx?WID=abc123</url>" in result
+
+    def test_child_waypoint_url_omitted_when_absent(self):
+        # GPX-sourced waypoints don't carry a URL (only GSAK-imported ones
+        # might) — must not emit an empty <url/> element.
+        result = generate_gpx([_cache(waypoints=[_child_wpt(url=None)])])
+        assert "<url></url>" not in result
+        assert "<url />" not in result
+
+    def test_child_waypoint_urlname_falls_back_to_reconstructed_name(self):
+        result = generate_gpx([_cache(
+            gc_code="GC1YB0C",
+            waypoints=[_child_wpt(prefix="01", name=None, description=None)],
+        )])
+        assert "<urlname>011YB0C</urlname>" in result
+
+    def test_child_waypoint_time_included_when_wp_date_present(self):
+        dt = datetime(2009, 10, 12, 11, 56, 59, tzinfo=timezone.utc)
+        result = generate_gpx([_cache(waypoints=[_child_wpt(wp_date=dt)])])
+        assert "<time>2009-10-12" in result
+
+    def test_child_waypoint_without_coordinates_skipped(self):
+        result = generate_gpx([_cache(waypoints=[
+            _child_wpt(latitude=None, longitude=None),
+        ])])
+        assert result.count("<wpt ") == 1  # only the parent cache's own
+
+    def test_child_waypoint_no_groundspeak_cache_block(self):
+        # Child waypoints are plain GPX waypoints, not fake geocaches —
+        # same reasoning as custom-waypoint-type caches (#660).
+        result = generate_gpx([_cache(waypoints=[_child_wpt()])])
+        assert result.count("<groundspeak:cache") == 1  # only the parent
+
+    def test_child_waypoints_independent_per_cache(self):
+        c1 = _cache(gc_code="GC00001", waypoints=[_child_wpt(prefix="PK")])
+        c2 = _cache(gc_code="GC00002", waypoints=[])
+        result = generate_gpx([c1, c2])
+        assert result.count("<wpt ") == 3  # 2 caches + 1 child on c1 only
+
+    def test_real_world_gc1yb0c_reference_point_round_trip(self):
+        # Exact values from the reporter's original GC1YB0C.gpx <wpt> for
+        # the Reference Point child waypoint.
+        result = generate_gpx([_cache(
+            gc_code="GC1YB0C",
+            waypoints=[_child_wpt(
+                prefix="01", wp_type="Reference Point", name="Juvenesvegen",
+                description="Juvenesvegen", comment="Leave Fv98. Drive up here.",
+                latitude=59.891617, longitude=9.355417,
+            )],
+        )])
+        assert result.count("<wpt ") == 2
+        assert 'lat="59.891617"' in result
+        assert 'lon="9.355417"' in result
+        assert "<name>011YB0C</name>" in result
+        assert "<cmt>Leave Fv98. Drive up here.</cmt>" in result
+        assert "<desc>Juvenesvegen</desc>" in result
+        assert "<urlname>Juvenesvegen</urlname>" in result
+        assert "<sym>Reference Point</sym>" in result
+        assert "<type>Waypoint|Reference Point</type>" in result
 
 
 # ── export_to_file ────────────────────────────────────────────────────────────

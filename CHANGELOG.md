@@ -8,6 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Child waypoints missing from GPX/GGZ export and Send-to-GPS (#753)** —
+  `generate_gpx()` only ever emitted the one `<wpt>` for a cache's own
+  listing; `cache.waypoints` (parking areas, trailheads, stages, final
+  locations, etc.) were silently dropped from every export path that uses
+  it — File Export (GPX and GGZ) and Send-to-GPS alike. Each child waypoint
+  now gets its own sibling `<wpt>` element, as a plain GPX waypoint (no
+  `groundspeak:cache` block — same convention as custom-waypoint-type
+  caches, #660) with its coordinates, comment, description, sym/type from
+  its waypoint type, and a reconstructed GC-style `<name>` (prefix + this
+  cache's own code suffix — the exact original geocaching.com-assigned
+  code isn't retained on import, but a short unique code is all a
+  re-import or device needs). Verified end-to-end against pjacklam's
+  original GC1YB0C.gpx / opensak_GC1YB0C.gpx pair — the reconstructed
+  child waypoint now matches the original byte-for-byte on every field
+  except `<url>` (not retained by GPX import, so intentionally omitted
+  rather than exported empty). Thanks to pjacklam for the report and the
+  side-by-side GPX files, which made the diff straightforward.
+
 - **Split-screen map: caches with corrected coordinates rendered outside
   the drawn circle, and stayed unfiltered when a cache was selected
   (#748, #743)** — the split-screen "nearby" map computed radius
