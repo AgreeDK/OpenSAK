@@ -281,6 +281,20 @@ FOUND_LOG_TYPES: frozenset[str] = frozenset({
     "Webcam Photo Taken",
 })
 
+# ── Cache types that log "Attended" instead of "Found it" (issue #649) ──────
+# Used by the manual "Mark as Found" flow (cache_table.py::_toggle_found())
+# to decide which log_type to synthesize for the new Log row — mirrors how
+# FOUND_LOG_TYPES/the importer already treat these types' found-type logs.
+EVENT_LOG_CACHE_TYPES: frozenset[str] = frozenset({
+    "Event Cache",
+    "Cache In Trash Out Event",
+    "Mega-Event Cache",
+    "Giga-Event Cache",
+    "Community Celebration Event",
+    "Geocaching HQ Celebration",
+    "Geocaching HQ Block Party",
+})
+
 # ── FTF (First to Find) tag pattern (issue #114 follow-up) ───────────────────
 # ProjectGC (the de-facto FTF stats provider most geocachers use) only credits
 # an FTF when the log contains one of these exact tags — see

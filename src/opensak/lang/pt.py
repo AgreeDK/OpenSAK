@@ -771,8 +771,16 @@ STRINGS: dict[str, str] = {
     "ctx_coord_converter":  "⇄  Conversor de coordenadas…",
     "ctx_edit_cache":       "✏️  Editar cache…",
     "ctx_mark_found":       "☑  Marcar como encontrada",
+    "ctx_edit_found_date":  "📅  Editar data do achado…",
     "ctx_mark_not_found":   "☐  Marcar como não encontrada",
     "ctx_update_location":  "🌍  Atualizar dados de localização…",
+
+    # ── Mark as Found dialog (issue #649) ──────────────────────────────────────
+    "mark_found_dialog_title":       "Marcar como encontrada",
+    "mark_found_dialog_heading":     "Marcar {gc_code} — {name} — como encontrada",
+    "mark_found_dialog_hint":        "Isto cria um registo \"Found it\" para que o achado seja corretamente exportado via GPX (por exemplo, para o GSAK).",
+    "mark_found_dialog_date_label":  "Data do achado:",
+    "mark_found_no_username_warning": "Defina primeiro o seu nome de utilizador do Geocaching.com em Definições — é usado como nome do localizador no registo criado.",
 
     # ── Waypoint dialog — field labels and placeholders ───────────────────────
     "wp_label_gc_code":             "Código GC *:",

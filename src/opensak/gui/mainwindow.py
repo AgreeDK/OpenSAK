@@ -267,6 +267,7 @@ class MainWindow(QMainWindow):
         self._cache_table.edit_requested.connect(self._edit_waypoint_from_cache)
         self._cache_table.center_point_requested.connect(self._set_cache_as_center)
         self._cache_table.corrected_coords_changed.connect(self._on_corrected_coords_changed)
+        self._cache_table.found_status_changed.connect(self._on_found_status_changed)
         self._splitter.addWidget(self._cache_table)
 
         # Bottom container: info bar (fixed) + horisontal splitter (resizable)
@@ -1596,6 +1597,19 @@ class MainWindow(QMainWindow):
         full = self._load_full_cache(gc_code)
         if full:
             self._map_widget.update_cache(full)
+
+    def _on_found_status_changed(self, gc_code: GcCode) -> None:
+        """Issue #649: refresh table row, map pin, detail panel (if this
+        cache is currently shown), and the Info Bar counts after a manual
+        Mark as Found/Not Found — found status affects the info bar's
+        found-count directly, unlike a corrected-coordinates change."""
+        self._cache_table.refresh_cache_row(gc_code)
+        full = self._load_full_cache(gc_code)
+        if full:
+            self._map_widget.update_cache(full)
+            if getattr(self._detail_panel, "_current_gc_code", None) == gc_code:
+                self._detail_panel.show_cache(full)
+        self._update_info_bar()
 
     def _on_search_changed(self, text: str) -> None:
         has_search = bool(self._search_gc.text().strip() or self._search_box.text().strip())

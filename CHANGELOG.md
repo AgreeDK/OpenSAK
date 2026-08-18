@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **"Mark as Found" now opens a dialog and creates a real log entry (#649)**
+  — right-clicking a cache and choosing "Mark as Found" used to silently
+  set `cache.found = True` with no found date and no Log row. Since GPX
+  export only ever serializes existing `cache.logs`, a manually-found
+  cache exported with no `groundspeak:finder`/"Found it" entry at all —
+  GSAK (or any re-import) then didn't recognize it as found either, even
+  though OpenSAK's own list showed it as found. This is a real workflow
+  gap for Adventure Lab Caches specifically, where geocaching.com
+  auto-logs the parent AD Lab as found with no real per-stage log to
+  import, so manual marking is the only way in. "Mark as Found" now opens
+  a dialog to pick the found date (default: today), and creates a matching
+  Log row (type "Found it", or "Attended" for event-type caches, finder =
+  your configured Geocaching.com username, date = the chosen date) —
+  verified end-to-end that a manually-found cache now round-trips
+  correctly through GPX export. Requires a Geocaching.com username
+  configured under Settings first (used as the log's finder name); you'll
+  be prompted if it isn't set yet. A new "Edit found date…" entry lets you
+  change the date afterwards without unmarking first — it updates your
+  existing found-type log in place rather than adding a duplicate.
+  "Mark as Not Found" now also clears the found date (mirroring GSAK's own
+  found/found-date linkage), so a cache marked not found no longer shows a
+  stale date; it still doesn't touch existing log history.
+
 ### Fixed
 
 - **Child waypoints missing from GPX/GGZ export and Send-to-GPS (#753)** —

@@ -770,8 +770,16 @@ STRINGS: dict[str, str] = {
     "ctx_coord_converter":  "⇄  Koordinatkonverterare…",
     "ctx_edit_cache":       "✏️  Redigera cache…",
     "ctx_mark_found":       "☑  Flagga som hittad",
+    "ctx_edit_found_date":  "📅  Redigera hittad datum…",
     "ctx_mark_not_found":   "☐  Flagga som inte hittad",
     "ctx_update_location":  "🌍  Uppdatera platsdata…",
+
+    # ── Mark as Found dialog (issue #649) ──────────────────────────────────────
+    "mark_found_dialog_title":       "Flagga som hittad",
+    "mark_found_dialog_heading":     "Flagga {gc_code} — {name} — som hittad",
+    "mark_found_dialog_hint":        "Detta skapar en \"Found it\"-loggpost så att fyndet exporteras korrekt via GPX (t.ex. till GSAK).",
+    "mark_found_dialog_date_label":  "Hittad datum:",
+    "mark_found_no_username_warning": "Ange ditt Geocaching.com-användarnamn under Inställningar först — det används som hittarens namn på loggposten som skapas.",
 
     # ── Waypoint dialog — field labels and placeholders ───────────────────────
     "wp_label_gc_code":             "GC Kod *:",
