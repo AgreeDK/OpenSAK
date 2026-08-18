@@ -60,7 +60,8 @@ def seed_lightweight_data(tmp_db):
 
         alpha = next(c for c in caches if c.gc_code == "GCL0001")
         s.add(UserNote(cache_id=alpha.id, is_corrected=True,
-                        corrected_lat=55.05, corrected_lon=12.05))
+                        corrected_lat=55.05, corrected_lon=12.05,
+                        note="remember the SPECIALWIDGET stash spot"))
         s.add(Attribute(cache_id=alpha.id, attribute_id=1, name="Dogs allowed", is_on=True))
         s.add(Trackable(cache_id=alpha.id, ref="TB1", name="Bug One"))
         s.add(Log(cache_id=alpha.id, log_id="L1", log_type="Found it",
@@ -206,6 +207,58 @@ class TestFallbackToFullOrm:
         assert len(result) == 1
         assert isinstance(result[0], Cache)
 
+    def test_text_search_notes_only_falls_back(self):
+        # Issue #752: search_notes was missing from _filterset_relationship_
+        # needs() entirely, so a TextSearchFilter scoped to *only* User
+        # Notes (description/logs/hint all False — the exact scope a user
+        # gets by unchecking the filter dialog's other text-search boxes)
+        # fell through with every _RelationshipNeeds flag False. That sent
+        # it down the fast Core select() path, where TextSearchFilter's
+        # notes exists() subquery — written for, and only ever exercised
+        # against, apply_filters()'s ORM Query — raised
+        # sqlalchemy.exc.InvalidRequestError ("no FROM clauses due to auto-
+        # correlation") instead of returning a result. This must now fall
+        # back to the full ORM path instead, same as description/logs/hint.
+        with get_session() as s:
+            fs = FilterSet().add(TextSearchFilter(
+                "specialwidget",
+                search_description=False, search_logs=False,
+                search_notes=True, search_hint=False,
+            ))
+            result = apply_filters_lightweight(s, fs)  # must not raise
+        assert len(result) == 1
+        assert result[0].gc_code == "GCL0001"
+        assert isinstance(result[0], Cache)
+        assert not isinstance(result[0], LightweightCache)
+
+    def test_text_search_notes_only_matches_apply_filters_auto(self):
+        # Same scenario through the actual GUI entry point (apply_filters_
+        # auto, what mainwindow._on_filter_applied()/_refresh_cache_list()
+        # call) rather than apply_filters_lightweight() directly.
+        with get_session() as s:
+            fs = FilterSet().add(TextSearchFilter(
+                "specialwidget",
+                search_description=False, search_logs=False,
+                search_notes=True, search_hint=False,
+            ))
+            result = apply_filters_auto(s, fs)
+        assert [c.gc_code for c in result] == ["GCL0001"]
+
+    def test_text_search_notes_only_excludes_non_matching_cache(self):
+        # Mirrors the reporter's exact repro shape: only one of several
+        # caches has a matching note, and a notes-only search must not
+        # also match caches with no note at all (e.g. GCL0004/Delta).
+        with get_session() as s:
+            fs = FilterSet().add(TextSearchFilter(
+                "specialwidget",
+                search_description=False, search_logs=False,
+                search_notes=True, search_hint=False,
+            ))
+            result = apply_filters_lightweight(s, fs)
+        codes = {c.gc_code for c in result}
+        assert codes == {"GCL0001"}
+        assert "GCL0004" not in codes
+
     def test_no_relationship_filter_uses_lightweight_path(self):
         with get_session() as s:
             fs = FilterSet().add(ArchivedFilter())
@@ -342,3 +395,40 @@ class TestApplyFiltersAutoDispatch:
             auto_codes = {c.gc_code for c in apply_filters_auto(s, fs)}
             full_codes = {c.gc_code for c in apply_filters(s, fs)}
         assert auto_codes == full_codes
+
+
+# ── _filterset_relationship_needs() — issue #752 ────────────────────────────
+
+class TestRelationshipNeedsNotesFlag:
+    """Direct unit coverage for the dataclass/function themselves, so a
+    future edit that drops the notes flag again fails fast here instead of
+    only via the pricier end-to-end apply_filters_lightweight() crash
+    repro above."""
+
+    def test_notes_only_filter_needs_notes(self):
+        from opensak.filters.engine import _filterset_relationship_needs
+        fs = FilterSet().add(TextSearchFilter(
+            "x", search_description=False, search_logs=False,
+            search_notes=True, search_hint=False,
+        ))
+        needs = _filterset_relationship_needs(fs)
+        assert needs.notes is True
+        assert needs.any is True
+
+    def test_no_text_filter_does_not_need_notes(self):
+        from opensak.filters.engine import _filterset_relationship_needs
+        fs = FilterSet().add(ArchivedFilter())
+        needs = _filterset_relationship_needs(fs)
+        assert needs.notes is False
+        assert needs.any is False
+
+    def test_text_filter_without_notes_scope_does_not_need_notes(self):
+        from opensak.filters.engine import _filterset_relationship_needs
+        fs = FilterSet().add(TextSearchFilter(
+            "x", search_description=True, search_logs=False,
+            search_notes=False, search_hint=False,
+        ))
+        needs = _filterset_relationship_needs(fs)
+        assert needs.notes is False
+        assert needs.description is True
+        assert needs.any is True

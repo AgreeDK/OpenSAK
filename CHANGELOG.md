@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Info Bar counts wrong when text-searching User Notes (#752)** —
+  `apply_filters_lightweight()`'s fallback check for when it must defer to
+  the full ORM query path never accounted for `TextSearchFilter.search_notes`
+  (only description/logs/hint were checked). A text search scoped to *only*
+  User Notes therefore took the fast lightweight path, where the notes
+  `exists()` subquery — written for, and only ever exercised against, the
+  full ORM query — raised a SQLAlchemy auto-correlation error instead of
+  returning a result. Notes-only text search filters now correctly fall
+  back to the full ORM path, matching how description/logs/hint scoping
+  already behaved. Thanks to pjacklam for the report.
+
 - **Community Celebration Event caches imported with wrong type (#756)** —
   geocaching.com's GPX export uses the raw type string
   `"Lost and Found Event Caches"` for CCE caches, not `"Event Cache"` as

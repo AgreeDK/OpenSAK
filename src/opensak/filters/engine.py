@@ -1728,10 +1728,14 @@ class _RelationshipNeeds:
     logs: bool
     description: bool
     hint: bool
+    notes: bool
 
     @property
     def any(self) -> bool:
-        return self.attributes or self.trackables or self.logs or self.description or self.hint
+        return (
+            self.attributes or self.trackables or self.logs
+            or self.description or self.hint or self.notes
+        )
 
 
 def _filterset_relationship_needs(filterset: Optional["FilterSet"]) -> _RelationshipNeeds:
@@ -1748,9 +1752,22 @@ def _filterset_relationship_needs(filterset: Optional["FilterSet"]) -> _Relation
     needs_description = any(f.search_description for f in _text_filters)
     needs_hint = any(f.search_hint for f in _text_filters)
     needs_logs = any(f.search_logs for f in _text_filters)
+    # Issue #752: search_notes was never checked here, so a TextSearchFilter
+    # scoped to *only* User Notes (search_description/search_logs/
+    # search_hint all False) fell through with every _RelationshipNeeds
+    # flag False, and apply_filters_lightweight() then took the fast Core
+    # select() path — where TextSearchFilter.apply_to_query()'s notes
+    # exists() subquery raises an auto-correlation InvalidRequestError,
+    # since that subquery was written for (and only ever tested against)
+    # apply_filters()'s ORM Query, which correlates automatically in a way
+    # Core select() doesn't. Treating notes like description/logs/hint here
+    # routes notes-only searches to the full ORM path instead, which
+    # already handles the same exists() subquery correctly.
+    needs_notes = any(f.search_notes for f in _text_filters)
     return _RelationshipNeeds(
         attributes=needs_attributes, trackables=needs_trackables,
         logs=needs_logs, description=needs_description, hint=needs_hint,
+        notes=needs_notes,
     )
 
 
