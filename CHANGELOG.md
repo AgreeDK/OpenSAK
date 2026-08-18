@@ -8,6 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Vertical splitter couldn't be resized past roughly the middle of the
+  window (#755)** — the cache detail panel's `QTabWidget` (Description,
+  Hint, Logs, Waypoints, Attributes, Trackables, Notes) reported its own
+  minimum size as the largest of all its tab pages' minimums, since any
+  tab could be switched to at any time. That propagated up into the whole
+  bottom panel's minimum height, blocking the main splitter from being
+  dragged much further down — the panel could shrink, but never much past
+  its content's natural minimum. A `QSizePolicy.Ignored` on the tab
+  widget's vertical component stops that minimum-size propagation without
+  affecting normal sizing or tab switching — each tab's own content
+  already scrolls internally when squeezed, so nothing becomes
+  unreachable. Verified the splitter can now shrink the bottom panel well
+  under its old floor, even with a heavily populated cache (many
+  attributes/logs/waypoints, long description).
+
 - **Coordinate Converter gave wrong results (#751)** — two independent bugs
   in `src/opensak/coords.py`, both reported/diagnosed by pjacklam:
   1. `parse_coords()` had no dedicated branch for a plain decimal-degree

@@ -7,6 +7,8 @@ import pytest
 
 pytest.importorskip("pytestqt")
 
+from PySide6.QtWidgets import QSizePolicy
+
 from opensak.gui import cache_detail as cd
 from opensak.gui.cache_detail import CacheDetailPanel
 from opensak.lang import tr
@@ -690,3 +692,108 @@ def test_accept_navigation_request_accepts_str_url(monkeypatch):
     )
     assert result is False
     assert opened == ["https://example.com/clicked"]
+
+
+# ── Issue #755: minimum size no longer blocks the main splitter ────────────
+# self._tabs (the Description/Hint/Logs/Waypoints/Attributes/Trackables/
+# Notes QTabWidget) used to report its minimumSizeHint as the largest of
+# its tab pages' own minimums, which propagated up into the panel's — and
+# therefore the whole vertical splitter's — minimum height, blocking the
+# splitter from being dragged much past that point ("stuck around the
+# middle of the window"). QSizePolicy.Ignored on the vertical component
+# stops that propagation without affecting normal sizing/tab switching.
+
+class TestSplitterMinimumSize:
+    _EMPTY_PANEL_MAX_MIN_HEIGHT = 160  # generous ceiling; was ~226 before the fix
+
+    def test_empty_panel_minimum_height_is_small(self, qapp):
+        panel = CacheDetailPanel()
+        assert panel.minimumSizeHint().height() <= self._EMPTY_PANEL_MAX_MIN_HEIGHT
+
+    def test_populated_panel_minimum_height_stays_small(self, qapp, tmp_path):
+        # A heavily-populated cache (many attributes/logs/waypoints, long
+        # description) must not push the minimum height back up — this is
+        # the exact scenario that made the splitter get stuck in practice.
+        from opensak.db.database import get_session, init_db
+        from opensak.db.models import Cache, Log, Attribute, Waypoint
+        from sqlalchemy.orm import joinedload, selectinload
+
+        db_path = tmp_path / "test_755.db"
+        init_db(db_path=db_path)
+        with get_session() as s:
+            c = Cache(
+                gc_code="GC75500", name="A Very Long Cache Name For Testing",
+                cache_type="Traditional Cache", difficulty=3.5, terrain=4.0,
+                container="Regular", country="Denmark", latitude=55.0, longitude=12.0,
+                short_description="Short desc " * 20, short_desc_html=False,
+                long_description="Long description text. " * 200, long_desc_html=False,
+                encoded_hints="Some hint text here " * 10,
+                hidden_date=datetime(2020, 1, 1), placed_by="SomeOwner",
+            )
+            s.add(c)
+            s.flush()
+            for i in range(20):
+                s.add(Attribute(cache_id=c.id, attribute_id=i, name=f"Attribute {i}", is_on=True))
+            for i in range(30):
+                s.add(Log(cache_id=c.id, log_type="Found it", finder=f"User{i}",
+                           log_date=datetime(2024, 1, i % 28 + 1), text="Log text " * 5))
+            for i in range(10):
+                s.add(Waypoint(cache_id=c.id, prefix=f"P{i}", wp_type="Parking Area",
+                                name=f"WP {i}", description="desc", comment="",
+                                latitude=55.0, longitude=12.0))
+
+        with get_session() as s:
+            cache = s.query(Cache).options(
+                joinedload(Cache.user_note), selectinload(Cache.logs),
+                selectinload(Cache.attributes), selectinload(Cache.waypoints),
+                selectinload(Cache.trackables),
+            ).filter_by(gc_code="GC75500").first()
+
+            panel = CacheDetailPanel()
+            panel.show_cache(cache)
+            assert panel.minimumSizeHint().height() <= self._EMPTY_PANEL_MAX_MIN_HEIGHT
+
+    def test_tabs_vertical_size_policy_is_ignored(self, qapp):
+        # Direct check on the mechanism itself, so a future refactor that
+        # accidentally drops the policy fails here immediately rather than
+        # only via the pricier size-measurement tests above.
+        panel = CacheDetailPanel()
+        assert panel._tabs.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Ignored
+
+    def test_tab_bar_remains_visible_and_switchable(self, qapp):
+        # The fix must not hide the tab bar or break switching — only the
+        # *minimum size contribution* changes, not actual usability.
+        panel = CacheDetailPanel()
+        panel.resize(400, 300)
+        panel.show()
+        qapp.processEvents()
+        assert panel._tabs.tabBar().isVisible()
+        for i in range(panel._tabs.count()):
+            panel._tabs.setCurrentIndex(i)
+            assert panel._tabs.currentIndex() == i
+        panel.hide()
+
+    def test_splitter_can_shrink_bottom_panel_well_past_old_minimum(self, qapp):
+        # End-to-end: the same QSplitter setup mainwindow.py uses (vertical,
+        # non-collapsible, detail panel at the bottom) must now allow
+        # shrinking the bottom panel to well under the old ~226-260px floor.
+        from PySide6.QtWidgets import QSplitter, QWidget
+        from PySide6.QtCore import Qt as _Qt
+
+        splitter = QSplitter(_Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        top = QWidget()
+        top.setMinimumHeight(50)
+        splitter.addWidget(top)
+        panel = CacheDetailPanel()
+        splitter.addWidget(panel)
+        splitter.resize(600, 800)
+        splitter.setSizes([400, 400])
+        splitter.show()
+        qapp.processEvents()
+
+        splitter.setSizes([750, 50])
+        qapp.processEvents()
+
+        assert splitter.sizes()[1] < 150  # well under the pre-fix ~226-260px floor
+        splitter.hide()
