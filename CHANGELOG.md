@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Coordinate Converter gave wrong results (#751)** — two independent bugs
+  in `src/opensak/coords.py`, both reported/diagnosed by pjacklam:
+  1. `parse_coords()` had no dedicated branch for a plain decimal-degree
+     value written with a hemisphere letter instead of a +/- sign (e.g.
+     "N 59.99999 E 12.99999", no separate minutes component). It fell
+     through to the DMM° regex branch instead, where backtracking let the
+     degrees group give back digits to the minutes group whenever keeping
+     them would leave an unparseable "." right after — silently
+     reinterpreting "59.99999" as degrees=5, minutes=9.99999 (5.16667°
+     instead of 59.99999°), with no error shown. A dedicated branch for
+     this input shape, checked before the DMM° branch, fixes it.
+  2. `_dd_to_dmm()`/`_dd_to_dms()` (and the cache list's `format_lat()`/
+     `format_lon()`, which had the same bug independently) rounded minutes/
+     seconds directly in an f-string without checking whether the rounded
+     value hit 60 — e.g. 59.999999° displayed as "59° 60.000'" or "59° 59'
+     60.00\"" instead of carrying into the next unit ("60° 00.000'"/"60°
+     00' 00.00\""). Both formatters now share carry-aware helpers that
+     roll 60 minutes into a degree and 60 seconds into a minute (which can
+     itself cascade into a degree). Verified against both of the reporter's
+     exact examples end-to-end.
+
 ### Added
 
 - **"Mark as Found" now opens a dialog and creates a real log entry (#649)**

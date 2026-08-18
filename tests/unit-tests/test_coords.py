@@ -340,3 +340,108 @@ class TestFormatLon:
 
     def test_dms_west(self):
         assert format_lon(-90.5, FORMAT_DMS).startswith("W090°")
+
+
+# ── Issue #751: rounding-carry overflow (minutes/seconds hitting 60) ───────
+# Reporter's exact repro: pasting "N 59.99999 E 12.99999" produced wildly
+# wrong output (degrees=5 instead of 59) due to a regex-backtracking bug in
+# parse_coords AND, separately, the DD->DMM/DMS conversion could display
+# "60.000" minutes or "60.00" seconds instead of carrying into the next
+# unit — reproduced and fixed independently below.
+
+class TestRoundingCarryDMM:
+    def test_minutes_rounds_to_60_carries_into_degrees(self):
+        # 59.999999 -> raw minutes = 59.99994, rounds to 60.000 at 3dp.
+        assert format_coords(59.999999, 12.999999, FORMAT_DMM) == \
+            "N60 00.000  E013 00.000"
+
+    def test_just_under_carry_threshold_stays_59_999(self):
+        assert format_coords(59.99999, 12.99999, FORMAT_DMM) == \
+            "N59 59.999  E012 59.999"
+
+    def test_carry_at_zero_degrees(self):
+        # 0.999999... -> minutes round to 60.000, degrees carry 0 -> 1.
+        assert format_coords(0.999999, 0.999999, FORMAT_DMM) == \
+            "N01 00.000  E001 00.000"
+
+    def test_format_lat_carries(self):
+        assert format_lat(59.999999, FORMAT_DMM) == "N60 00.000"
+
+    def test_format_lon_carries(self):
+        assert format_lon(12.999999, FORMAT_DMM) == "E013 00.000"
+
+    def test_never_displays_60_minutes(self):
+        # Sweep of values close to the rounding boundary must never show
+        # ":60.000" — every one must carry into degrees instead.
+        for frac in [0.9999991, 0.9999995, 0.9999999]:
+            result = format_coords(10 + frac, 20 + frac, FORMAT_DMM)
+            assert "60.000" not in result, f"got {result!r} for frac={frac}"
+
+
+class TestRoundingCarryDMS:
+    def test_seconds_rounds_to_60_carries_into_minutes_and_degrees(self):
+        # 59.999999 -> minutes=59, seconds round to 60.00, carries minutes
+        # to 60, which itself carries into degrees (60 -> 60, 0, 0).
+        assert format_coords(59.999999, 12.999999, FORMAT_DMS) == \
+            'N60° 00\' 00.00"  E013° 00\' 00.00"'
+
+    def test_just_under_carry_threshold_stays_59_96(self):
+        assert format_coords(59.99999, 12.99999, FORMAT_DMS) == \
+            'N59° 59\' 59.96"  E012° 59\' 59.96"'
+
+    def test_seconds_carry_without_degree_carry(self):
+        # Seconds overflow into minutes, but minutes stay under 60 so
+        # degrees must NOT also increment.
+        # 10 + 30/60 + 59.999/3600 degrees ~ minutes=30, seconds~59.999->60.00
+        lat = 10 + 30 / 60 + 59.999 / 3600
+        result = format_coords(lat, lat, FORMAT_DMS)
+        assert "10° 31' 00.00" in result
+        assert "10° 30' 60" not in result
+
+    def test_format_lat_carries(self):
+        assert format_lat(59.999999, FORMAT_DMS) == 'N60° 00\' 00.00"'
+
+    def test_format_lon_carries(self):
+        assert format_lon(12.999999, FORMAT_DMS) == 'E013° 00\' 00.00"'
+
+    def test_never_displays_60_seconds(self):
+        for frac in [0.99999991, 0.99999995, 0.99999999]:
+            result = format_coords(10 + frac, 20 + frac, FORMAT_DMS)
+            assert "60.00\"" not in result, f"got {result!r} for frac={frac}"
+
+
+class TestParseCoordsHemisphereDecimalDegrees:
+    """Issue #751: 'N <decimal> E <decimal>' — a plain decimal-degree value
+    written with a hemisphere letter instead of a +/- sign, no separate
+    minutes component. Previously mis-parsed via the DMM° branch due to
+    regex backtracking (degrees group giving back digits to let the
+    minutes group match), producing wildly wrong coordinates with no
+    error shown."""
+
+    def test_reporter_exact_repro(self):
+        # The exact string from the issue report.
+        assert parse_coords("N 59.99999 E 12.99999") == pytest.approx((59.99999, 12.99999))
+
+    def test_reporter_second_example(self):
+        assert parse_coords("N 59.999999 E 12.999999") == pytest.approx((59.999999, 12.999999))
+
+    def test_south_west(self):
+        assert parse_coords("S 33.86785 W 151.20732") == pytest.approx((-33.86785, -151.20732))
+
+    def test_lowercase_hemisphere(self):
+        assert parse_coords("n 55.78750 e 12.41667") == pytest.approx((55.78750, 12.41667))
+
+    def test_no_space_between_hemisphere_and_number(self):
+        assert parse_coords("N59.99999 E12.99999") == pytest.approx((59.99999, 12.99999))
+
+    def test_out_of_range_rejected(self):
+        assert parse_coords("N 95.0 E 12.0") is None
+
+    def test_plain_dmm_still_takes_precedence_and_is_unaffected(self):
+        # Sanity check this new branch doesn't swallow genuine DMM input —
+        # "N55 47.250" has a distinct minutes component, must still parse
+        # as degrees=55, minutes=47.250, not as a bare decimal.
+        assert parse_coords("N55 47.250 E012 25.000") == pytest.approx((55.7875, 12.416666666666666))
+
+    def test_dmm_degree_sign_format_still_takes_precedence(self):
+        assert parse_coords("N 34° 58.088' E 034° 03.281'") == pytest.approx((34.968133333333334, 34.05468333333334))
