@@ -273,14 +273,22 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
     cache_type   = _text(gs_cache, "gs:type",              active_ns) or cache_type_full
     if cache_type.lower() in ("gps adventures maze exhibit", "gps adventures exhibit"):
         cache_type = "GPS Adventures Maze"
-    # Issue #591: Community Celebration Events (a limited-run program,
-    # May 2020 - Dec 2021) never got their own value in Groundspeak's
-    # machine-readable <groundspeak:type> field — geocaching.com's GPX
-    # always exports these as plain "Event Cache", with "Community
-    # Celebration Event" appearing only in the free-text cache name
-    # (e.g. "Karlínská kasárna - Community Celebration Event"). Without
-    # this fallback such caches show the generic Event icon/type instead
-    # of their actual, more specific one.
+    # Issue #591 / #756: Community Celebration Events (a limited-run
+    # program, May 2020 - Dec 2021) never got their own value in
+    # Groundspeak's machine-readable <groundspeak:type> field. #591
+    # originally assumed geocaching.com's GPX always exports these as
+    # plain "Event Cache", detected only via "Community Celebration
+    # Event" appearing in the free-text cache name. Real-world exports
+    # (#756) show geocaching.com actually uses the raw type string
+    # "Lost and Found Event Caches" for these — a legacy internal name
+    # unrelated to the cache's public name (confirmed against 88 CCE
+    # caches, only 16 of which mention "CCE"/"community celebration" in
+    # the name at all). That raw type is unambiguous on its own, so it's
+    # matched directly; the #591 name-text fallback is kept as a
+    # secondary check in case a different export path still uses plain
+    # "Event Cache" for some CCE caches.
+    elif cache_type.lower() == "lost and found event caches":
+        cache_type = "Community Celebration Event"
     elif cache_type == "Event Cache" and "community celebration event" in name.lower():
         cache_type = "Community Celebration Event"
     container    = _text(gs_cache, "gs:container",         active_ns)

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Community Celebration Event caches imported with wrong type (#756)** —
+  geocaching.com's GPX export uses the raw type string
+  `"Lost and Found Event Caches"` for CCE caches, not `"Event Cache"` as
+  previously assumed (#591). Unrecognized, this string fell through to the
+  generic gray "unknown type" icon on GPX import, and to the Mystery icon
+  on GSAK import (GSAK code `F`, previously left deliberately unmapped).
+  Both import paths now correctly classify these as Community Celebration
+  Event. Verified end-to-end against a real-world 88-cache CCE export.
+  Thanks to Veé X Péé for the detailed report and test file.
+
 ---
 
 ## [1.17.0] — 2026-08-17

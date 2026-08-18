@@ -225,14 +225,20 @@ def test_cache_type_mapping(db_session, tmp_path, gsak_code, expected):
     assert cache.cache_type == expected
 
 
-@pytest.mark.parametrize("gsak_code", ["D", "F", "Y"])
+@pytest.mark.parametrize("gsak_code", ["D", "Y"])
 def test_cache_type_intentionally_unmapped_codes_fall_back(db_session, tmp_path, gsak_code):
-    # Issue #532: D ("Groundspeak Lost and Found Celebration"), F ("Lost and
-    # Found Event") and Y (Waymark) are deliberately left out of
-    # GSAK_CACHE_TYPE_MAP — D/F have no unambiguous match to our single
-    # "Community Celebration Event" entry, and Y has no OpenSAK equivalent
-    # at all. This locks in the safe fallback rather than risking a wrong
-    # mapping being silently reinstated later.
+    # Issue #532: D ("Groundspeak Lost and Found Celebration") and Y
+    # (Waymark) are deliberately left out of GSAK_CACHE_TYPE_MAP — D has no
+    # unambiguous match to our single "Community Celebration Event" entry
+    # (it's a separate, distinct legacy Groundspeak program), and Y has no
+    # OpenSAK equivalent at all. This locks in the safe fallback rather than
+    # risking a wrong mapping being silently reinstated later.
+    #
+    # F ("Lost and Found Event") used to be grouped with D/Y here, but issue
+    # #756 resolved it — a real-world GPX export confirmed it's exactly
+    # geocaching.com's own type string for Community Celebration Event, so
+    # it's now mapped in GSAK_CACHE_TYPE_MAP and covered by the parametrized
+    # test_cache_type_mapping test above instead.
     db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"CacheType": gsak_code}])
     import_gsak_db(db, db_session)
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()

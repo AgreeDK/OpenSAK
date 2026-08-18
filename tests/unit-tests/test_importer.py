@@ -1096,3 +1096,36 @@ def test_import_gpx_cce_name_on_non_event_type_not_reclassified(tmp_db, tmp_path
         import_gpx(f, s)
         cache = s.query(Cache).filter_by(gc_code="GCEVENT3").one()
         assert cache.cache_type == "Unknown Cache"
+
+
+# ── Issue #756: CCE caches with raw type "Lost and Found Event Caches" ──────
+# Real-world geocaching.com GPX exports (see reporter's kesky.gpx, 88 CCE
+# caches) use this literal <groundspeak:type> value for Community
+# Celebration Event caches — not "Event Cache" as #591 assumed. Crucially,
+# the cache name does NOT need to mention "CCE"/"community celebration" at
+# all (72 of the 88 caches in the real export didn't).
+
+def test_import_gpx_lost_and_found_event_type_recognized_as_cce(tmp_db, tmp_path):
+    # Name has no hint of CCE at all — must still be recognized purely from
+    # the raw groundspeak:type value, matching real-world behavior.
+    gpx = build_gpx(cache_wpt(
+        "GC8T83E", name="Svařákobraní",
+        cache_type="Lost and Found Event Caches", gs_id=60301,
+    ))
+    f = write_gpx(tmp_path, "lostandfound1.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GC8T83E").one()
+        assert cache.cache_type == "Community Celebration Event"
+
+
+def test_import_gpx_lost_and_found_event_type_case_insensitive(tmp_db, tmp_path):
+    gpx = build_gpx(cache_wpt(
+        "GCLAF002", name="Bingo!",
+        cache_type="lost and found event caches", gs_id=60302,
+    ))
+    f = write_gpx(tmp_path, "lostandfound2.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCLAF002").one()
+        assert cache.cache_type == "Community Celebration Event"
