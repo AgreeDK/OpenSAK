@@ -8,6 +8,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Split-screen map: caches with corrected coordinates rendered outside
+  the drawn circle, and stayed unfiltered when a cache was selected
+  (#748, #743)** — the split-screen "nearby" map computed radius
+  membership, sort order, and its own circle centre from each cache's
+  *raw* latitude/longitude, but plots markers at *corrected* coordinates
+  when set. A cache whose corrected coordinates diverged from its raw
+  ones could therefore pass the radius check yet render outside the
+  visible circle (or the reverse — genuinely nearby via its correction,
+  but excluded). Separately, `get_nearby_caches()` only ever filtered by
+  distance, ignoring whatever filter was currently active on the main
+  list — selecting a cache while filtered silently reverted the
+  split-screen map to showing every nearby cache. Both are fixed: radius
+  membership/sorting/circle-centre now use each cache's effective
+  (corrected-aware) coordinates, and the currently active filter (advanced
+  + quick/search-box) is passed through and applied alongside the distance
+  check. Thanks to GeePa67 for both reports.
+
 - **Info Bar counts wrong when text-searching User Notes (#752)** —
   `apply_filters_lightweight()`'s fallback check for when it must defer to
   the full ORM query path never accounted for `TextSearchFilter.search_notes`

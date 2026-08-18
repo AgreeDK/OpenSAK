@@ -799,6 +799,14 @@ class MapWidget(QWidget):
         didn't actually cap the result, so the circle alone is the
         indicator in the common case, matching the agreed UX.
 
+        Issue #748: the circle is centred on *cache*'s effective_coords()
+        (corrected coordinates when set) rather than its raw
+        latitude/longitude, matching where markers are actually plotted
+        (loadCaches() JS: `c.corrected ? c.clat : c.lat`) — a cache with
+        corrected coordinates set previously got a circle centred on its
+        posted location while its own marker (and any neighbours') could
+        render at a corrected position outside that circle.
+
         Requires the map to already be ready/loaded — unlike load_caches(),
         this deliberately does not queue itself for the not-yet-ready case:
         selecting a cache before the map has finished loading is an edge
@@ -808,7 +816,9 @@ class MapWidget(QWidget):
         """
         if not self._ready:
             return
-        if cache.latitude is None or cache.longitude is None:
+        from opensak.filters.engine import effective_coords
+        center_lat, center_lon = effective_coords(cache)
+        if center_lat is None or center_lon is None:
             return
         data = self._build_marker_data(nearby_caches)
         json_str = json.dumps(data, ensure_ascii=False)
@@ -816,7 +826,7 @@ class MapWidget(QWidget):
         safe_gc = cache.gc_code.replace("'", "\\'")
         safe_label = json.dumps(label_text, ensure_ascii=False)
         self._run_js(
-            f"loadNearbyCaches(`{json_str}`, {cache.latitude}, {cache.longitude}, "
+            f"loadNearbyCaches(`{json_str}`, {center_lat}, {center_lon}, "
             f"{radius_km}, '{safe_gc}', {safe_label})"
         )
 
