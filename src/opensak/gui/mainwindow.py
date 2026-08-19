@@ -20,7 +20,7 @@ from opensak.gui.refresh_worker import RefreshWorker
 from opensak.db.database import get_session, db_health_check
 from opensak.db.models import Cache
 from opensak.filters.engine import (
-    FilterSet, SortSpec, apply_filters_auto, get_nearby_caches,
+    FilterSet, SortSpec, apply_filters_auto, get_nearby_caches, effective_coords,
     AvailableFilter, NotFoundFilter, CacheTypeFilter,
     DifficultyFilter, TerrainFilter
 )
@@ -267,6 +267,7 @@ class MainWindow(QMainWindow):
         self._cache_table.edit_requested.connect(self._edit_waypoint_from_cache)
         self._cache_table.center_point_requested.connect(self._set_cache_as_center)
         self._cache_table.corrected_coords_changed.connect(self._on_corrected_coords_changed)
+        self._cache_table.found_status_changed.connect(self._on_found_status_changed)
         self._splitter.addWidget(self._cache_table)
 
         # Bottom container: info bar (fixed) + horisontal splitter (resizable)
@@ -1187,6 +1188,29 @@ class MainWindow(QMainWindow):
 
     # ── Cache list ────────────────────────────────────────────────────────────
 
+    def _build_active_filterset(self) -> FilterSet:
+        """Combine the advanced filter (self._current_filterset, set via the
+        filter dialog) with the quick-filter / search-box filters into one
+        FilterSet — the same combination _refresh_cache_list() uses to
+        populate the main list, factored out (#743) so
+        _on_cache_selected()'s split-screen "nearby" query can stay scoped
+        to whatever filter is currently active instead of silently
+        reverting to an unfiltered view.
+
+        If _current_filterset is empty it has no effect (FilterSet.matches()
+        returns True for an empty set), so this is safe in all cases.
+        """
+        quick_fs = self._build_current_filterset()
+        if len(self._current_filterset) > 0 or len(quick_fs) > 0:
+            from opensak.filters.engine import FilterSet as _FS
+            combined = _FS(mode="AND")
+            if len(self._current_filterset) > 0:
+                combined.add(self._current_filterset)
+            if len(quick_fs) > 0:
+                combined.add(quick_fs)
+            return combined
+        return quick_fs
+
     def _refresh_cache_list(self) -> None:
         """Reload caches from DB applying current filters.
 
@@ -1206,21 +1230,7 @@ class MainWindow(QMainWindow):
         number rather than cancelled — see RefreshWorker's docstring.
         """
         _t0 = time.monotonic()
-        quick_fs = self._build_current_filterset()
-
-        # Wrap both filtersets in a top-level AND so they work together.
-        # If _current_filterset is empty it has no effect (FilterSet.matches()
-        # returns True for an empty set), so this is safe in all cases.
-        if len(self._current_filterset) > 0 or len(quick_fs) > 0:
-            from opensak.filters.engine import FilterSet as _FS
-            combined = _FS(mode="AND")
-            if len(self._current_filterset) > 0:
-                combined.add(self._current_filterset)
-            if len(quick_fs) > 0:
-                combined.add(quick_fs)
-            fs = combined
-        else:
-            fs = quick_fs
+        fs = self._build_active_filterset()
 
         self._refresh_generation += 1
         generation = self._refresh_generation
@@ -1498,17 +1508,33 @@ class MainWindow(QMainWindow):
             return
         self._detail_panel.show_cache(full)
         self._map_widget.set_active_cache(full.gc_code)
-        if full.latitude is not None and full.longitude is not None:
+        center_lat, center_lon = effective_coords(full)
+        if center_lat is not None and center_lon is not None:
             # Issue #718: split-screen map shows the selected cache's own
             # neighbourhood (radius query, independent of the overview
             # map's map_max_caches cap) instead of relying on the
             # overview's already-loaded marker set — a cache outside that
             # set previously got no map update at all, or the wrong one.
+            #
+            # Issue #748: query around effective_coords() (corrected
+            # coordinates when set), matching the centre
+            # show_nearby_for_selection() draws the circle at, and the
+            # position map_widget.py actually plots each marker at.
+            #
+            # Issue #743: pass the currently active filter (advanced +
+            # quick/search-box, same combination _refresh_cache_list() uses
+            # for the main list) so the split-screen "nearby" view stays
+            # scoped to it — previously this queried distance alone, so
+            # selecting a cache while a filter was active made the
+            # split-screen map silently show every nearby cache regardless
+            # of the active filter.
             s = get_settings()
+            active_fs = self._build_active_filterset()
             with get_session() as session:
                 nearby, total = get_nearby_caches(
-                    session, full.latitude, full.longitude,
+                    session, center_lat, center_lon,
                     s.map_nearby_radius_km, s.map_nearby_max_caches,
+                    filterset=active_fs,
                 )
             label = self._build_nearby_label(len(nearby), total, s.map_nearby_radius_km)
             self._map_widget.show_nearby_for_selection(full, nearby, s.map_nearby_radius_km, label)
@@ -1571,6 +1597,19 @@ class MainWindow(QMainWindow):
         full = self._load_full_cache(gc_code)
         if full:
             self._map_widget.update_cache(full)
+
+    def _on_found_status_changed(self, gc_code: GcCode) -> None:
+        """Issue #649: refresh table row, map pin, detail panel (if this
+        cache is currently shown), and the Info Bar counts after a manual
+        Mark as Found/Not Found — found status affects the info bar's
+        found-count directly, unlike a corrected-coordinates change."""
+        self._cache_table.refresh_cache_row(gc_code)
+        full = self._load_full_cache(gc_code)
+        if full:
+            self._map_widget.update_cache(full)
+            if getattr(self._detail_panel, "_current_gc_code", None) == gc_code:
+                self._detail_panel.show_cache(full)
+        self._update_info_bar()
 
     def _on_search_changed(self, text: str) -> None:
         has_search = bool(self._search_gc.text().strip() or self._search_box.text().strip())

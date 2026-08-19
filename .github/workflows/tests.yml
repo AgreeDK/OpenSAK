@@ -7,6 +7,10 @@ on:
 jobs:
   unit-tests:
     runs-on: ${{ matrix.os }}
+    # Belt-and-suspenders alongside the apt retry/timeout logic in
+    # setup-qt: caps a stuck job at 30 min instead of GitHub's 360-min
+    # default, so a hang anywhere in the job fails fast and visibly.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +52,7 @@ jobs:
   e2e-tests:
     needs: unit-tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]

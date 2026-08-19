@@ -608,6 +608,12 @@ class TestSelectionSlots:
     def test_on_corrected_coords_changed(self, seeded_window):
         seeded_window._on_corrected_coords_changed("GC12345")
 
+    def test_on_found_status_changed(self, seeded_window):
+        seeded_window._on_found_status_changed("GC12345")
+
+    def test_on_found_status_changed_missing_cache(self, seeded_window):
+        seeded_window._on_found_status_changed("NOPE")
+
     def test_load_full_cache(self, seeded_window):
         assert seeded_window._load_full_cache("GC12345") is not None
 

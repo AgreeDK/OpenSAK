@@ -61,7 +61,7 @@ def fake_settings(monkeypatch, qapp):
     s = SimpleNamespace(
         home_lat=55.0, home_lon=12.0, use_miles=False,
         coord_format=CoordFormat.DMM, date_format=DateFormat.DMY,
-        gc_username="", map_provider="google", text_size=TextSize.MEDIUM,
+        gc_username="", gc_finder_id="", map_provider="google", text_size=TextSize.MEDIUM,
     )
     s.get_maps_url = lambda lat, lon: f"https://maps?{lat},{lon}"
     monkeypatch.setattr(ct, "get_settings", lambda: s)
@@ -1172,13 +1172,302 @@ class TestView:
 
     # ── DB-backed operations ─────────────────────────────────────────────────
 
-    def test_toggle_found(self, view, db_session, make_cache):
-        db_session.add(make_cache(gc_code="GCTF"))
+    def test_toggle_found_unmark_is_simple_toggle(self, view, db_session, make_cache):
+        # Marking as NOT found stays a plain, dialog-free toggle (issue
+        # #649 only changes the found=True direction).
+        db_session.add(make_cache(gc_code="GCTF", found=True))
         db_session.commit()
-        cache = _cache(gc_code="GCTF", found=False)
+        cache = _cache(gc_code="GCTF", found=True)
         view.load_caches([cache])
+        view._toggle_found(cache, False)
+        # The passed-in `cache` object is no longer mutated directly (it
+        # may be a read-only LightweightCache in production) — the row is
+        # refreshed from DB via refresh_cache_row() instead.
+        assert view._model.cache_at(0).found is False
+
+    def test_toggle_found_unmark_clears_found_date(self, view, db_session, make_cache):
+        # Issue #649 follow-up (reported live): unmarking left found_date
+        # behind — dangling state where a "not found" cache still showed
+        # a found date. GSAK links the two the same way OpenSAK now does.
+        from datetime import datetime
+        db_session.add(make_cache(
+            gc_code="GCTFD", found=True, found_date=datetime(2026, 1, 1),
+        ))
+        db_session.commit()
+        cache = _cache(gc_code="GCTFD", found=True)
+        view.load_caches([cache])
+        view._toggle_found(cache, False)
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCTFD").first()
+            assert c.found is False
+            assert c.found_date is None
+
+    def test_toggle_found_unmark_preserves_log_history(self, view, db_session, make_cache):
+        # Clearing found_date on unmark must not touch existing Log rows —
+        # deleting log history is a bigger, separate decision this quick
+        # toggle deliberately doesn't make.
+        from datetime import datetime
+        from opensak.db.models import Log
+        cache_obj = make_cache(gc_code="GCTFH", found=True, found_date=datetime(2026, 1, 1))
+        db_session.add(cache_obj)
+        db_session.flush()
+        db_session.add(Log(
+            cache_id=cache_obj.id, log_type="Found it", log_date=datetime(2026, 1, 1),
+            finder="SomeUser", text="",
+        ))
+        db_session.commit()
+
+        cache = _cache(gc_code="GCTFH", found=True)
+        view.load_caches([cache])
+        view._toggle_found(cache, False)
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCTFH").first()
+            assert len(list(c.logs)) == 1  # untouched
+
+    def test_toggle_found_mark_opens_dialog_and_creates_log(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        # Issue #649: marking as found must open MarkFoundDialog, and on
+        # accept create a matching Log row (not just flip cache.found).
+        from datetime import date as date_cls
+        fake_settings.gc_username = "TestFinder"
+
+        db_session.add(make_cache(gc_code="GCTF2", found=False))
+        db_session.commit()
+        cache = _cache(gc_code="GCTF2", found=False)
+        view.load_caches([cache])
+
+        class _FakeDialog:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return True
+            def get_date(self):
+                return date_cls(2026, 6, 15)
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog", _FakeDialog,
+        )
+
+        emitted = []
+        view.found_status_changed.connect(lambda gc: emitted.append(gc))
+
         view._toggle_found(cache, True)
-        assert cache.found is True
+
+        # The passed-in `cache` object is no longer mutated directly (it
+        # may be a read-only LightweightCache in production) — the row is
+        # refreshed from DB via refresh_cache_row() instead.
+        assert view._model.cache_at(0).found is True
+        assert emitted == ["GCTF2"]
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCTF2").first()
+            assert c.found is True
+            assert c.found_date.date() == date_cls(2026, 6, 15)
+            assert c.found_log_count == 1
+            logs = list(c.logs)
+            assert len(logs) == 1
+            assert logs[0].log_type == "Found it"
+            assert logs[0].finder == "TestFinder"
+            assert logs[0].log_date.date() == date_cls(2026, 6, 15)
+
+    def test_toggle_found_mark_uses_attended_for_event_type(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        from datetime import date as date_cls
+        fake_settings.gc_username = "TestFinder"
+
+        db_session.add(make_cache(
+            gc_code="GCEV001", found=False, cache_type="Mega-Event Cache",
+        ))
+        db_session.commit()
+        cache = _cache(gc_code="GCEV001", found=False, cache_type="Mega-Event Cache")
+        view.load_caches([cache])
+
+        class _FakeDialog:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return True
+            def get_date(self):
+                return date_cls(2026, 6, 15)
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog", _FakeDialog,
+        )
+
+        view._toggle_found(cache, True)
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCEV001").first()
+            assert list(c.logs)[0].log_type == "Attended"
+
+    def test_toggle_found_mark_cancelled_dialog_does_nothing(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        fake_settings.gc_username = "TestFinder"
+
+        db_session.add(make_cache(gc_code="GCTF3", found=False))
+        db_session.commit()
+        cache = _cache(gc_code="GCTF3", found=False)
+        view.load_caches([cache])
+
+        class _FakeDialog:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return False  # user cancelled
+            def get_date(self):
+                return None
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog", _FakeDialog,
+        )
+
+        emitted = []
+        view.found_status_changed.connect(lambda gc: emitted.append(gc))
+
+        view._toggle_found(cache, True)
+
+        assert cache.found is False  # unchanged
+        assert emitted == []
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCTF3").first()
+            assert c.found is False
+            assert list(c.logs) == []
+
+    def test_toggle_found_mark_without_username_warns_and_aborts(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        # Issue #649: finder = configured GC username — if it's not set,
+        # there's nothing usable to put on the log, so this must warn and
+        # abort rather than create a log with a blank finder.
+        fake_settings.gc_username = ""
+
+        db_session.add(make_cache(gc_code="GCTF4", found=False))
+        db_session.commit()
+        cache = _cache(gc_code="GCTF4", found=False)
+        view.load_caches([cache])
+
+        warned = []
+        monkeypatch.setattr(
+            "PySide6.QtWidgets.QMessageBox.warning",
+            lambda *a, **k: warned.append(a),
+        )
+        dialog_opened = []
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog",
+            lambda *a, **k: dialog_opened.append(True),
+        )
+
+        view._toggle_found(cache, True)
+
+        assert cache.found is False
+        assert len(warned) == 1
+        assert dialog_opened == []  # dialog never even opened
+
+    def test_toggle_found_edit_date_updates_existing_log_not_duplicate(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        # Issue #649 follow-up (reported live): once a found date was set
+        # there was no way to change it — re-running "Mark as Found" (now
+        # "Edit found date…" when already found) must update the existing
+        # own found-type log's date in place, not add a second log or
+        # double-count found_log_count.
+        from datetime import date as date_cls
+        fake_settings.gc_username = "TestFinder"
+
+        db_session.add(make_cache(gc_code="GCED001", found=False))
+        db_session.commit()
+        cache = _cache(gc_code="GCED001", found=False)
+        view.load_caches([cache])
+
+        dates_offered = []
+
+        class _FakeDialog:
+            def __init__(self, gc_code, name, current_date=None, parent=None):
+                dates_offered.append(current_date)
+            def exec(self):
+                return True
+            def get_date(self):
+                return date_cls(2026, 6, 15) if len(dates_offered) == 1 else date_cls(2026, 7, 20)
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog", _FakeDialog,
+        )
+
+        # First mark — no existing date, dialog should be offered None.
+        view._toggle_found(cache, True)
+        assert dates_offered[-1] is None
+
+        # Edit — cache is now found, dialog should be pre-offered the
+        # existing found_date (2026-06-15).
+        found_cache = view._model.cache_at(0)
+        view._toggle_found(found_cache, True)
+        assert dates_offered[-1] == date_cls(2026, 6, 15)
+
+        from opensak.db.database import get_session
+        from opensak.db.models import Cache as CacheModel
+        with get_session() as s:
+            c = s.query(CacheModel).filter_by(gc_code="GCED001").first()
+            assert c.found_date.date() == date_cls(2026, 7, 20)
+            assert c.found_log_count == 1  # not 2 — same log updated in place
+            logs = list(c.logs)
+            assert len(logs) == 1
+            assert logs[0].log_date.date() == date_cls(2026, 7, 20)
+
+    def test_toggle_found_mark_with_lightweight_cache_does_not_crash(
+        self, view, db_session, make_cache, monkeypatch, fake_settings,
+    ):
+        # Regression test: reported live by Allan. The table's model can
+        # hold LightweightCache rows (the #627 fast query path, now
+        # unconditional) instead of full Cache ORM objects. LightweightCache
+        # is read-only for `found` and raises AttributeError on assignment —
+        # _toggle_found() must never attempt `cache.found = ...` directly on
+        # whatever object it's handed, only on a freshly re-fetched real
+        # Cache (via refresh_cache_row()).
+        from datetime import date as date_cls
+        from opensak.filters.engine import apply_filters_lightweight, FilterSet
+        fake_settings.gc_username = "TestFinder"
+
+        db_session.add(make_cache(gc_code="GCLW001", found=False))
+        db_session.commit()
+
+        lightweight_cache = apply_filters_lightweight(db_session, FilterSet())[0]
+        from opensak.filters.engine import LightweightCache
+        assert isinstance(lightweight_cache, LightweightCache)  # sanity check
+
+        view.load_caches([lightweight_cache])
+
+        class _FakeDialog:
+            def __init__(self, *a, **k):
+                pass
+            def exec(self):
+                return True
+            def get_date(self):
+                return date_cls(2026, 6, 15)
+
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.mark_found_dialog.MarkFoundDialog", _FakeDialog,
+        )
+
+        # Must not raise AttributeError: LightweightCache is read-only for 'found'.
+        view._toggle_found(lightweight_cache, True)
+
+        assert view._model.cache_at(0).found is True
 
     def test_save_and_clear_corrected(self, view, db_session, make_cache):
         db_session.add(make_cache(gc_code="GCCC"))

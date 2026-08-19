@@ -106,6 +106,15 @@ _DB_TYPE_KEY_MAP: dict[str, str] = {
     "gps adventures maze":           "gps_adventures",
     "gps adventures maze exhibit":   "gps_adventures",
     "gps adventures exhibit":        "gps_adventures",
+    # Issue #756: Geocaching.com's own GPX export uses the literal raw
+    # <groundspeak:type> value "Lost and Found Event Caches" for Community
+    # Celebration Event caches — not "Event Cache" as previously assumed
+    # (see the importer's #591 fallback). Confirmed against a real-world
+    # export (88 CCE caches, only 16 of which even mention "CCE"/"community
+    # celebration" in the cache name). Alias it directly here so the icon
+    # resolves correctly regardless of which importer path stored the raw
+    # string verbatim.
+    "lost and found event caches":   "community_celebration",
     "locationless (reverse) cache":  "locationless",
     "project a.p.e. cache":          "project_ape",
     "groundspeak hq":                "geocaching_hq",

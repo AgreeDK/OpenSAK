@@ -1434,6 +1434,7 @@ class CacheTableView(QTableView):
     edit_requested = Signal(object)   # emitted when user requests edit of a cache
     center_point_requested = Signal(object)  # emitted with a Cache — "Sæt som centerpunkt" (#511)
     corrected_coords_changed = Signal(str)  # gc_code — emitted after Add/Edit/Clear
+    found_status_changed = Signal(str)  # gc_code — emitted after Mark as Found (#649)
                                              # corrected coordinates via the context menu
                                              # (issue #474: map wasn't refreshed until now)
 
@@ -1796,6 +1797,8 @@ class CacheTableView(QTableView):
 
         # Marker som fundet / ikke fundet
         if cache.found:
+            act_edit_date = menu.addAction(tr("ctx_edit_found_date"))
+            act_edit_date.triggered.connect(lambda: self._toggle_found(cache, True))
             act_found = menu.addAction(tr("ctx_mark_not_found"))
             act_found.triggered.connect(lambda: self._toggle_found(cache, False))
         else:
@@ -1893,15 +1896,128 @@ class CacheTableView(QTableView):
         QApplication.clipboard().setText(text)
 
     def _toggle_found(self, cache, found: bool) -> None:
+        # Issue #649: marking a cache as found used to be a silent
+        # cache.found = True flip with no found_date and no Log row. Since
+        # GPX export only ever serializes existing cache.logs, that meant a
+        # manually-found cache exported with no "Found it" entry at all —
+        # GSAK (or any re-import) then saw no matching log and didn't treat
+        # it as found either, even though OpenSAK's own list showed it as
+        # found. This is a real gap for Adventure Lab Caches specifically,
+        # where geocaching.com auto-logs the parent AD Lab found with no
+        # real per-stage log to import, so manual marking is the only way
+        # in — and it produced nothing exportable.
+        #
+        # "Mark as found" / "Edit found date" opens a dialog for the found
+        # date (default today, or the cache's current found_date when
+        # editing) and creates or updates a matching Log row (type
+        # "Found it", or "Attended" for event-type caches — see
+        # EVENT_LOG_CACHE_TYPES/FOUND_LOG_TYPES — finder = configured GC
+        # username, date = chosen date), so the find round-trips correctly
+        # through GPX export. Re-running this on an already-found cache
+        # (the "Edit found date…" menu entry) updates the existing own
+        # found-type log's date in place instead of adding a duplicate.
+        #
+        # "Mark as not found" clears found_date along with found — GSAK
+        # links the two the same way (clearing the date clears found
+        # status and vice versa), and leaving a found_date behind on an
+        # unfound cache is confusing, dangling state. It deliberately does
+        # NOT touch existing Log rows though: deleting/rewriting log
+        # history risks destroying real, imported found logs (e.g. a
+        # genuine earlier find from before this cache was re-marked), and
+        # there's no reliable way to tell "the log this feature created"
+        # apart from "a real imported log" well enough to safely delete
+        # just the former.
+        if found:
+            gc_username = (get_settings().gc_username or "").strip()
+            if not gc_username:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self, tr("mark_found_dialog_title"),
+                    tr("mark_found_no_username_warning"),
+                )
+                return
+
+            current_date = cache.found_date.date() if (cache.found and cache.found_date) else None
+
+            from opensak.gui.dialogs.mark_found_dialog import MarkFoundDialog
+            dlg = MarkFoundDialog(cache.gc_code, cache.name or "", current_date=current_date, parent=self)
+            if not dlg.exec():
+                return
+            found_date = dlg.get_date()
+            if found_date is None:
+                return
+
+            from datetime import datetime, time as dt_time
+            found_dt = datetime.combine(found_date, dt_time())
+
+            from opensak.db.database import get_session
+            from opensak.db.models import Cache as CacheModel, Log
+            from opensak.utils.constants import EVENT_LOG_CACHE_TYPES, FOUND_LOG_TYPES
+
+            with get_session() as session:
+                c = session.query(CacheModel).filter_by(gc_code=cache.gc_code).first()
+                if not c:
+                    return
+                log_type = "Attended" if (c.cache_type in EVENT_LOG_CACHE_TYPES) else "Found it"
+                gc_finder_id = (get_settings().gc_finder_id or "").strip() or None
+
+                # Editing an already-found cache: update the most recent
+                # own found-type log's date in place rather than adding
+                # another one each time the date is adjusted.
+                own_log = None
+                for lg in sorted(c.logs, key=lambda l: l.log_date or datetime.min, reverse=True):
+                    if lg.log_type not in FOUND_LOG_TYPES:
+                        continue
+                    if gc_finder_id and lg.finder_id == gc_finder_id:
+                        own_log = lg
+                        break
+                    if not gc_finder_id and (lg.finder or "").strip().lower() == gc_username.lower():
+                        own_log = lg
+                        break
+
+                if own_log is not None:
+                    own_log.log_type = log_type
+                    own_log.log_date = found_dt
+                else:
+                    session.add(Log(
+                        cache_id=c.id,
+                        log_type=log_type,
+                        log_date=found_dt,
+                        finder=gc_username,
+                        finder_id=gc_finder_id,
+                        text="",
+                        logged_by_owner=False,
+                    ))
+                    c.found_log_count = (c.found_log_count or 0) + 1
+
+                c.found = True
+                c.found_date = found_dt
+                if c.last_found_date is None or found_dt > c.last_found_date:
+                    c.last_found_date = found_dt
+
+            # Issue #649 follow-up: don't mutate the passed-in `cache`
+            # object directly — the table's model may hold LightweightCache
+            # rows (the #627 fast query path, now unconditional), which are
+            # read-only for everything except a small quick-toggle
+            # whitelist and raise AttributeError on `.found = ...` exactly
+            # like this used to. refresh_cache_row() re-fetches a real,
+            # full Cache ORM object from DB and replaces the model's row
+            # with it — the same pattern setData()'s quick-toggle columns
+            # already rely on — which also preserves the current selection
+            # (a plain beginResetModel()/endResetModel() resets it to row 0).
+            self.refresh_cache_row(cache.gc_code)
+            self.found_status_changed.emit(cache.gc_code)
+            return
+
         from opensak.db.database import get_session
         from opensak.db.models import Cache as CacheModel
         with get_session() as session:
             c = session.query(CacheModel).filter_by(gc_code=cache.gc_code).first()
             if c:
-                c.found = found
-        cache.found = found
-        self._model.beginResetModel()
-        self._model.endResetModel()
+                c.found = False
+                c.found_date = None
+        self.refresh_cache_row(cache.gc_code)
+        self.found_status_changed.emit(cache.gc_code)
 
     def _update_location(self, gc_code: str) -> None:
         """Open UpdateLocationDialog targeted at a single cache."""

@@ -345,6 +345,27 @@ class CacheDetailPanel(QWidget):
         note_layout.addWidget(self._note_editor)
         self._tabs.addTab(note_widget, tr("detail_tab_notes"))
 
+        # Issue #755: QTabWidget reports its own minimumSizeHint as the
+        # LARGEST of its tab pages' minimums (since any tab could be
+        # switched to at any time), and that propagates straight up into
+        # this panel's — and therefore the whole bottom_splitter's —
+        # minimum height, which is what made the main vertical splitter
+        # refuse to shrink the bottom panel much past its content's
+        # natural minimum ("stuck around the middle of the window").
+        #
+        # QSizePolicy.Policy.Ignored on the vertical component tells Qt's
+        # layout system to disregard this widget's height hint entirely
+        # when computing the *minimum* size for this panel — the splitter
+        # can then be dragged freely down to a small size. It still grows
+        # to fill available space normally when there's room (Ignored only
+        # affects the minimum/hint contribution, not actual sizing), and
+        # each tab's own content already scrolls internally when squeezed
+        # (QTextBrowser/log list/etc. all have their own scrollbars), so
+        # nothing becomes unreachable — content just scrolls instead of
+        # ever blocking the splitter.
+        size_policy = self._tabs.sizePolicy()
+        size_policy.setVerticalPolicy(QSizePolicy.Policy.Ignored)
+        self._tabs.setSizePolicy(size_policy)
         layout.addWidget(self._tabs)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 

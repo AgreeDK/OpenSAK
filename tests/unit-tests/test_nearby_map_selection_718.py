@@ -151,3 +151,138 @@ class TestOnCacheSelectedNearbyWiring:
 
         assert calls == []
         assert len(pan_calls) == 1
+
+
+# ── Issues #748 / #743: get_nearby_caches() call-site wiring ───────────────
+
+class TestOnCacheSelectedNearbyArguments:
+    """_on_cache_selected() must call get_nearby_caches() with the
+    selected cache's *effective* (corrected-aware) coordinates as the
+    centre (#748), and with whatever filter is currently active (#743) —
+    rather than always querying distance-from-raw-coordinates alone."""
+
+    def _make_cache(self, session, **kw):
+        from opensak.db.models import Cache
+        defaults = dict(gc_code="GCARG001", name="Selected", cache_type="Traditional Cache",
+                         latitude=51.5074, longitude=-0.1278)
+        defaults.update(kw)
+        c = Cache(**defaults)
+        session.add(c)
+        session.flush()
+        return c
+
+    def test_uses_raw_coords_when_not_corrected(self, window, monkeypatch):
+        from opensak.db.database import get_session
+        with get_session() as s:
+            cache = self._make_cache(s)
+            gc_code = cache.gc_code
+
+        calls = []
+
+        def fake_get_nearby(session, lat, lon, radius_km, max_caches, filterset=None):
+            calls.append((lat, lon, filterset))
+            return [], 0
+
+        monkeypatch.setattr("opensak.gui.mainwindow.get_nearby_caches", fake_get_nearby)
+        monkeypatch.setattr(
+            window._map_widget, "show_nearby_for_selection", lambda *a, **k: None,
+        )
+
+        with get_session() as s:
+            from opensak.db.models import Cache as CacheModel
+            full = s.query(CacheModel).filter_by(gc_code=gc_code).first()
+            window._on_cache_selected(full)
+
+        assert len(calls) == 1
+        lat, lon, _ = calls[0]
+        assert lat == pytest.approx(51.5074)
+        assert lon == pytest.approx(-0.1278)
+
+    def test_uses_corrected_coords_as_center_when_set(self, window, monkeypatch):
+        from opensak.db.database import get_session
+        from opensak.db.models import UserNote
+        with get_session() as s:
+            cache = self._make_cache(s, gc_code="GCARG002")
+            s.add(UserNote(
+                cache_id=cache.id, is_corrected=True,
+                corrected_lat=52.0, corrected_lon=-1.0,
+            ))
+            gc_code = cache.gc_code
+
+        calls = []
+
+        def fake_get_nearby(session, lat, lon, radius_km, max_caches, filterset=None):
+            calls.append((lat, lon, filterset))
+            return [], 0
+
+        monkeypatch.setattr("opensak.gui.mainwindow.get_nearby_caches", fake_get_nearby)
+        monkeypatch.setattr(
+            window._map_widget, "show_nearby_for_selection", lambda *a, **k: None,
+        )
+
+        with get_session() as s:
+            from opensak.db.models import Cache as CacheModel
+            full = s.query(CacheModel).filter_by(gc_code=gc_code).first()
+            window._on_cache_selected(full)
+
+        assert len(calls) == 1
+        lat, lon, _ = calls[0]
+        assert lat == pytest.approx(52.0)
+        assert lon == pytest.approx(-1.0)
+
+    def test_passes_active_filterset(self, window, monkeypatch):
+        from opensak.db.database import get_session
+        from opensak.filters.engine import GcCodeFilter
+        with get_session() as s:
+            cache = self._make_cache(s, gc_code="GCARG003")
+            gc_code = cache.gc_code
+
+        from opensak.filters.engine import FilterSet
+        window._current_filterset = FilterSet().add(GcCodeFilter("GCARG"))
+
+        calls = []
+
+        def fake_get_nearby(session, lat, lon, radius_km, max_caches, filterset=None):
+            calls.append(filterset)
+            return [], 0
+
+        monkeypatch.setattr("opensak.gui.mainwindow.get_nearby_caches", fake_get_nearby)
+        monkeypatch.setattr(
+            window._map_widget, "show_nearby_for_selection", lambda *a, **k: None,
+        )
+
+        with get_session() as s:
+            from opensak.db.models import Cache as CacheModel
+            full = s.query(CacheModel).filter_by(gc_code=gc_code).first()
+            window._on_cache_selected(full)
+
+        assert len(calls) == 1
+        passed_fs = calls[0]
+        assert passed_fs is not None
+        assert len(passed_fs) > 0
+
+    def test_no_active_filter_passes_empty_filterset(self, window, monkeypatch):
+        from opensak.db.database import get_session
+        with get_session() as s:
+            cache = self._make_cache(s, gc_code="GCARG004")
+            gc_code = cache.gc_code
+
+        calls = []
+
+        def fake_get_nearby(session, lat, lon, radius_km, max_caches, filterset=None):
+            calls.append(filterset)
+            return [], 0
+
+        monkeypatch.setattr("opensak.gui.mainwindow.get_nearby_caches", fake_get_nearby)
+        monkeypatch.setattr(
+            window._map_widget, "show_nearby_for_selection", lambda *a, **k: None,
+        )
+
+        with get_session() as s:
+            from opensak.db.models import Cache as CacheModel
+            full = s.query(CacheModel).filter_by(gc_code=gc_code).first()
+            window._on_cache_selected(full)
+
+        assert len(calls) == 1
+        passed_fs = calls[0]
+        assert passed_fs is None or len(passed_fs) == 0

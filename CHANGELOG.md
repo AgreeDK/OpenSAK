@@ -8,6 +8,161 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.1] — 2026-08-19
+
+### Fixed
+
+- **GPX export/import did not preserve "found" status (#766)** — reported by
+  Allyn56 via a detailed multi-scenario comparison in #649. Two related bugs
+  in the GPX bridge, both now fixed:
+  1. **Export:** `_cache_symbol()` in `src/opensak/gps/garmin.py` always wrote
+     `<sym>Geocache</sym>`, regardless of `cache.found`. The Groundspeak/GC.com
+     Pocket Query convention — which GSAK and Garmin devices actually read
+     found status from in a GPX — is `<sym>Geocache Found</sym>`. OpenSAK
+     never wrote this, so found status was invisible to any tool reading an
+     OpenSAK-exported GPX or GGZ, including OpenSAK itself on re-import (the
+     log entries were present and correct, but nothing checks the log list
+     for found status — only `<sym>`). Found caches now export with
+     `<sym>Geocache Found</sym>` in both the file-export and send-to-device
+     paths (GGZ reuses the same GPX generator). Lab Caches are unaffected —
+     they have no found-symbol in the Garmin convention, so their distinct
+     icon (`Flag, Blue`) is unchanged either way.
+  2. **Import:** `found_by_me` in `src/opensak/importer/__init__.py` was
+     derived exclusively from `sym == "Geocache Found"`, with no fallback —
+     unlike the GSAK database importer, which reads GSAK's own `Found` column
+     directly and was unaffected. Import now also checks the log list for a
+     found-type log (`FOUND_LOG_TYPES`) matching the configured
+     `gc_finder_id`/`gc_username`, same matching rules already used for
+     `found_date`/FTF derivation, but **only when `<sym>` is entirely absent**
+     from the source wpt — if `<sym>` is present at all (even a plain
+     "Geocache", not just "Geocache Found"), it's trusted as authoritative.
+     This matters because "Mark as Not Found" deliberately leaves old
+     found-type Log rows in place rather than risk deleting real imported
+     log history — without this guard, re-exporting such a cache (which
+     correctly writes `sym="Geocache"` after the fix above) and re-importing
+     it would have incorrectly resurrected found status from the stale log.
+
+- **Vertical splitter couldn't be resized past roughly the middle of the
+  window (#755)** — the cache detail panel's `QTabWidget` (Description,
+  Hint, Logs, Waypoints, Attributes, Trackables, Notes) reported its own
+  minimum size as the largest of all its tab pages' minimums, since any
+  tab could be switched to at any time. That propagated up into the whole
+  bottom panel's minimum height, blocking the main splitter from being
+  dragged much further down — the panel could shrink, but never much past
+  its content's natural minimum. A `QSizePolicy.Ignored` on the tab
+  widget's vertical component stops that minimum-size propagation without
+  affecting normal sizing or tab switching — each tab's own content
+  already scrolls internally when squeezed, so nothing becomes
+  unreachable. Verified the splitter can now shrink the bottom panel well
+  under its old floor, even with a heavily populated cache (many
+  attributes/logs/waypoints, long description).
+
+- **Coordinate Converter gave wrong results (#751)** — two independent bugs
+  in `src/opensak/coords.py`, both reported/diagnosed by pjacklam:
+  1. `parse_coords()` had no dedicated branch for a plain decimal-degree
+     value written with a hemisphere letter instead of a +/- sign (e.g.
+     "N 59.99999 E 12.99999", no separate minutes component). It fell
+     through to the DMM° regex branch instead, where backtracking let the
+     degrees group give back digits to the minutes group whenever keeping
+     them would leave an unparseable "." right after — silently
+     reinterpreting "59.99999" as degrees=5, minutes=9.99999 (5.16667°
+     instead of 59.99999°), with no error shown. A dedicated branch for
+     this input shape, checked before the DMM° branch, fixes it.
+  2. `_dd_to_dmm()`/`_dd_to_dms()` (and the cache list's `format_lat()`/
+     `format_lon()`, which had the same bug independently) rounded minutes/
+     seconds directly in an f-string without checking whether the rounded
+     value hit 60 — e.g. 59.999999° displayed as "59° 60.000'" or "59° 59'
+     60.00\"" instead of carrying into the next unit ("60° 00.000'"/"60°
+     00' 00.00\""). Both formatters now share carry-aware helpers that
+     roll 60 minutes into a degree and 60 seconds into a minute (which can
+     itself cascade into a degree). Verified against both of the reporter's
+     exact examples end-to-end.
+
+### Added
+
+- **"Mark as Found" now opens a dialog and creates a real log entry (#649)**
+  — right-clicking a cache and choosing "Mark as Found" used to silently
+  set `cache.found = True` with no found date and no Log row. Since GPX
+  export only ever serializes existing `cache.logs`, a manually-found
+  cache exported with no `groundspeak:finder`/"Found it" entry at all —
+  GSAK (or any re-import) then didn't recognize it as found either, even
+  though OpenSAK's own list showed it as found. This is a real workflow
+  gap for Adventure Lab Caches specifically, where geocaching.com
+  auto-logs the parent AD Lab as found with no real per-stage log to
+  import, so manual marking is the only way in. "Mark as Found" now opens
+  a dialog to pick the found date (default: today), and creates a matching
+  Log row (type "Found it", or "Attended" for event-type caches, finder =
+  your configured Geocaching.com username, date = the chosen date) —
+  verified end-to-end that a manually-found cache now round-trips
+  correctly through GPX export. Requires a Geocaching.com username
+  configured under Settings first (used as the log's finder name); you'll
+  be prompted if it isn't set yet. A new "Edit found date…" entry lets you
+  change the date afterwards without unmarking first — it updates your
+  existing found-type log in place rather than adding a duplicate.
+  "Mark as Not Found" now also clears the found date (mirroring GSAK's own
+  found/found-date linkage), so a cache marked not found no longer shows a
+  stale date; it still doesn't touch existing log history.
+
+### Fixed
+
+- **Child waypoints missing from GPX/GGZ export and Send-to-GPS (#753)** —
+  `generate_gpx()` only ever emitted the one `<wpt>` for a cache's own
+  listing; `cache.waypoints` (parking areas, trailheads, stages, final
+  locations, etc.) were silently dropped from every export path that uses
+  it — File Export (GPX and GGZ) and Send-to-GPS alike. Each child waypoint
+  now gets its own sibling `<wpt>` element, as a plain GPX waypoint (no
+  `groundspeak:cache` block — same convention as custom-waypoint-type
+  caches, #660) with its coordinates, comment, description, sym/type from
+  its waypoint type, and a reconstructed GC-style `<name>` (prefix + this
+  cache's own code suffix — the exact original geocaching.com-assigned
+  code isn't retained on import, but a short unique code is all a
+  re-import or device needs). Verified end-to-end against pjacklam's
+  original GC1YB0C.gpx / opensak_GC1YB0C.gpx pair — the reconstructed
+  child waypoint now matches the original byte-for-byte on every field
+  except `<url>` (not retained by GPX import, so intentionally omitted
+  rather than exported empty). Thanks to pjacklam for the report and the
+  side-by-side GPX files, which made the diff straightforward.
+
+- **Split-screen map: caches with corrected coordinates rendered outside
+  the drawn circle, and stayed unfiltered when a cache was selected
+  (#748, #743)** — the split-screen "nearby" map computed radius
+  membership, sort order, and its own circle centre from each cache's
+  *raw* latitude/longitude, but plots markers at *corrected* coordinates
+  when set. A cache whose corrected coordinates diverged from its raw
+  ones could therefore pass the radius check yet render outside the
+  visible circle (or the reverse — genuinely nearby via its correction,
+  but excluded). Separately, `get_nearby_caches()` only ever filtered by
+  distance, ignoring whatever filter was currently active on the main
+  list — selecting a cache while filtered silently reverted the
+  split-screen map to showing every nearby cache. Both are fixed: radius
+  membership/sorting/circle-centre now use each cache's effective
+  (corrected-aware) coordinates, and the currently active filter (advanced
+  + quick/search-box) is passed through and applied alongside the distance
+  check. Thanks to GeePa67 for both reports.
+
+- **Info Bar counts wrong when text-searching User Notes (#752)** —
+  `apply_filters_lightweight()`'s fallback check for when it must defer to
+  the full ORM query path never accounted for `TextSearchFilter.search_notes`
+  (only description/logs/hint were checked). A text search scoped to *only*
+  User Notes therefore took the fast lightweight path, where the notes
+  `exists()` subquery — written for, and only ever exercised against, the
+  full ORM query — raised a SQLAlchemy auto-correlation error instead of
+  returning a result. Notes-only text search filters now correctly fall
+  back to the full ORM path, matching how description/logs/hint scoping
+  already behaved. Thanks to pjacklam for the report.
+
+- **Community Celebration Event caches imported with wrong type (#756)** —
+  geocaching.com's GPX export uses the raw type string
+  `"Lost and Found Event Caches"` for CCE caches, not `"Event Cache"` as
+  previously assumed (#591). Unrecognized, this string fell through to the
+  generic gray "unknown type" icon on GPX import, and to the Mystery icon
+  on GSAK import (GSAK code `F`, previously left deliberately unmapped).
+  Both import paths now correctly classify these as Community Celebration
+  Event. Verified end-to-end against a real-world 88-cache CCE export.
+  Thanks to Veé X Péé for the detailed report and test file.
+
+---
+
 ## [1.17.0] — 2026-08-17
 
 > First stable release of the 1.17.0 cycle. Replaces the run of

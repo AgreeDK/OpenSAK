@@ -136,6 +136,14 @@ class TestKeys:
     def test_db_type_unknown_falls_back_to_normalize(self):
         assert ip._db_type_to_key("Some New Type") == "some_new_type"
 
+    def test_db_type_lost_and_found_event_caches_maps_to_community_celebration(self):
+        # Issue #756: geocaching.com's own raw <groundspeak:type> value for
+        # Community Celebration Event caches — must resolve to the same
+        # icon key as "Community Celebration Event" itself, not fall
+        # through to the generic "unknown" fallback icon.
+        assert ip._db_type_to_key("Lost and Found Event Caches") == "community_celebration"
+        assert ip._db_type_to_key("lost and found event caches") == "community_celebration"
+
     def test_get_all_type_keys_sorted_unique(self):
         keys = ip.get_all_type_keys()
         assert keys == sorted(set(keys))

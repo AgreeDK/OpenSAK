@@ -771,8 +771,16 @@ STRINGS: dict[str, str] = {
     "ctx_coord_converter":  "⇄  Převodník souřadnic…",
     "ctx_edit_cache":       "✏️  Upravit keš…",
     "ctx_mark_found":       "☑  Označit jako nalezené",
+    "ctx_edit_found_date":  "📅  Upravit datum nálezu…",
     "ctx_mark_not_found":   "☐  Označit jako nenalezené",
     "ctx_update_location":  "🌍  Aktualizovat údaje o poloze…",
+
+    # ── Mark as Found dialog (issue #649) ──────────────────────────────────────
+    "mark_found_dialog_title":       "Označit jako nalezené",
+    "mark_found_dialog_heading":     "Označit {gc_code} — {name} — jako nalezené",
+    "mark_found_dialog_hint":        "Tímto se vytvoří záznam logu \"Found it\", aby se nález správně přenesl přes export GPX (např. do GSAK).",
+    "mark_found_dialog_date_label":  "Datum nálezu:",
+    "mark_found_no_username_warning": "Nejprve nastavte své uživatelské jméno Geocaching.com v Nastavení — použije se jako jméno nálezce v tomto vytvářeném záznamu.",
 
     # ── Waypoint dialog — field labels and placeholders ───────────────────────
     "wp_label_gc_code":             "GC kód *:",

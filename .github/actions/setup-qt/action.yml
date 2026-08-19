@@ -7,10 +7,55 @@ runs:
     - name: Install Qt system dependencies
       shell: bash
       run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends \
-          xvfb libgl1-mesa-dev libegl1 libxkbcommon-x11-0 \
-          libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-          libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
-          libxcb-xfixes0 libxcb-shape0 libglib2.0-0 \
-          libxcb-cursor0 libfontconfig1 libfreetype6
+        # Issue: repeated hangs of 12-26+ minutes on this step, observed
+        # across several unrelated workflow runs on release day (2026-08-19).
+        # Root cause, confirmed from a cancelled run's raw log: apt-get
+        # produced ZERO output (no "Get:"/"Hit:"/"Reading package lists")
+        # for the full 26 minutes before cancellation — meaning it never
+        # even started fetching, ruling out a slow/degraded mirror as the
+        # (sole) cause. This matches a well-known GitHub-hosted Ubuntu
+        # runner gotcha: a background apt-daily/unattended-upgrades
+        # process can still be holding the dpkg/apt lock right after boot,
+        # so apt-get silently blocks waiting for the lock with no output
+        # until it either gets the lock or is killed. Explicitly stopping
+        # that background service and clearing any held lock before our
+        # own apt-get call avoids the silent wait entirely.
+        sudo systemctl stop apt-daily.service apt-daily-upgrade.service \
+          apt-daily.timer apt-daily-upgrade.timer unattended-upgrades \
+          2>/dev/null || true
+        sudo killall -q apt apt-get unattended-upgrade 2>/dev/null || true
+        while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+              sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+          echo "Waiting for another apt process to release the lock..."
+          sleep 2
+        done
+        sudo dpkg --configure -a || true
+
+        # Route around a potentially degraded regional mirror straight to
+        # Canonical's own archive.ubuntu.com/security.ubuntu.com, and use
+        # bounded per-request timeout/retries — kept as a second layer of
+        # defence alongside the lock fix above, since a real mirror issue
+        # is still possible independently of the lock issue.
+        sudo sed -i \
+          -e 's|http://azure\.archive\.ubuntu\.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' \
+          -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+          /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+
+        APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+
+        for attempt in 1 2 3; do
+          if sudo apt-get update -qq $APT_OPTS && \
+             sudo apt-get install -y --no-install-recommends $APT_OPTS \
+               xvfb libgl1-mesa-dev libegl1 libxkbcommon-x11-0 \
+               libdbus-1-3 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+               libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
+               libxcb-xfixes0 libxcb-shape0 libglib2.0-0 \
+               libxcb-cursor0 libfontconfig1 libfreetype6; then
+            exit 0
+          fi
+          echo "::warning::apt-get attempt $attempt failed, retrying in 15s..."
+          sleep 15
+        done
+
+        echo "::error::apt-get failed after 3 attempts"
+        exit 1

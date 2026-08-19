@@ -125,11 +125,19 @@ from opensak.utils.constants import FOUND_LOG_TYPES
 #
 # Added below: six more codes with an unambiguous, already-existing
 # OpenSAK CACHE_TYPES equivalent (utils/constants.py). Deliberately NOT
-# added: D ("Groundspeak Lost and Found Celebration") and F ("Lost and
-# Found Event") — two distinct legacy event variants with no clear 1:1
-# match to our single "Community Celebration Event" entry — and Y
-# (Waymark), which has no OpenSAK equivalent at all. These three keep
-# falling back to "Unknown Cache" rather than risk a wrong mapping.
+# added at the time: D ("Groundspeak Lost and Found Celebration") and F
+# ("Lost and Found Event") — two distinct legacy event variants with no
+# clear 1:1 match to our single "Community Celebration Event" entry —
+# and Y (Waymark), which has no OpenSAK equivalent at all.
+#
+# Issue #756: F resolved. A real-world geocaching.com GPX export (88
+# Community Celebration Event caches) confirms geocaching.com's own
+# machine-readable type string for these is literally "Lost and Found
+# Event Caches" — i.e. GSAK's code F. F now maps to "Community
+# Celebration Event". D ("Groundspeak Lost and Found Celebration") is a
+# separate, distinct legacy Groundspeak program and stays unmapped
+# (falls back to "Unknown Cache") pending confirming evidence — as does
+# Y (Waymark), which still has no OpenSAK equivalent at all.
 GSAK_CACHE_TYPE_MAP: dict[str, str] = {
     "T": "Traditional Cache",
     "M": "Multi-cache",
@@ -151,6 +159,7 @@ GSAK_CACHE_TYPE_MAP: dict[str, str] = {
     "P": "Geocaching HQ Block Party",
     "X": "GPS Adventures Maze",
     "Z": "Mega-Event Cache",
+    "F": "Community Celebration Event",
 }
 
 # GSAK's Container field already matches OpenSAK's CONTAINER_SIZES strings

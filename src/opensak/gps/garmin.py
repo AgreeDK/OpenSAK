@@ -332,7 +332,7 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
         sym_wpt.text = (
             _custom_wp_symbol(cache.cache_type or "")
             if is_custom_wp
-            else _cache_symbol(cache.cache_type or "")
+            else _cache_symbol(cache.cache_type or "", getattr(cache, "found", False))
         )
 
         type_wpt = SubElement(wpt, "type")
@@ -481,14 +481,76 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
             gsak_note = SubElement(gsak_ext, "gsak:UserNote")
             gsak_note.text = note_text
 
+        # Issue #753: child waypoints (parking areas, trailheads, stages,
+        # final locations, etc.) were never exported at all — the loop
+        # above only ever emits the ONE <wpt> for the cache's own listing.
+        # Each child Waypoint gets its own sibling <wpt> element, mirroring
+        # geocaching.com's own plain-waypoint convention (a <wpt> with no
+        # groundspeak:cache block, sym/type set from the waypoint's own
+        # type). Reconstructing <name> exactly as geocaching.com originally
+        # assigned it isn't possible — the importer only keeps the prefix
+        # (see _parse_extra_wpt above), not the original suffix — but
+        # prefix + this cache's own GC-code suffix produces a short, unique,
+        # GPX/GSAK/Garmin-compatible code, which is all a re-import or
+        # device needs; it need not be byte-identical to the original.
+        gc_suffix = cache.gc_code[2:] if cache.gc_code and len(cache.gc_code) > 2 else ""
+        for child_wp in getattr(cache, "waypoints", None) or []:
+            if child_wp.latitude is None or child_wp.longitude is None:
+                continue
+
+            cwpt = SubElement(gpx, "wpt")
+            cwpt.set("lat", f"{child_wp.latitude:.6f}")
+            cwpt.set("lon", f"{child_wp.longitude:.6f}")
+
+            if child_wp.wp_date:
+                cwpt_time = SubElement(cwpt, "time")
+                cwpt_time.text = child_wp.wp_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            cwpt_name = SubElement(cwpt, "name")
+            cwpt_name.text = (child_wp.prefix or "WP") + gc_suffix
+
+            if child_wp.comment:
+                cwpt_cmt = SubElement(cwpt, "cmt")
+                cwpt_cmt.text = child_wp.comment
+
+            if child_wp.description:
+                cwpt_desc = SubElement(cwpt, "desc")
+                cwpt_desc.text = child_wp.description
+
+            if child_wp.url:
+                cwpt_url = SubElement(cwpt, "url")
+                cwpt_url.text = child_wp.url
+
+            cwpt_urlname = SubElement(cwpt, "urlname")
+            cwpt_urlname.text = child_wp.name or child_wp.description or cwpt_name.text
+
+            cwpt_sym = SubElement(cwpt, "sym")
+            cwpt_sym.text = child_wp.wp_type or "Waypoint"
+
+            cwpt_type = SubElement(cwpt, "type")
+            cwpt_type.text = f"Waypoint|{child_wp.wp_type or 'Waypoint'}"
+
     _indent(gpx)
     return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(
         gpx, encoding="unicode"
     )
 
 
-def _cache_symbol(cache_type: str) -> str:
-    """Returner Garmin symbol navn for en cache type."""
+def _cache_symbol(cache_type: str, found: bool = False) -> str:
+    """Returner Garmin symbol navn for en cache type.
+
+    Issue #766: found-status skal signaleres via <sym>, ikke kun via
+    groundspeak:logs — det er den konvention GSAK og Garmin-enheder rent
+    faktisk læser found-status fra i en GPX (Groundspeak/GC.com Pocket
+    Query-konventionen). Uden dette sætter OSAK aldrig found-status i GPX'en
+    overhovedet, hverken til andre værktøjer eller til sig selv ved
+    re-import — kun log-listen blev skrevet, som ingen af importørerne
+    bruger til at afgøre found_by_me.
+
+    Kun almindelige "Geocache"-symboler får found-varianten. Lab Caches
+    ("Flag, Blue") har intet found-symbol i Garmins konvention, så deres
+    symbol er uændret uanset found-status.
+    """
     symbols = {
         "Traditional Cache": "Geocache",
         "Multi-cache":        "Geocache",
@@ -506,7 +568,10 @@ def _cache_symbol(cache_type: str) -> str:
         # this is a cosmetic-only change.
         "Lab Cache":          "Flag, Blue",
     }
-    return symbols.get(cache_type, "Geocache")
+    symbol = symbols.get(cache_type, "Geocache")
+    if found and symbol == "Geocache":
+        return "Geocache Found"
+    return symbol
 
 
 def _custom_wp_symbol(cache_type: str) -> str:

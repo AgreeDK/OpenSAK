@@ -1728,10 +1728,14 @@ class _RelationshipNeeds:
     logs: bool
     description: bool
     hint: bool
+    notes: bool
 
     @property
     def any(self) -> bool:
-        return self.attributes or self.trackables or self.logs or self.description or self.hint
+        return (
+            self.attributes or self.trackables or self.logs
+            or self.description or self.hint or self.notes
+        )
 
 
 def _filterset_relationship_needs(filterset: Optional["FilterSet"]) -> _RelationshipNeeds:
@@ -1748,9 +1752,22 @@ def _filterset_relationship_needs(filterset: Optional["FilterSet"]) -> _Relation
     needs_description = any(f.search_description for f in _text_filters)
     needs_hint = any(f.search_hint for f in _text_filters)
     needs_logs = any(f.search_logs for f in _text_filters)
+    # Issue #752: search_notes was never checked here, so a TextSearchFilter
+    # scoped to *only* User Notes (search_description/search_logs/
+    # search_hint all False) fell through with every _RelationshipNeeds
+    # flag False, and apply_filters_lightweight() then took the fast Core
+    # select() path — where TextSearchFilter.apply_to_query()'s notes
+    # exists() subquery raises an auto-correlation InvalidRequestError,
+    # since that subquery was written for (and only ever tested against)
+    # apply_filters()'s ORM Query, which correlates automatically in a way
+    # Core select() doesn't. Treating notes like description/logs/hint here
+    # routes notes-only searches to the full ORM path instead, which
+    # already handles the same exists() subquery correctly.
+    needs_notes = any(f.search_notes for f in _text_filters)
     return _RelationshipNeeds(
         attributes=needs_attributes, trackables=needs_trackables,
         logs=needs_logs, description=needs_description, hint=needs_hint,
+        notes=needs_notes,
     )
 
 
@@ -2211,12 +2228,48 @@ def apply_filters_auto(
     return apply_filters_lightweight(session, filterset, sort, limit, distance_from, push_limit, columns)
 
 
+# Issue #748: how far, in km, a cache's corrected coordinates are assumed
+# to be able to diverge from its raw ones — used only to widen
+# get_nearby_caches()'s SQL pre-filter net so a real-world puzzle/multi's
+# corrected final still gets a chance to be picked up even when its posted
+# coordinates fall outside radius_km. A fixed constant (not proportional to
+# database size or radius_km), chosen generously above any realistic
+# correction distance while staying cheap for the bounding-box query.
+_CORRECTION_MARGIN_KM = 50.0
+
+
+def effective_coords(cache) -> tuple[Optional[float], Optional[float]]:
+    """Return the coordinates that should be used for distance/map-position
+    purposes: a cache's corrected coordinates when set, else its original
+    latitude/longitude.
+
+    Issue #748: the split-screen map plots a cache at its *corrected*
+    coordinates when set (map_widget.py's loadCaches() JS —
+    `c.corrected ? c.clat : c.lat`), but get_nearby_caches() below used to
+    compute radius membership purely from raw latitude/longitude via
+    DistanceFilter. A cache whose corrected coordinates sit far from its
+    raw ones (the normal case for a puzzle/multi's final vs. posted
+    coordinates) could pass the raw-coordinate radius check yet render
+    outside the drawn circle, or vice versa. This mirrors garmin.py's
+    private _effective_coords() (kept separate here to avoid a gps->
+    filters import) so filtering/sorting always agrees with what's
+    actually plotted.
+    """
+    note = getattr(cache, "user_note", None)
+    if note and getattr(note, "is_corrected", False):
+        lat, lon = note.corrected_lat, note.corrected_lon
+        if lat is not None and lon is not None:
+            return lat, lon
+    return cache.latitude, cache.longitude
+
+
 def get_nearby_caches(
     session: Session,
     lat: float,
     lon: float,
     radius_km: float,
     max_caches: int,
+    filterset: Optional["FilterSet"] = None,
 ) -> tuple[list, int]:
     """Issue #718: the selected cache plus its neighbours within *radius_km*,
     sorted nearest-first, capped to *max_caches*. Used by the split-screen
@@ -2229,6 +2282,13 @@ def get_nearby_caches(
     full count found within radius_km (for a "showing nearest X of Y"
     label; see settings_dialog's map_nearby_* settings).
 
+    filterset (#743): when given, ANDed together with the DistanceFilter so
+    the split-screen "nearby" view respects whatever filter is currently
+    active on the main list/overview map — previously this function always
+    queried distance alone, so selecting a cache while a filter was active
+    made the split-screen map silently revert to showing every nearby
+    cache regardless of the filter ("map not staying filtered").
+
     Deliberately does NOT use SortSpec("distance", ...) — that sort field
     always orders by the persisted Cache.distance column, which is
     distance from the *home point* (see recalculate_distances()), not
@@ -2239,24 +2299,46 @@ def get_nearby_caches(
     because DistanceFilter's SQL bounding-box (apply_to_query) already
     keeps the fetched set geographically bounded regardless of database
     size, same box used by the overview map's DistanceFilter today.
+
+    Issue #748: radius membership and sort order are computed from each
+    candidate's effective_coords() (corrected coordinates when set),
+    matching what map_widget.py actually plots — not DistanceFilter's own
+    raw-coordinate match, which is only used here as a first-pass SQL
+    net widened by _CORRECTION_MARGIN_KM (below) specifically to still
+    catch caches whose corrected coordinates pull them into radius_km
+    despite raw coordinates sitting further out — corrected coordinates
+    for real-world puzzle/multi caches are essentially never further from
+    their posted coordinates than that margin, so this keeps the net
+    cheap (a fixed extra width, not proportional to database size) while
+    covering the practical range of corrections.
     """
     if lat is None or lon is None:
         return [], 0
 
     fs = FilterSet()
-    fs.add(DistanceFilter(lat=lat, lon=lon, max_km=radius_km))
+    fs.add(DistanceFilter(lat=lat, lon=lon, max_km=radius_km + _CORRECTION_MARGIN_KM))
+    if filterset is not None and len(filterset) > 0:
+        fs.add(filterset)
 
-    matches = apply_filters_auto(session, fs)
-    total = len(matches)
-    if not matches:
+    candidates = apply_filters_auto(session, fs)
+    if not candidates:
         return [], 0
 
+    eff = [effective_coords(c) for c in candidates]
     dists = distance_km_batch(
         lat, lon,
-        [c.latitude for c in matches],
-        [c.longitude for c in matches],
+        [ec[0] for ec in eff],
+        [ec[1] for ec in eff],
     )
-    ordered = sorted(zip(matches, dists), key=lambda pair: pair[1])
+    within_radius = [
+        (c, d) for c, d, (elat, elon) in zip(candidates, dists, eff)
+        if elat is not None and elon is not None and d <= radius_km
+    ]
+    total = len(within_radius)
+    if not within_radius:
+        return [], 0
+
+    ordered = sorted(within_radius, key=lambda pair: pair[1])
     nearby = [c for c, _ in ordered[:max_caches]]
     return nearby, total
 

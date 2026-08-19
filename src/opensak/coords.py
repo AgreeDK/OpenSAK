@@ -27,16 +27,47 @@ FORMATS = {
 }
 
 
+def _split_dm(abs_val: float) -> tuple[int, float]:
+    """Split |degrees| into (whole_degrees, minutes) with minutes rounded to
+    3 decimals, carrying into degrees if the rounding pushes minutes to
+    60.000 (issue #751 — e.g. 59.999999° must round to 60° 00.000', not
+    59° 60.000'; rounding directly in an f-string's :06.3f never checks
+    for this overflow).
+    """
+    deg = int(abs_val)
+    minutes = round((abs_val - deg) * 60, 3)
+    if minutes >= 60.0:
+        minutes -= 60.0
+        deg += 1
+    return deg, minutes
+
+
+def _split_dms(abs_val: float) -> tuple[int, int, float]:
+    """Split |degrees| into (whole_degrees, whole_minutes, seconds), with
+    seconds rounded to 2 decimals and a two-level carry: seconds rounding
+    to 60.00 carries into minutes, and minutes then reaching 60 carries
+    into degrees (issue #751 — same rounding-overflow bug as _split_dm,
+    but seconds can cascade into minutes *and* degrees).
+    """
+    deg = int(abs_val)
+    total_min = (abs_val - deg) * 60
+    minutes = int(total_min)
+    seconds = round((total_min - minutes) * 60, 2)
+    if seconds >= 60.0:
+        seconds -= 60.0
+        minutes += 1
+    if minutes >= 60:
+        minutes -= 60
+        deg += 1
+    return deg, minutes, seconds
+
+
 def _dd_to_dmm(lat: float, lon: float) -> str:
     """Convert decimal degrees to DMM string (geocaching standard)."""
     lat_h = "N" if lat >= 0 else "S"
     lon_h = "E" if lon >= 0 else "W"
-    lat_abs = abs(lat)
-    lon_abs = abs(lon)
-    lat_deg = int(lat_abs)
-    lon_deg = int(lon_abs)
-    lat_min = (lat_abs - lat_deg) * 60
-    lon_min = (lon_abs - lon_deg) * 60
+    lat_deg, lat_min = _split_dm(abs(lat))
+    lon_deg, lon_min = _split_dm(abs(lon))
     return f"{lat_h}{lat_deg:02d} {lat_min:06.3f}  {lon_h}{lon_deg:03d} {lon_min:06.3f}"
 
 
@@ -44,14 +75,8 @@ def _dd_to_dms(lat: float, lon: float) -> str:
     """Convert decimal degrees to DMS string."""
     lat_h = "N" if lat >= 0 else "S"
     lon_h = "E" if lon >= 0 else "W"
-    lat_abs = abs(lat)
-    lon_abs = abs(lon)
-    lat_deg = int(lat_abs)
-    lon_deg = int(lon_abs)
-    lat_min = int((lat_abs - lat_deg) * 60)
-    lon_min = int((lon_abs - lon_deg) * 60)
-    lat_sec = (lat_abs - lat_deg - lat_min / 60) * 3600
-    lon_sec = (lon_abs - lon_deg - lon_min / 60) * 3600
+    lat_deg, lat_min, lat_sec = _split_dms(abs(lat))
+    lon_deg, lon_min, lon_sec = _split_dms(abs(lon))
     return (
         f"{lat_h}{lat_deg:02d}° {lat_min:02d}' {lat_sec:05.2f}\"  "
         f"{lon_h}{lon_deg:03d}° {lon_min:02d}' {lon_sec:05.2f}\""
@@ -85,13 +110,11 @@ def format_lat(lat: float, fmt: CoordFormat) -> str:
     if fmt == CoordFormat.DD:
         return f"{lat:.6f}"
     if fmt == CoordFormat.DMS:
-        deg = int(a)
-        m = int((a - deg) * 60)
-        s = (a - deg - m / 60) * 3600
+        deg, m, s = _split_dms(a)
         return f"{h}{deg:02d}° {m:02d}' {s:05.2f}\""
     # default: DMM (geocaching standard)
-    deg = int(a)
-    return f"{h}{deg:02d} {(a - deg) * 60:06.3f}"
+    deg, dm_min = _split_dm(a)
+    return f"{h}{deg:02d} {dm_min:06.3f}"
 
 
 def format_lon(lon: float, fmt: CoordFormat) -> str:
@@ -105,13 +128,11 @@ def format_lon(lon: float, fmt: CoordFormat) -> str:
     if fmt == CoordFormat.DD:
         return f"{lon:.6f}"
     if fmt == CoordFormat.DMS:
-        deg = int(a)
-        m = int((a - deg) * 60)
-        s = (a - deg - m / 60) * 3600
+        deg, m, s = _split_dms(a)
         return f"{h}{deg:03d}° {m:02d}' {s:05.2f}\""
     # default: DMM (geocaching standard)
-    deg = int(a)
-    return f"{h}{deg:03d} {(a - deg) * 60:06.3f}"
+    deg, dm_min = _split_dm(a)
+    return f"{h}{deg:03d} {dm_min:06.3f}"
 
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
@@ -144,6 +165,32 @@ def parse_coords(text: str) -> Coordinate | None:
     )
     if m:
         lat, lon = float(m.group(1)), float(m.group(2))
+        return (lat, lon) if _valid_range(lat, lon) else None
+
+    # ── DD with hemisphere letters: "N 59.99999 E 12.99999" ──────────────────
+    # Issue #751: without this branch, a plain decimal-degree value written
+    # with an N/S/E/W hemisphere letter instead of a +/- sign (no separate
+    # minutes component at all) fell through to the DMM° branch below.
+    # There, regex backtracking let the degrees group (\d{1,3}, normally
+    # greedy) give back digits to the minutes group whenever keeping them
+    # would leave an unmatchable "." right after — so "59.99999" silently
+    # got reinterpreted as degrees=5, minutes=9.99999 instead of being
+    # rejected or recognised as decimal degrees, producing wildly wrong
+    # coordinates (5.16667° instead of 59.99999°) with no error shown.
+    # Checked before the DMM° branch since it's the more specific/exact
+    # match for this exact input shape.
+    m = re.match(
+        r'^([NSns])\s*(\d{1,3}(?:\.\d+)?)\s+([EWew])\s*(\d{1,3}(?:\.\d+)?)\s*$',
+        text
+    )
+    if m:
+        lat_h, lat_val, lon_h, lon_val = m.groups()
+        lat = float(lat_val)
+        lon = float(lon_val)
+        if lat_h.upper() == "S":
+            lat = -lat
+        if lon_h.upper() == "W":
+            lon = -lon
         return (lat, lon) if _valid_range(lat, lon) else None
 
     # ── DMM°: "N 34° 58.088' E 034° 03.281'" (geocaching.com format) ─────────

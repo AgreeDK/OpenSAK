@@ -770,8 +770,16 @@ STRINGS: dict[str, str] = {
     "ctx_coord_converter":  "⇄  Koordinaten-Konverter",
     "ctx_edit_cache":       "✏️  Cache bearbeiten…",
     "ctx_mark_found":       "☑  Als Gefunden markieren",
+    "ctx_edit_found_date":  "📅  Funddatum bearbeiten…",
     "ctx_mark_not_found":   "☐  Als Nicht Gefunden markieren",
     "ctx_update_location":  "🌍  Standortdaten aktualisieren…",
+
+    # ── Mark as Found dialog (issue #649) ──────────────────────────────────────
+    "mark_found_dialog_title":       "Als Gefunden markieren",
+    "mark_found_dialog_heading":     "{gc_code} — {name} — als gefunden markieren",
+    "mark_found_dialog_hint":        "Dadurch wird ein \"Found it\"-Logeintrag erstellt, damit der Fund korrekt über den GPX-Export übertragen wird (z. B. nach GSAK).",
+    "mark_found_dialog_date_label":  "Funddatum:",
+    "mark_found_no_username_warning": "Legen Sie zuerst Ihren Geocaching.com-Benutzernamen in den Einstellungen fest — er wird als Finder-Name für diesen Logeintrag verwendet.",
 
     # ── Waypoint dialog — field labels and placeholders ───────────────────────
     "wp_label_gc_code":             "GC-Code *:",
