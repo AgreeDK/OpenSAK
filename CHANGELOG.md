@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.2-beta.1] — 2026-08-19
+
+### Fixed
+
+- **found status from genuine GSAK GPX/GGZ exports not detected on import when GSAK's <sym> doesn't reflect found state (#766)
+
+---
+
 ## [1.17.1] — 2026-08-19
 
 ### Fixed
