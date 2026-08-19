@@ -70,10 +70,24 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install system packages
         run: |
-          # Same mitigation as .github/actions/setup-qt/action.yml — route
-          # around the (currently degraded) azure.archive.ubuntu.com
-          # regional mirror straight to archive.ubuntu.com, plus bounded
-          # per-request timeout/retries as a second layer of defence.
+          # Same mitigations as .github/actions/setup-qt/action.yml —
+          # confirmed root cause (from a cancelled run's raw log) was
+          # apt-get silently blocking on the dpkg/apt lock, still held by
+          # a background apt-daily/unattended-upgrades process right after
+          # runner boot, with zero output until cancelled. Clear/wait for
+          # that lock first, then route around a potentially degraded
+          # regional mirror as a second layer of defence.
+          sudo systemctl stop apt-daily.service apt-daily-upgrade.service \
+            apt-daily.timer apt-daily-upgrade.timer unattended-upgrades \
+            2>/dev/null || true
+          sudo killall -q apt apt-get unattended-upgrade 2>/dev/null || true
+          while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+                sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+            echo "Waiting for another apt process to release the lock..."
+            sleep 2
+          done
+          sudo dpkg --configure -a || true
+
           sudo sed -i \
             -e 's|http://azure\.archive\.ubuntu\.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' \
             -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \

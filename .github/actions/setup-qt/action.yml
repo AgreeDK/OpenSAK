@@ -7,19 +7,35 @@ runs:
     - name: Install Qt system dependencies
       shell: bash
       run: |
-        # Issue: repeated hangs of 12-25+ minutes on this step, observed
-        # across several unrelated workflow runs on release day (2026-08-19)
-        # — apt-get update/install stalling on a slow/unresponsive mirror
-        # (azure.archive.ubuntu.com, the default on GitHub-hosted Ubuntu
-        # runners). Bounded per-request retries (below) turned out not to
-        # be enough on their own: when the *entire* regional mirror is
-        # degraded rather than just one slow request, the bounded retries
-        # across dozens of index files (main/universe/restricted x
-        # jammy/updates/backports/security) still add up to many minutes.
-        # So we route around the regional mirror entirely and go straight
-        # to Canonical's own archive.ubuntu.com/security.ubuntu.com — the
-        # same mirror apt itself was already falling back to (successfully)
-        # partway through one of the hung runs.
+        # Issue: repeated hangs of 12-26+ minutes on this step, observed
+        # across several unrelated workflow runs on release day (2026-08-19).
+        # Root cause, confirmed from a cancelled run's raw log: apt-get
+        # produced ZERO output (no "Get:"/"Hit:"/"Reading package lists")
+        # for the full 26 minutes before cancellation — meaning it never
+        # even started fetching, ruling out a slow/degraded mirror as the
+        # (sole) cause. This matches a well-known GitHub-hosted Ubuntu
+        # runner gotcha: a background apt-daily/unattended-upgrades
+        # process can still be holding the dpkg/apt lock right after boot,
+        # so apt-get silently blocks waiting for the lock with no output
+        # until it either gets the lock or is killed. Explicitly stopping
+        # that background service and clearing any held lock before our
+        # own apt-get call avoids the silent wait entirely.
+        sudo systemctl stop apt-daily.service apt-daily-upgrade.service \
+          apt-daily.timer apt-daily-upgrade.timer unattended-upgrades \
+          2>/dev/null || true
+        sudo killall -q apt apt-get unattended-upgrade 2>/dev/null || true
+        while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+              sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+          echo "Waiting for another apt process to release the lock..."
+          sleep 2
+        done
+        sudo dpkg --configure -a || true
+
+        # Route around a potentially degraded regional mirror straight to
+        # Canonical's own archive.ubuntu.com/security.ubuntu.com, and use
+        # bounded per-request timeout/retries — kept as a second layer of
+        # defence alongside the lock fix above, since a real mirror issue
+        # is still possible independently of the lock issue.
         sudo sed -i \
           -e 's|http://azure\.archive\.ubuntu\.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' \
           -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
