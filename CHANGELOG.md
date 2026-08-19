@@ -8,6 +8,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **GPX export/import did not preserve "found" status (#766)** — reported by
+  Allyn56 via a detailed multi-scenario comparison in #649. Two related bugs
+  in the GPX bridge, both now fixed:
+  1. **Export:** `_cache_symbol()` in `src/opensak/gps/garmin.py` always wrote
+     `<sym>Geocache</sym>`, regardless of `cache.found`. The Groundspeak/GC.com
+     Pocket Query convention — which GSAK and Garmin devices actually read
+     found status from in a GPX — is `<sym>Geocache Found</sym>`. OpenSAK
+     never wrote this, so found status was invisible to any tool reading an
+     OpenSAK-exported GPX or GGZ, including OpenSAK itself on re-import (the
+     log entries were present and correct, but nothing checks the log list
+     for found status — only `<sym>`). Found caches now export with
+     `<sym>Geocache Found</sym>` in both the file-export and send-to-device
+     paths (GGZ reuses the same GPX generator). Lab Caches are unaffected —
+     they have no found-symbol in the Garmin convention, so their distinct
+     icon (`Flag, Blue`) is unchanged either way.
+  2. **Import:** `found_by_me` in `src/opensak/importer/__init__.py` was
+     derived exclusively from `sym == "Geocache Found"`, with no fallback —
+     unlike the GSAK database importer, which reads GSAK's own `Found` column
+     directly and was unaffected. Import now also checks the log list for a
+     found-type log (`FOUND_LOG_TYPES`) matching the configured
+     `gc_finder_id`/`gc_username`, same matching rules already used for
+     `found_date`/FTF derivation, but **only when `<sym>` is entirely absent**
+     from the source wpt — if `<sym>` is present at all (even a plain
+     "Geocache", not just "Geocache Found"), it's trusted as authoritative.
+     This matters because "Mark as Not Found" deliberately leaves old
+     found-type Log rows in place rather than risk deleting real imported
+     log history — without this guard, re-exporting such a cache (which
+     correctly writes `sym="Geocache"` after the fix above) and re-importing
+     it would have incorrectly resurrected found status from the stale log.
+
 - **Vertical splitter couldn't be resized past roughly the middle of the
   window (#755)** — the cache detail panel's `QTabWidget` (Description,
   Hint, Logs, Waypoints, Attributes, Trackables, Notes) reported its own

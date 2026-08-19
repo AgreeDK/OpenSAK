@@ -635,6 +635,130 @@ def test_import_found_date_picks_oldest_among_found_log_types(tmp_db, tmp_path):
         assert cache.found_date.year == 2015
 
 
+# ── Issue #766: found-by-me fallback via log list (no sym="Geocache Found") ──
+# Not every source GPX is guaranteed to set the Groundspeak/GC.com sym
+# convention (e.g. it's unconfirmed whether GSAK's own GPX export does), so
+# import must also detect found status from the user's own found-type log
+# when sym doesn't say so.
+
+@pytest.fixture
+def found_username(monkeypatch):
+    from opensak.gui.settings import get_settings
+    get_settings().gc_username = "AB Green"
+    get_settings().gc_finder_id = ""
+
+
+def test_import_found_fallback_detected_via_own_log(tmp_db, tmp_path, found_username):
+    # No sym="Geocache Found" at all — only the log list identifies the find.
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND1", cache_type="Traditional Cache", gs_id=46101,
+        logs=[{
+            "id": "46101001", "type": "Found it", "date": "2024-03-01T00:00:00Z",
+            "finder": "AB Green", "finder_id": "999",
+        }],
+    ))
+    f = write_gpx(tmp_path, "found_fallback.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND1").one()
+        assert cache.found is True
+        assert cache.found_date is not None
+        assert cache.found_date.year == 2024
+
+
+def test_import_found_fallback_matches_by_finder_id(tmp_db, tmp_path, monkeypatch):
+    from opensak.gui.settings import get_settings
+    get_settings().gc_username = ""
+    get_settings().gc_finder_id = "999"
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND2", cache_type="Traditional Cache", gs_id=46102,
+        logs=[{
+            "id": "46102001", "type": "Found it", "date": "2024-04-01T00:00:00Z",
+            "finder": "Some Other Name", "finder_id": "999",
+        }],
+    ))
+    f = write_gpx(tmp_path, "found_fallback_id.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND2").one()
+        assert cache.found is True
+
+
+def test_import_found_fallback_ignores_other_users_logs(tmp_db, tmp_path, found_username):
+    # A "Found it" log by someone else must NOT mark the cache as found.
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND3", cache_type="Traditional Cache", gs_id=46103,
+        logs=[{
+            "id": "46103001", "type": "Found it", "date": "2024-05-01T00:00:00Z",
+            "finder": "Someone Else", "finder_id": "1",
+        }],
+    ))
+    f = write_gpx(tmp_path, "found_fallback_other.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND3").one()
+        assert cache.found is False
+
+
+def test_import_found_fallback_no_username_configured(tmp_db, tmp_path, monkeypatch):
+    # No gc_username/gc_finder_id configured — can't safely attribute a log
+    # to "me", so found must NOT be inferred just because a Found it log
+    # exists somewhere in the list (matches existing FTF-detection caution).
+    from opensak.gui.settings import get_settings
+    get_settings().gc_username = ""
+    get_settings().gc_finder_id = ""
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND4", cache_type="Traditional Cache", gs_id=46104,
+        logs=[{
+            "id": "46104001", "type": "Found it", "date": "2024-06-01T00:00:00Z",
+            "finder": "Somebody", "finder_id": "1",
+        }],
+    ))
+    f = write_gpx(tmp_path, "found_fallback_nouser.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND4").one()
+        assert cache.found is False
+
+
+def test_import_found_sym_still_takes_priority(tmp_db, tmp_path, found_username):
+    # When sym="Geocache Found" IS present, it's still honoured directly —
+    # the log-list fallback only kicks in when sym doesn't say found.
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND5", cache_type="Traditional Cache", sym="Geocache Found", gs_id=46105,
+        logs=[],
+    ))
+    f = write_gpx(tmp_path, "found_sym_priority.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND5").one()
+        assert cache.found is True
+
+
+def test_import_explicit_not_found_sym_overrides_stale_log(tmp_db, tmp_path, found_username):
+    # Regression guard: OpenSAK's own "Mark as Not Found" deliberately
+    # leaves old found-type Log rows in place (see cache_table.py) rather
+    # than risk deleting real imported log history. When such a cache is
+    # re-exported, <sym> correctly reflects the current (not found) state,
+    # but the stale "Found it" log is still present in the exported log
+    # list. The fallback must NOT resurrect found status in that case — an
+    # explicit sym value (even a plain "Geocache", not just
+    # "Geocache Found") is authoritative and skips the log-based fallback
+    # entirely, exactly because it IS present.
+    gpx = build_gpx(cache_wpt(
+        "GCFOUND6", cache_type="Traditional Cache", sym="Geocache", gs_id=46106,
+        logs=[{
+            "id": "46106001", "type": "Found it", "date": "2023-01-01T00:00:00Z",
+            "finder": "AB Green", "finder_id": "999",
+        }],
+    ))
+    f = write_gpx(tmp_path, "found_unmarked_stale_log.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCFOUND6").one()
+        assert cache.found is False
+
+
 # ── FTF tag-based detection (issue: false positives from free-text match) ────
 # The old FTF detection matched free-text phrases ("ftf", "first to find",
 # "first finder", ...) anywhere in the user's own found-log text, which

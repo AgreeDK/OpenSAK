@@ -332,7 +332,7 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
         sym_wpt.text = (
             _custom_wp_symbol(cache.cache_type or "")
             if is_custom_wp
-            else _cache_symbol(cache.cache_type or "")
+            else _cache_symbol(cache.cache_type or "", getattr(cache, "found", False))
         )
 
         type_wpt = SubElement(wpt, "type")
@@ -536,8 +536,21 @@ def generate_gpx(caches: list, filename: str = "opensak_export", progress_cb=Non
     )
 
 
-def _cache_symbol(cache_type: str) -> str:
-    """Returner Garmin symbol navn for en cache type."""
+def _cache_symbol(cache_type: str, found: bool = False) -> str:
+    """Returner Garmin symbol navn for en cache type.
+
+    Issue #766: found-status skal signaleres via <sym>, ikke kun via
+    groundspeak:logs — det er den konvention GSAK og Garmin-enheder rent
+    faktisk læser found-status fra i en GPX (Groundspeak/GC.com Pocket
+    Query-konventionen). Uden dette sætter OSAK aldrig found-status i GPX'en
+    overhovedet, hverken til andre værktøjer eller til sig selv ved
+    re-import — kun log-listen blev skrevet, som ingen af importørerne
+    bruger til at afgøre found_by_me.
+
+    Kun almindelige "Geocache"-symboler får found-varianten. Lab Caches
+    ("Flag, Blue") har intet found-symbol i Garmins konvention, så deres
+    symbol er uændret uanset found-status.
+    """
     symbols = {
         "Traditional Cache": "Geocache",
         "Multi-cache":        "Geocache",
@@ -555,7 +568,10 @@ def _cache_symbol(cache_type: str) -> str:
         # this is a cosmetic-only change.
         "Lab Cache":          "Flag, Blue",
     }
-    return symbols.get(cache_type, "Geocache")
+    symbol = symbols.get(cache_type, "Geocache")
+    if found and symbol == "Geocache":
+        return "Geocache Found"
+    return symbol
 
 
 def _custom_wp_symbol(cache_type: str) -> str:

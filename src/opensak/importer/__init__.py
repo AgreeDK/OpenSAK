@@ -246,7 +246,8 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
 
     # ── Found by me — detekteret via <sym>Geocache Found</sym> ───────────────
     # Groundspeak sætter sym til "Geocache Found" for caches fundet af PQ-ejeren.
-    sym = _text(wpt_el, "gpx:sym", gpx_ns) or ""
+    sym_raw = _text(wpt_el, "gpx:sym", gpx_ns)
+    sym = sym_raw or ""
     found_by_me = sym.strip().lower() == "geocache found"
 
     # ── Groundspeak extension block ───────────────────────────────────────────
@@ -347,6 +348,40 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
                     "text":         log_text,
                     "text_encoded": encoded,
                 })
+
+    # ── Issue #766: found-by-me fallback via log list ───────────────────────
+    # sym="Geocache Found" is the Groundspeak/GC.com Pocket Query convention,
+    # but not every source GPX is guaranteed to set it (e.g. it's unconfirmed
+    # whether GSAK's own GPX export does). Fall back to checking the log list
+    # for the configured user's own found-type log, using the same
+    # finder_id/username matching rules already used for found_date/FTF
+    # derivation further down — so found status is detected regardless of
+    # which convention the source tool follows.
+    #
+    # IMPORTANT: only fall back when <sym> is entirely ABSENT from the wpt,
+    # not merely when it doesn't say "Geocache Found". If sym IS present, it
+    # is trusted as authoritative either way — including for "not found".
+    # This matters because OpenSAK's own export always writes a <sym> (see
+    # garmin.py) reflecting the current found state, but never deletes old
+    # found-type Log rows when a cache is manually unmarked as found (a
+    # deliberate choice — see cache_table.py's Mark as Not Found handler, to
+    # avoid destroying real imported log history). Without this guard, a
+    # cache that was unmarked but still has a stale found-type log would be
+    # incorrectly resurrected as found on any GPX round-trip.
+    if not found_by_me and sym_raw is None and logs:
+        from opensak.gui.settings import get_settings
+        _sett = get_settings()
+        _gc_username  = (_sett.gc_username  or "").strip().lower()
+        _gc_finder_id = (_sett.gc_finder_id or "").strip()
+        if _gc_finder_id or _gc_username:
+            found_by_me = any(
+                lg.get("log_type") in FOUND_LOG_TYPES
+                and (
+                    (_gc_finder_id and str(lg.get("finder_id", "")).strip() == _gc_finder_id)
+                    or (_gc_username and (lg.get("finder") or "").strip().lower() == _gc_username)
+                )
+                for lg in logs
+            )
 
     # ── Trackables ────────────────────────────────────────────────────────────
     trackables = []

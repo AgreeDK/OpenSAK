@@ -76,6 +76,7 @@ def _cache(
     owner_name=None,
     owner_id=None,
     waypoints=None,
+    found=False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=cache_id,
@@ -105,6 +106,7 @@ def _cache(
         long_desc_html=long_desc_html,
         attributes=attributes or [],
         waypoints=waypoints or [],
+        found=found,
     )
 
 
@@ -186,6 +188,32 @@ class TestCacheSymbol:
 
     def test_empty_string_falls_back(self):
         assert _cache_symbol("") == "Geocache"
+
+    def test_not_found_defaults_to_plain_geocache(self):
+        # found defaults to False — existing callers/tests are unaffected.
+        assert _cache_symbol("Traditional Cache") == "Geocache"
+        assert _cache_symbol("Traditional Cache", found=False) == "Geocache"
+
+    def test_found_traditional_gets_found_symbol(self):
+        # Issue #766: found status must be signalled via <sym>, matching the
+        # Groundspeak/GC.com Pocket Query convention GSAK and Garmin devices
+        # read found status from.
+        assert _cache_symbol("Traditional Cache", found=True) == "Geocache Found"
+
+    def test_found_other_cache_types_get_found_symbol(self):
+        for cache_type in (
+            "Multi-cache", "Unknown Cache", "Letterbox Hybrid",
+            "Wherigo Cache", "Event Cache", "Earthcache", "Virtual Cache",
+        ):
+            assert _cache_symbol(cache_type, found=True) == "Geocache Found"
+
+    def test_found_lab_cache_keeps_distinct_symbol(self):
+        # Lab Caches have no found-symbol in the Garmin convention — found
+        # status doesn't change their (already distinct) icon.
+        assert _cache_symbol("Lab Cache", found=True) == "Flag, Blue"
+
+    def test_found_unknown_type_falls_back_to_found_geocache(self):
+        assert _cache_symbol("Nonexistent Type", found=True) == "Geocache Found"
 
 
 class TestCustomWpSymbol:
@@ -312,6 +340,28 @@ class TestGenerateGpx:
     def test_custom_filename_in_metadata(self):
         result = generate_gpx([_cache()], filename="my_export")
         assert "my_export" in result
+
+    def test_not_found_cache_gets_plain_sym(self):
+        # Issue #766: default (not found) behaviour is unchanged.
+        result = generate_gpx([_cache(found=False)])
+        assert "<sym>Geocache</sym>" in result
+        assert "Geocache Found" not in result
+
+    def test_found_cache_gets_found_sym(self):
+        # Issue #766: found status must round-trip through <sym>, matching
+        # the Groundspeak/GC.com Pocket Query convention — otherwise no
+        # downstream tool (GSAK, Garmin devices, or OpenSAK itself on
+        # re-import) can detect it, even though the log list is present.
+        result = generate_gpx([_cache(found=True)])
+        assert "<sym>Geocache Found</sym>" in result
+
+    def test_found_missing_attribute_defaults_to_not_found(self):
+        # cache.found may be absent entirely on older/partial objects —
+        # generate_gpx must not raise, and must fall back to "Geocache".
+        cache = _cache()
+        del cache.found
+        result = generate_gpx([cache])
+        assert "<sym>Geocache</sym>" in result
 
     def test_country_present_when_set(self):
         result = generate_gpx([_cache(country="Denmark")])
