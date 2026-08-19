@@ -11,18 +11,20 @@ runs:
         # across several unrelated workflow runs on release day (2026-08-19)
         # — apt-get update/install stalling on a slow/unresponsive mirror
         # (azure.archive.ubuntu.com, the default on GitHub-hosted Ubuntu
-        # runners) with no bound on how long a single connection attempt
-        # can hang. Two layers of defence, both bounded:
-        #   1. Acquire::Retries/Timeout tells apt itself to give up on a
-        #      slow connection quickly (15s) and retry a bounded number of
-        #      times, instead of hanging indefinitely on one bad response.
-        #   2. An outer retry loop (3 attempts, short backoff) covers the
-        #      case where an entire apt-get invocation fails outright
-        #      (e.g. transient DNS/mirror error), not just a slow single
-        #      request.
-        # A run that's still stuck after this either fails fast (visible,
-        # actionable in the Actions UI) or self-recovers on the next
-        # attempt — instead of silently occupying a runner for 20+ minutes.
+        # runners). Bounded per-request retries (below) turned out not to
+        # be enough on their own: when the *entire* regional mirror is
+        # degraded rather than just one slow request, the bounded retries
+        # across dozens of index files (main/universe/restricted x
+        # jammy/updates/backports/security) still add up to many minutes.
+        # So we route around the regional mirror entirely and go straight
+        # to Canonical's own archive.ubuntu.com/security.ubuntu.com — the
+        # same mirror apt itself was already falling back to (successfully)
+        # partway through one of the hung runs.
+        sudo sed -i \
+          -e 's|http://azure\.archive\.ubuntu\.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' \
+          -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+          /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+
         APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
 
         for attempt in 1 2 3; do
