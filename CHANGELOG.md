@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.17.1] — 2026-08-19
+
 ### Fixed
 
 - **GPX export/import did not preserve "found" status (#766)** — reported by
