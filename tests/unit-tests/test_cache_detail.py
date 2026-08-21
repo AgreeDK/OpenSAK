@@ -7,6 +7,7 @@ import pytest
 
 pytest.importorskip("pytestqt")
 
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QSizePolicy
 
 from opensak.gui import cache_detail as cd
@@ -753,12 +754,30 @@ class TestSplitterMinimumSize:
             panel.show_cache(cache)
             assert panel.minimumSizeHint().height() <= self._EMPTY_PANEL_MAX_MIN_HEIGHT
 
-    def test_tabs_vertical_size_policy_is_ignored(self, qapp):
+    def test_tabs_minimum_size_hint_is_zero(self, qapp):
         # Direct check on the mechanism itself, so a future refactor that
-        # accidentally drops the policy fails here immediately rather than
-        # only via the pricier size-measurement tests above.
+        # accidentally reintroduces the tab pages' minimum-height
+        # propagation fails here immediately rather than only via the
+        # pricier size-measurement tests above.
         panel = CacheDetailPanel()
-        assert panel._tabs.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Ignored
+        assert panel._tabs.minimumSizeHint() == QSize(0, 0)
+
+    def test_tabs_keep_expanding_vertical_policy(self, qapp):
+        # Regression: an earlier version of this fix (v1.17.1) achieved the
+        # small-minimum-height goal above by setting the tab widget's
+        # vertical QSizePolicy to Ignored instead of overriding
+        # minimumSizeHint(). QSizePolicy.Ignored doesn't carry the
+        # ExpandFlag that Expanding does, so the tabs stopped being the
+        # preferred recipient of any leftover vertical space in the panel's
+        # QVBoxLayout — Qt spread that space across every row instead,
+        # including the compact header/meta rows, producing large empty
+        # grey padding around them (reported by a tester after v1.17.1).
+        # The tabs must keep their normal Expanding vertical policy so they
+        # still get first claim on extra space, as before v1.17.1.
+        panel = CacheDetailPanel()
+        policy = panel._tabs.sizePolicy()
+        assert policy.verticalPolicy() == QSizePolicy.Policy.Expanding
+        assert bool(policy.expandingDirections() & Qt.Orientation.Vertical)
 
     def test_tab_bar_remains_visible_and_switchable(self, qapp):
         # The fix must not hide the tab bar or break switching — only the

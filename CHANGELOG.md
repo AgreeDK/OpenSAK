@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Detail panel header showed large empty grey padding when the bottom
+  panel was resized taller (#779)** — regression from the #755 fix shipped
+  in v1.17.1. Reported by Mike via email with side-by-side screenshots.
+  #755 gave the cache-detail `QTabWidget` a vertical `QSizePolicy` of
+  `Ignored` so Qt would disregard the tab pages' minimum-size contribution
+  when computing the panel's minimum height. `Ignored`, unlike the tab
+  widget's default `Expanding`, doesn't carry `QSizePolicy.ExpandFlag` —
+  so the tabs stopped being the preferred recipient of any leftover
+  vertical space in the panel's `QVBoxLayout`, and Qt spread that space
+  across every row instead, including the compact header/meta rows.
+  Fixed by replacing the policy change with a small `QTabWidget` subclass
+  in `src/opensak/gui/cache_detail.py` that overrides `minimumSizeHint()`
+  to return `QSize(0, 0)` — keeping the #755 fix intact while the tabs
+  keep their normal `Expanding` policy and vertical stretch priority, as
+  in v1.17.0.
+
 ---
 
 ## [1.17.2-beta.2] — 2026-08-21
