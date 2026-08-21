@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.17.2-beta.2] — 2026-08-21
+
+### Fixed
+
+- **GSAK Mark As Found status not detected on GPX/GGZ import when GSAK encodes it via <type>...|Found</type> instead of <sym> or a personal log entry (#766)
+
+---
+
 ## [1.17.2-beta.1] — 2026-08-19
 
 ### Fixed
