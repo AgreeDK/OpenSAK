@@ -224,9 +224,19 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
     if not gc_code:
         return None
 
-    # Cache type from <type>Geocache|Traditional Cache</type>
+    # Cache type from <type>Geocache|Traditional Cache</type>. A real GSAK
+    # GPX export appends a trailing "|Found" segment for caches the account
+    # owner has personally marked as found, e.g.
+    # <type>Geocache|Traditional Cache|Found</type> — confirmed against a
+    # real GSAK-exported before/after pair from Allyn56 (issue #766). Strip
+    # that segment off before deriving the cache type, so it isn't mistaken
+    # for the cache type itself.
     type_raw = _text(wpt_el, "gpx:type", gpx_ns) or ""
-    cache_type_full = type_raw.split("|")[-1].strip() if "|" in type_raw else type_raw
+    _type_parts = [p.strip() for p in type_raw.split("|")] if type_raw else []
+    type_says_found = bool(_type_parts) and _type_parts[-1].lower() == "found"
+    if type_says_found:
+        _type_parts = _type_parts[:-1]
+    cache_type_full = _type_parts[-1] if len(_type_parts) > 1 else type_raw.split("|")[0].strip()
 
     # Accept GC codes (standard caches) unconditionally, and any other code
     # (including LC / Adventure Lab / lab2gpx prefixes such as LB, LA, etc.)
@@ -244,11 +254,20 @@ def _parse_wpt(wpt_el) -> Optional[dict]:
 
     hidden_raw = _text(wpt_el, "gpx:time", gpx_ns)
 
-    # ── Found by me — detekteret via <sym>Geocache Found</sym> ───────────────
-    # Groundspeak sætter sym til "Geocache Found" for caches fundet af PQ-ejeren.
+    # ── Found by me — detekteret via <sym>Geocache Found</sym> ELLER via
+    # <type>...|Found</type> ─────────────────────────────────────────────
+    # Groundspeak/GC.com Pocket Query sætter sym til "Geocache Found" for
+    # caches fundet af PQ-ejeren. GSAK bruger IKKE den konvention i sin egen
+    # GPX-eksport — <sym> afspejler der altid bare cache-type-ikonet uanset
+    # found-status — men tilføjer i stedet et "|Found"-segment til <type>
+    # (se type_says_found ovenfor). Begge signaler er lige autoritative og
+    # kræver ikke at gc_username/gc_finder_id er sat i Settings, da de er
+    # eksplicitte "jeg har fundet denne" markører fra selve kilde-værktøjet
+    # — bekræftet mod et ægte GSAK before/after-eksportpar fra Allyn56
+    # (issue #766).
     sym_raw = _text(wpt_el, "gpx:sym", gpx_ns)
     sym = sym_raw or ""
-    found_by_me = sym.strip().lower() == "geocache found"
+    found_by_me = sym.strip().lower() == "geocache found" or type_says_found
 
     # ── Groundspeak extension block ───────────────────────────────────────────
     # Detect which Groundspeak namespace this file actually uses (/1/0 or /1/0/1)
@@ -1159,8 +1178,17 @@ def _upsert_cache(
                         _sett.gc_finder_id = detected_id
                     break
 
-        # Trin 3: fallback — ældste "found"-log (f.eks. ingen brugernavn sat)
-        if found_log is None:
+        # Trin 3: fallback — ældste "found"-log, men KUN når hverken
+        # gc_username eller gc_finder_id er sat i Settings overhovedet. Hvis
+        # et brugernavn ER sat, men bare ikke matcher nogen log i denne fil
+        # (fx en ægte GSAK-eksport af en manuelt MAF-markeret cache, hvor
+        # brugerens egen "Found it"-log slet ikke er med i filen — se issue
+        # #766, Allyn56's rigtige GSAK-eksport), ville denne fallback ellers
+        # fejlagtigt tilskrive en HELT ANDEN persons fund-dato som var det
+        # brugerens egen. I det tilfælde er det korrekte at lade found_date
+        # stå urørt (bevarer evt. eksisterende værdi ved re-import) frem for
+        # at gætte forkert.
+        if found_log is None and not gc_finder_id and not gc_username:
             found_logs = [lg for lg in logs_data
                           if lg.get("log_type") in FOUND_LOG_TYPES and lg.get("log_date")]
             if found_logs:

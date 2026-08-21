@@ -184,10 +184,14 @@ def cache_wpt(
     attributes: list[dict] | None = None,
     sym: str | None = None,
     hidden_date: str | None = None,
+    type_found: bool = False,
 ) -> str:
     """One Groundspeak ``<wpt>`` block. logs keys: id/type/finder/finder_id/date/text;
     attributes keys: id/inc/name. sym: <sym> value — pass "Geocache Found" to mark
     the cache as found by the PQ owner (see importer found_by_me detection).
+    type_found: append a trailing "|Found" segment to <type>, matching a real
+    GSAK GPX export of a Mark As Found cache (issue #766) — pass True to mark
+    the cache as found that way instead of via sym.
     Wrap with build_gpx() for a full document."""
     name = name or gc_code
     log_xml = "".join(
@@ -209,13 +213,14 @@ def cache_wpt(
     )
     sym_xml = f"<sym>{sym}</sym>" if sym else ""
     time_xml = f"<time>{hidden_date}</time>" if hidden_date else ""
+    type_xml = f"<type>Geocache|{cache_type}{'|Found' if type_found else ''}</type>"
     return (
         f'<wpt lat="{lat}" lon="{lon}">'
         f"<n>{gc_code}</n>"
         f"{time_xml}"
         f"<urlname>{name}</urlname>"
         f"{sym_xml}"
-        f"<type>Geocache|{cache_type}</type>"
+        f"{type_xml}"
         f'<groundspeak:cache id="{gs_id}" archived="{archived}" available="{available}" '
         'xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">'
         f"<groundspeak:name>{name}</groundspeak:name>"

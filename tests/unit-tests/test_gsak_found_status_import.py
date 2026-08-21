@@ -2,21 +2,27 @@
 # round-trip testing): found status not carrying over from a genuine GSAK
 # GPX/GGZ export.
 #
-# GSAK's own GPX/GGZ export does NOT set sym="Geocache Found" the way the
-# GC.com Pocket Query convention does -- <sym> from a real GSAK export just
-# reflects the cache type icon regardless of found state. The importer's
-# #766 log-based found fallback originally only ran when <sym> was entirely
-# ABSENT, which protected OpenSAK's own re-export (sym is always present and
-# authoritative there) but also meant found status from a genuine GSAK
-# export -- where sym IS present but doesn't mean anything -- was silently
-# dropped.
+# First diagnosis: GSAK's own GPX/GGZ export doesn't set sym="Geocache Found"
+# the way the GC.com Pocket Query convention does. That's still true, and
+# the wptExtension-fingerprint fallback below stays as a secondary signal.
 #
-# The fix: detect genuine GSAK origin via the presence of any GSAK-only
-# wptExtension field that OpenSAK's own export never writes (UserFlag,
-# FirstToFind, UserSort, IsPremium, UserData/User2-4, FavPoints, County,
-# LatN/LongE, LatBeforeCorrect/LonBeforeCorrect) -- OpenSAK only ever writes
-# gsak:UserNote. When one of those is present, the log-based fallback runs
-# even though <sym> is present.
+# BUT: a real before/after GSAK export pair supplied by Allyn56 (GC4RD9A)
+# showed the actual, universal signal GSAK uses for its own Mark As Found
+# state is a trailing "|Found" segment on <type>, e.g.
+#   <type>Geocache|Traditional Cache|Found</type>
+# with NO gsak: namespace or wptExtension present at all in that export, and
+# critically -- the account owner's own "Found it" log is NOT necessarily
+# present anywhere in the file's <groundspeak:logs> (GSAK's Mark As Found is
+# a personal flag, not a log entry). That means:
+#   1. found_by_me must also be derived directly from the <type> "|Found"
+#      segment, independent of both <sym> and the log list.
+#   2. cache_type parsing must strip that trailing "|Found" segment first,
+#      or it gets misparsed as the cache type itself.
+#   3. found_date must NOT be guessed from a stranger's found-type log just
+#      because gc_username/gc_finder_id is configured but happens not to
+#      match anything in this particular file -- that previously fell
+#      through to the "no username configured" oldest-log fallback and
+#      would silently attribute someone else's find date as the user's own.
 
 import textwrap
 from pathlib import Path
@@ -26,6 +32,7 @@ import pytest
 from opensak.db.database import get_session, init_db
 from opensak.db.models import Cache
 from opensak.importer import import_gpx
+from tests.data import build_gpx, cache_wpt, write_gpx
 
 
 @pytest.fixture()
@@ -151,3 +158,89 @@ def test_gsak_export_sym_geocache_found_still_honoured_directly(tmp_path, fresh_
         import_gpx(f, s)
         cache = s.query(Cache).filter_by(gc_code="GCFOUNDG1").one()
         assert cache.found is True
+
+
+# ── Real-world GSAK export pattern: <type>...|Found</type> ─────────────────
+# Confirmed against Allyn56's actual GSAK before/after export of GC4RD9A —
+# no gsak: namespace at all, sym stays the plain cache-type icon, and the
+# only found signal is the trailing "|Found" segment on <type>.
+
+def test_type_found_segment_marks_cache_as_found(tmp_path, fresh_db):
+    # No sym="Geocache Found", no gc_username/gc_finder_id configured, no
+    # matching "Found it" log in the file at all -- exactly Allyn56's real
+    # GSAK export. Only <type>...|Found</type> signals the find.
+    gpx = build_gpx(cache_wpt(
+        "GCTYPEF1", cache_type="Traditional Cache", gs_id=50001,
+        type_found=True,
+        logs=[{
+            "id": "50001001", "type": "Found it", "date": "2025-09-26T12:24:13Z",
+            "finder": "Someone Else Entirely", "finder_id": "1",
+        }],
+    ))
+    f = write_gpx(tmp_path, "type_found.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCTYPEF1").one()
+        assert cache.found is True
+
+
+def test_type_found_segment_does_not_misattribute_date_when_username_configured(
+    tmp_path, fresh_db, found_username
+):
+    # Same file, but gc_username IS configured (as a real user's Settings
+    # would be) and simply doesn't match any log in the file -- GSAK's Mark
+    # As Found doesn't necessarily add a personal log entry at all. Must NOT
+    # fall through to "no username configured" and attribute the stranger's
+    # log date as the user's own found_date.
+    gpx = build_gpx(cache_wpt(
+        "GCTYPEF2", cache_type="Traditional Cache", gs_id=50002,
+        type_found=True,
+        logs=[{
+            "id": "50002001", "type": "Found it", "date": "2025-09-26T12:24:13Z",
+            "finder": "Someone Else Entirely", "finder_id": "1",
+        }],
+    ))
+    f = write_gpx(tmp_path, "type_found_user.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCTYPEF2").one()
+        assert cache.found is True
+        assert cache.found_date is None
+
+
+def test_type_found_segment_still_finds_own_date_when_own_log_present(
+    tmp_path, fresh_db, found_username
+):
+    # If the user's own found-type log IS in the file, it's still used for
+    # found_date as normal.
+    gpx = build_gpx(cache_wpt(
+        "GCTYPEF3", cache_type="Traditional Cache", gs_id=50003,
+        type_found=True,
+        logs=[{
+            "id": "50003001", "type": "Found it", "date": "2024-03-01T00:00:00Z",
+            "finder": "AB Green", "finder_id": "999",
+        }],
+    ))
+    f = write_gpx(tmp_path, "type_found_owndate.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCTYPEF3").one()
+        assert cache.found is True
+        assert cache.found_date is not None
+        assert cache.found_date.year == 2024
+
+
+def test_type_found_segment_does_not_leak_into_cache_type(tmp_path, fresh_db):
+    # The trailing "|Found" segment must not be mistaken for the cache type
+    # itself (cache_type is normally taken from <groundspeak:type>, but the
+    # <type> element's own derivation must stay correct too, in case
+    # <groundspeak:type> is ever absent).
+    gpx = build_gpx(cache_wpt(
+        "GCTYPEF4", cache_type="Multi-cache", gs_id=50004, type_found=True,
+    ))
+    f = write_gpx(tmp_path, "type_found_ctype.gpx", gpx)
+    with get_session() as s:
+        import_gpx(f, s)
+        cache = s.query(Cache).filter_by(gc_code="GCTYPEF4").one()
+        assert cache.cache_type == "Multi-cache"
+        assert cache.cache_type != "Found"
