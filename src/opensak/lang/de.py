@@ -817,7 +817,7 @@ STRINGS: dict[str, str] = {
     # ── Coordinate converter dialog ───────────────────────────────────────────
     "coord_conv_title":             "Koordinaten-Konverter",
     "coord_conv_input_group":       "Koordinaten eingeben",
-    "coord_conv_input_hint":        "Formatunabhängig eingebn: DMM, DMS oder DD — Automatische Konvertierung",
+    "coord_conv_input_hint":        "Formatunabhängig eingeben: DMM, DMS oder DD — Automatische Konvertierung",
     "coord_conv_placeholder":       "z.B. N55 47.250 E012 25.000",
     "coord_conv_output_group":      "Alle Formate",
     "coord_conv_copy_btn":          "Kopieren",
@@ -1076,7 +1076,7 @@ STRINGS: dict[str, str] = {
     "gc_status_waiting":            "Auf Browser warten...",
     "gc_status_fetching":           "Profil abrufen...",
     "gc_status_error":              "Fehler beim Abrufen des Profils",
-    "gc_login_btn":                 "Mit Geocaching.com einloogen",
+    "gc_login_btn":                 "Mit Geocaching.com einloggen",
     "gc_login_waiting":             "Auf Login warten...",
     "gc_logout_btn":                "Ausloggen",
     "gc_refresh_btn":               "Aktualisieren",
