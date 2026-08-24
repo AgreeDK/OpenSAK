@@ -7,7 +7,7 @@
     local sideload check.
 
 .DESCRIPTION
-    This is LOCAL PROTOTYPE tooling only — nothing here touches CI or
+    This is LOCAL PROTOTYPE tooling only - nothing here touches CI or
     opensak.spec. It exists to answer the open risk in #786 before any
     further MSIX work: does a package containing QtWebEngine even
     install and run correctly, before spending time on Partner Center
@@ -15,11 +15,11 @@
 
     Run from repo root on Windows, with the "MSIX Packaging Tool" or the
     Windows 10/11 SDK installed (both ship makeappx.exe and
-    signtool.exe — see README.md for install links).
+    signtool.exe - see README.md for install links).
 
 .NOTES
     Does NOT create or touch a Partner Center submission. That's a
-    manual step in the browser — see packaging/msix/README.md step 2.
+    manual step in the browser - see packaging/msix/README.md step 2.
 #>
 
 [CmdletBinding()]
@@ -54,7 +54,7 @@ if (-not $SkipBuild) {
 } else {
     Write-Host "==> Skipping PyInstaller build (-SkipBuild)" -ForegroundColor Yellow
     if (-not (Test-Path "$RepoRoot\dist\OpenSAK\opensak.exe")) {
-        throw "dist\OpenSAK\opensak.exe not found — remove -SkipBuild to build it first."
+        throw "dist\OpenSAK\opensak.exe not found - remove -SkipBuild to build it first."
     }
 }
 
@@ -91,7 +91,7 @@ Write-Host "==> Packaging with makeappx.exe..." -ForegroundColor Cyan
 $makeappx = Get-Command makeappx.exe -ErrorAction SilentlyContinue
 if (-not $makeappx) {
     throw "makeappx.exe not found on PATH. Install the Windows SDK (or MSIX " +
-          "Packaging Tool) and re-run — see packaging/msix/README.md."
+          "Packaging Tool) and re-run - see packaging/msix/README.md."
 }
 if (Test-Path $OutputMsix) { Remove-Item $OutputMsix -Force }
 New-Item -ItemType Directory -Path "$RepoRoot\dist" -Force | Out-Null
@@ -110,13 +110,13 @@ if (-not $signtool) {
 $certSubject = $PublisherCN
 $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $certSubject } | Select-Object -First 1
 if (-not $cert) {
-    Write-Host "    No matching test certificate found — creating one (self-signed, CurrentUser\My)." -ForegroundColor Yellow
+    Write-Host "    No matching test certificate found - creating one (self-signed, CurrentUser\My)." -ForegroundColor Yellow
     $cert = New-SelfSignedCertificate -Type Custom -Subject $certSubject `
         -KeyUsage DigitalSignature -FriendlyName "OpenSAK MSIX Dev Test" `
         -CertStoreLocation "Cert:\CurrentUser\My" `
         -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
     Write-Host "    NOTE: for Add-AppxPackage to succeed, this certificate also needs" -ForegroundColor Yellow
-    Write-Host "    to be trusted — see README.md step 1c (import into Trusted People)." -ForegroundColor Yellow
+    Write-Host "    to be trusted - see README.md step 1c (import into Trusted People)." -ForegroundColor Yellow
 }
 
 & signtool.exe sign /fd SHA256 /a /s My /sha1 $cert.Thumbprint $OutputMsix
