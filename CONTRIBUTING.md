@@ -31,7 +31,7 @@ Open a GitHub Issue with the label **enhancement** and describe what you would l
 - Avoid duplicate or overlapping work (check existing issues and milestones first — it might already be planned or in progress)
 - Agree on scope and approach before you invest time in an implementation
 
-If an issue already exists for what you want to work on, leave a comment saying you'd like to pick it up, and wait for a maintainer to confirm before starting.
+If an issue already exists for what you want to work on, leave a comment saying you'd like to pick it up, and wait for a maintainer to confirm before starting. Once confirmed, a maintainer will assign the issue to you on GitHub — this keeps it visible that the issue is actively being worked on.
 
 Pull requests opened without a linked issue may be asked to have one created retroactively before review begins.
 
