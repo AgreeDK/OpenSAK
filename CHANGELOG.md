@@ -4,7 +4,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.17.2] — 2026-08-26
 
 ### Fixed
 
@@ -24,21 +24,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   keep their normal `Expanding` policy and vertical stretch priority, as
   in v1.17.0.
 
----
+- **GSAK Mark As Found status not detected on GPX/GGZ import when GSAK
+  encodes it via `<type>...|Found</type>` instead of `<sym>` or a personal
+  log entry (#766)**
 
-## [1.17.2-beta.2] — 2026-08-21
+- **Found status from genuine GSAK GPX/GGZ exports not detected on import
+  when GSAK's `<sym>` doesn't reflect found state (#766)**
 
-### Fixed
+### Known Issues
 
-- **GSAK Mark As Found status not detected on GPX/GGZ import when GSAK encodes it via <type>...|Found</type> instead of <sym> or a personal log entry (#766)
+- **Boundary updates don't always recognize when they're already current
+  (#781)** — the reverse-geocoding boundary refresh can reprocess polygon
+  data that's already up to date. Under investigation.
 
----
-
-## [1.17.2-beta.1] — 2026-08-19
-
-### Fixed
-
-- **found status from genuine GSAK GPX/GGZ exports not detected on import when GSAK's <sym> doesn't reflect found state (#766)
+- **A small number of caches reverse-geocode to the wrong region (#782)**
+  — e.g. GCAJWVJ is assigned country/county values that don't match its
+  position on the map. Not yet clear whether the cause is in the polygon
+  data, the boundary-matching logic, or the map visualization. Under
+  investigation.
 
 ---
 
