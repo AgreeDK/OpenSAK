@@ -10,9 +10,77 @@ from typing import TYPE_CHECKING
 from opensak.gui.icon import get_app_icon
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QSplashScreen
+    from PySide6.QtWidgets import QSplashScreen, QApplication
+    from PySide6.QtCore import QTranslator
 
 logger = logging.getLogger(__name__)
+
+# Holder en reference til den installerede Qt-oversætter, så den ikke
+# bliver garbage collected efter main() (QApplication.installTranslator()
+# tager kun en svag reference internt i Qt).
+_qt_translator: "QTranslator | None" = None
+
+# OpenSAK's sprogkoder følger ikke altid Qt's egne locale-koder.
+# "se" bruges i AVAILABLE_LANGUAGES for svensk, men Qt's oversættelsesfiler
+# hedder qtbase_sv.qm (ISO 639-1 for svensk er "sv", ikke "se").
+_QT_LOCALE_OVERRIDES: dict[str, str] = {
+    "se": "sv",
+}
+
+
+def _install_qt_translator(app: "QApplication", lang_code: str) -> None:
+    """
+    Installer Qt's indbyggede oversættelse (qtbase_xx.qm) for standard
+    dialog-knapper (Close/OK/Cancel osv. fra QDialogButtonBox.StandardButton),
+    som IKKE går gennem OpenSAK's eget sprogsystem (opensak.lang).
+
+    Uden dette vises fx "Close"-knappen i Koordinaten-Konverter altid på
+    engelsk, selv når resten af UI'et er oversat (#issue: German Close btn).
+
+    Fejler stille (logger blot en advarsel) hvis der ikke findes en
+    matchende qtbase_xx.qm — appen fungerer stadig fint, knappen falder
+    bare tilbage til engelsk, som den gjorde før dette fix.
+    """
+    global _qt_translator
+    from PySide6.QtCore import QTranslator, QLibraryInfo
+
+    qt_locale = _QT_LOCALE_OVERRIDES.get(lang_code, lang_code)
+    qm_name = f"qtbase_{qt_locale}"
+
+    # Kandidat-mapper i prioriteret rækkefølge. QLibraryInfo's egen sti er
+    # korrekt ved kørsel fra source, men er ikke altid pålidelig i en
+    # PyInstaller-frosset build (afhænger af hvordan PySide6-hooket
+    # placerer Qt/translations i bundlet) — så vi tjekker også et par
+    # kendte bundle-layouts som fallback. Se opensak.spec for hvor
+    # qtbase_*.qm faktisk bliver lagt ved packaging.
+    candidate_dirs = [QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)]
+    if getattr(sys, "frozen", False):
+        meipass = Path(getattr(sys, "_MEIPASS", ""))
+        candidate_dirs += [
+            str(meipass / "PySide6" / "Qt" / "translations"),
+            str(meipass / "Qt" / "translations"),
+        ]
+
+    translator = QTranslator()
+    loaded = False
+    for tdir in candidate_dirs:
+        if translator.load(qm_name, tdir):
+            loaded = True
+            break
+
+    if loaded:
+        app.installTranslator(translator)
+        _qt_translator = translator  # bevar reference
+        logger.info(
+            "startup: installed Qt base translator for '%s' (qtbase_%s)",
+            lang_code, qt_locale,
+        )
+    else:
+        logger.warning(
+            "startup: no Qt base translator found for '%s' (qtbase_%s) — "
+            "standard dialog buttons will show in English",
+            lang_code, qt_locale,
+        )
 
 def _migrate_legacy_db() -> None:
     """
@@ -232,6 +300,7 @@ def main() -> None:
     from opensak.config import get_language
     from opensak.lang import load_language
     load_language(get_language())
+    _install_qt_translator(app, get_language())
 
     # Vis velkomst-wizard ved første opstart (issue #210)
     if is_first_run():

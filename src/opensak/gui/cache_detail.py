@@ -9,7 +9,7 @@ import re
 import webbrowser
 from datetime import datetime
 from opensak.utils.constants import LOG_COLOURS
-from PySide6.QtCore import Qt, QUrl, Signal, QDate, QLocale, QEvent
+from PySide6.QtCore import Qt, QUrl, Signal, QDate, QLocale, QEvent, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QTextBrowser, QTabWidget, QFrame, QSizePolicy,
@@ -86,6 +86,39 @@ class _DescWebPage(QWebEnginePage):
         # eller en <meta http-equiv="refresh">, som Chromium ikke kan rendere inline)
         # blokeres uden at åbne noget — se docstring ovenfor.
         return False
+
+
+class _TabWidget(QTabWidget):
+    """QTabWidget whose minimumSizeHint doesn't propagate the largest tab
+    page's minimum height up into the parent layout.
+
+    Issue #755: QTabWidget.minimumSizeHint() normally reports the size
+    needed to fit whichever tab page has the largest minimum size (since any
+    tab could be switched to at any time). That propagated straight up into
+    CacheDetailPanel's — and therefore the whole bottom_splitter's — minimum
+    height, which made the main vertical splitter refuse to shrink the
+    bottom panel much past that content's natural minimum.
+
+    v1.17.1 "fixed" this by setting the widget's vertical QSizePolicy to
+    Ignored instead of overriding this method. That was a regression
+    (reported by Mike, see follow-up issue): QSizePolicy.Ignored does not
+    carry the ExpandFlag that Expanding does, so the tabs stopped being the
+    preferred recipient of any leftover vertical space in the panel's
+    QVBoxLayout. With no widget left flagged as expansive, Qt's box-layout
+    algorithm instead spread that leftover space across ALL rows in the
+    layout — including the compact header/meta rows — producing large empty
+    grey padding around them that grew worse the taller the panel was
+    dragged.
+    Overriding minimumSizeHint() here fixes the original #755 problem
+    directly, without touching the size *policy* — the tabs keep their
+    normal Expanding policy, so they still get first claim on extra space,
+    exactly as before v1.17.1. Each tab's own content (QTextBrowser/log
+    list/etc.) already scrolls internally when squeezed, so nothing becomes
+    unreachable when the splitter is dragged small.
+    """
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, 0)
 
 
 class CacheDetailPanel(QWidget):
@@ -249,7 +282,7 @@ class CacheDetailPanel(QWidget):
         layout.addWidget(self._placed_lbl)
 
         # ── Tabs: Description | Hint | Logs ───────────────────────────────────
-        self._tabs = QTabWidget()
+        self._tabs = _TabWidget()  # see _TabWidget docstring — issue #755
         self._tabs.setDocumentMode(True)
 
         # Beskrivelse — QWebEngineView så eksterne billeder og CJK-fonte virker.
@@ -345,27 +378,6 @@ class CacheDetailPanel(QWidget):
         note_layout.addWidget(self._note_editor)
         self._tabs.addTab(note_widget, tr("detail_tab_notes"))
 
-        # Issue #755: QTabWidget reports its own minimumSizeHint as the
-        # LARGEST of its tab pages' minimums (since any tab could be
-        # switched to at any time), and that propagates straight up into
-        # this panel's — and therefore the whole bottom_splitter's —
-        # minimum height, which is what made the main vertical splitter
-        # refuse to shrink the bottom panel much past its content's
-        # natural minimum ("stuck around the middle of the window").
-        #
-        # QSizePolicy.Policy.Ignored on the vertical component tells Qt's
-        # layout system to disregard this widget's height hint entirely
-        # when computing the *minimum* size for this panel — the splitter
-        # can then be dragged freely down to a small size. It still grows
-        # to fill available space normally when there's room (Ignored only
-        # affects the minimum/hint contribution, not actual sizing), and
-        # each tab's own content already scrolls internally when squeezed
-        # (QTextBrowser/log list/etc. all have their own scrollbars), so
-        # nothing becomes unreachable — content just scrolls instead of
-        # ever blocking the splitter.
-        size_policy = self._tabs.sizePolicy()
-        size_policy.setVerticalPolicy(QSizePolicy.Policy.Ignored)
-        self._tabs.setSizePolicy(size_policy)
         layout.addWidget(self._tabs)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 

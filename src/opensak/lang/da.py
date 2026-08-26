@@ -193,7 +193,7 @@ STRINGS: dict[str, str] = {
     "import_table_loaded":         "✓ {count} caches indlæst — klik på en cache for at se kortet",
     "import_log_placeholder":       "Import-resultat vises her…",
     "import_all_done":            "✓ Alle {count} filer er behandlet.",
-    "import_geocode_running":       "📍  Geokoder manglende lokationsdata…",
+    "import_geocode_running":       "📍  Opdaterer manglende lokationsdata (offline)…",
 
     # ── GSAK Import dialog (#469) ─────────────────────────────────────────────
     "action_gsak_import":           "&Importer fra GSAK-database…",
