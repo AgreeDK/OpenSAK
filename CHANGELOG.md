@@ -4,6 +4,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.18.0-beta.1] — 2026-08-27
+
+### Added
+
+- **MSIX / Microsoft Store packaging prototype (#786)** — OpenSAK can now
+  be packaged as an MSIX for a private, unlisted Microsoft Store listing
+  (product `9P4NBMM84H2D`). A submission passed Store certification and
+  was confirmed installable end-to-end via the Store app itself, clearing
+  the risk that the bundled QtWebEngine/Chromium runtime would be
+  rejected. Nothing about the existing Windows `.exe`/ZIP build changed —
+  this is a side channel wrapping the same PyInstaller output.
+- **MSIX CI build job** — a new manual-trigger-only GitHub Actions
+  workflow (`build-msix.yml`) builds and packages the `.msix` on
+  `workflow_dispatch`, so producing a new build for Partner Center no
+  longer requires the Windows machine for that step. Not tag-triggered
+  and not attached to public GitHub Releases yet, since the Store listing
+  is still private/unlisted.
+- `scripts/derive_msix_version.py` — converts OpenSAK's version string
+  (including the `-beta.N` suffix) into the strict 4-part numeric version
+  MSIX requires.
+
+---
+
 ## [1.17.2] — 2026-08-26
 
 ### Fixed
