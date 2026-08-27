@@ -27,6 +27,7 @@ param(
     [string]$IdentityName = "OpenSAKDevTest.OpenSAK",
     [string]$PublisherCN = "CN=OpenSAK Dev Test",
     [string]$PublisherDisplayName = "OpenSAK Dev Test",
+    [string]$DisplayName = "OpenSAK",
     [string]$Version = "1.17.2.0",
     [switch]$SkipBuild,
     [switch]$InstallAfterBuild
@@ -81,6 +82,7 @@ $manifest = Get-Content "$MsixDir\AppxManifest.xml.template" -Raw
 $manifest = $manifest.Replace("__IDENTITY_NAME__", $IdentityName)
 $manifest = $manifest.Replace("__PUBLISHER_CN__", $PublisherCN)
 $manifest = $manifest.Replace("__PUBLISHER_DISPLAY_NAME__", $PublisherDisplayName)
+$manifest = $manifest.Replace("__DISPLAY_NAME__", $DisplayName)
 $manifest = $manifest.Replace("__VERSION__", $Version)
 $manifest = $manifest.Replace("__EXE_RELATIVE_PATH__", "OpenSAK\opensak.exe")
 Set-Content -Path "$StagingDir\AppxManifest.xml" -Value $manifest -Encoding UTF8

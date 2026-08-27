@@ -18,6 +18,13 @@ on:
           __version__ (see scripts/derive_msix_version.py).
         required: false
         default: ""
+      display_name:
+        description: >
+          App name shown in the Start Menu and Store listing. Leave
+          blank to auto-detect: "OpenSAK Beta" if __version__ contains
+          "-beta", otherwise "OpenSAK".
+        required: false
+        default: ""
 
 env:
   PYTHON_VERSION: "3.11"
@@ -57,17 +64,31 @@ jobs:
         env:
           PYTHONPATH: src
 
-      - name: Determine MSIX version
+      - name: Determine MSIX version and display name
         id: msix-version
         shell: pwsh
         run: |
+          $rawVersion = python -c "import sys; sys.path.insert(0, 'scripts'); from derive_msix_version import get_init_version; print(get_init_version())"
+          Write-Host "Raw OpenSAK version: $rawVersion"
+
           if ("${{ inputs.version }}" -ne "") {
             $version = "${{ inputs.version }}"
           } else {
             $version = python scripts/derive_msix_version.py
           }
+
+          if ("${{ inputs.display_name }}" -ne "") {
+            $displayName = "${{ inputs.display_name }}"
+          } elseif ($rawVersion -match "-beta\.") {
+            $displayName = "OpenSAK Beta"
+          } else {
+            $displayName = "OpenSAK"
+          }
+
           Write-Host "Using MSIX version: $version"
+          Write-Host "Using display name: $displayName"
           "version=$version" >> $env:GITHUB_OUTPUT
+          "display_name=$displayName" >> $env:GITHUB_OUTPUT
 
       # makeappx.exe / signtool.exe ship with the Windows SDK, which is
       # preinstalled on windows-latest runners, but their bin folder isn't
@@ -95,6 +116,7 @@ jobs:
             -IdentityName $env:MSIX_IDENTITY_NAME `
             -PublisherCN $env:MSIX_PUBLISHER_CN `
             -PublisherDisplayName $env:MSIX_PUBLISHER_DISPLAY_NAME `
+            -DisplayName "${{ steps.msix-version.outputs.display_name }}" `
             -Version "${{ steps.msix-version.outputs.version }}" `
             -SkipBuild
 

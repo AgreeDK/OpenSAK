@@ -22,6 +22,11 @@
 >   script's docstring for the exact scheme. `1.18.0-beta.1` now derives
 >   to `1.18.1.0`.
 >
+> Decision made 27 Aug 2026: the Store listing will go **fully public**
+> (not a restricted Package Flights audience), with the app's display
+> name automatically switching to **"OpenSAK Beta"** for beta versions
+> — see "Naming beta vs. stable releases" below.
+>
 > QtWebEngine/Chromium inside the MSIX sandbox is confirmed not a
 > Store-certification blocker — that was the core #786 risk and it's
 > cleared. Remaining work: public Store listing (not started — still
@@ -237,6 +242,27 @@ right thing. Worth checking these first if a submission gets stuck:
   ```powershell
   Unblock-File -Path .\packaging\msix\build_msix_local.ps1
   ```
+
+## Naming beta vs. stable releases
+
+The Store listing (and Start Menu tile) shows one name for whatever's
+currently published — there's no separate "beta channel" product, same
+as the `.exe`/AppImage/dmg releases: beta and stable are just different
+tagged versions of the same download, not separate apps. To make it
+obvious to Store users when they're getting a beta, `AppxManifest.xml.template`'s
+`DisplayName` is templated (`__DISPLAY_NAME__`, both the `<Properties>`
+one and the `uap:VisualElements` one that controls the Start Menu tile),
+and `build-msix.yml` fills it in automatically:
+
+- `__version__` contains `-beta.` → `"OpenSAK Beta"`
+- otherwise → `"OpenSAK"`
+
+Override it explicitly with the `display_name` workflow_dispatch input,
+or `-DisplayName` if building with `build_msix_local.ps1` directly
+(default `"OpenSAK"` there, for backward-compatible local prototype
+runs). No manual step needed for the common case — publishing a beta
+tag names it "OpenSAK Beta" automatically; publishing a stable tag names
+it plain "OpenSAK" again.
 
 ## Version numbering
 

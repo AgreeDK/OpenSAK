@@ -21,6 +21,11 @@
                                 submission; for local testing, the Subject
                                 of your self-signed test cert.)
     __PUBLISHER_DISPLAY_NAME__  e.g. "Allan Green" or "OpenSAK"
+    __DISPLAY_NAME__            App name shown in Start Menu / Store listing,
+                                e.g. "OpenSAK" for a stable release or
+                                "OpenSAK Beta" for a beta release — see
+                                README.md "Naming beta vs. stable
+                                releases" for how this is derived.
     __VERSION__                 4-part numeric version, e.g. "1.17.2.0"
                                 (MSIX does not allow "-beta.N" suffixes —
                                 see README for the mapping used here)
@@ -51,7 +56,7 @@
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>OpenSAK</DisplayName>
+    <DisplayName>__DISPLAY_NAME__</DisplayName>
     <PublisherDisplayName>__PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
     <Logo>assets\Square150x150Logo.png</Logo>
     <Description>Free, open-source, cross-platform geocache management tool.</Description>
@@ -73,7 +78,7 @@
   <Applications>
     <Application Id="OpenSAK" Executable="__EXE_RELATIVE_PATH__" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="OpenSAK"
+        DisplayName="__DISPLAY_NAME__"
         Description="Free, open-source, cross-platform geocache management tool."
         BackgroundColor="transparent"
         Square150x150Logo="assets\Square150x150Logo.png"
