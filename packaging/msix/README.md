@@ -1,14 +1,19 @@
 # MSIX packaging prototype (issue #786)
 
-> **Status (25 Aug 2026): prototype validation complete.** A private/
-> unlisted Partner Center submission of the OpenSAK MSIX package
-> (product `9P4NBMM84H2D`) **passed Store certification**, and was
-> confirmed installable end-to-end via the Microsoft Store app (not just
-> sideload). This clears the core #786 risk: QtWebEngine/Chromium inside
-> the MSIX sandbox is not a Store-certification blocker. Remaining work
-> is production integration (CI/CD build automation, public listing),
-> not further feasibility testing. See "Where each step runs" below for
-> what's Windows-only going forward.
+> **Status (27 Aug 2026): prototype validation complete, CI build
+> automation in place.** A private/unlisted Partner Center submission of
+> the OpenSAK MSIX package (product `9P4NBMM84H2D`) **passed Store
+> certification**, and was confirmed installable end-to-end via the
+> Microsoft Store app (not just sideload). This clears the core #786
+> risk: QtWebEngine/Chromium inside the MSIX sandbox is not a
+> Store-certification blocker. `.github/workflows/build-msix.yml` now
+> builds/packages the `.msix` on manual `workflow_dispatch`, so new
+> builds no longer require the Windows machine for that step — see
+> "Runbook: publishing a new version" below. It's manual-trigger-only
+> and not attached to public GitHub Releases; that stays out of scope
+> until the Store listing goes public. Remaining work is public listing
+> and (eventually) automatic tag-triggered builds. See "Where each step
+> runs" below for what's still Windows-only.
 
 This directory is the **prototype** work for #786's step 1–2: package
 OpenSAK as MSIX and confirm Microsoft Store certification doesn't reject
@@ -32,7 +37,7 @@ this split is permanent, not just a prototype-stage limitation:
 | Testing the installed app (map/DB/GPX/update-checker) | **Windows only** | Needs the actual sandboxed install to test against |
 | Partner Center submission (Properties, Store listings, Submit for certification) | **Linux or Windows, browser only** | Confirmed working from a Linux browser session during the 25 Aug submission |
 | Installing/testing via the real Store (private link) | **Windows only** (for now) | Needs a Windows machine signed into the Store app with the right Microsoft account; not yet tested on other platforms |
-| Once CI integration (step 3) lands | **Neither — automated** | A `windows-latest` GitHub Actions runner will do the build/sign on tag/release, same pattern as the existing Windows/Linux/macOS artifact pipelines. Until then, every new build needs the Windows machine. |
+| CI integration (step 3) — `.github/workflows/build-msix.yml` | **Neither — automated** | A `windows-latest` GitHub Actions runner builds/packages/self-signs the `.msix` on manual `workflow_dispatch` and uploads it as a CI artifact. **Manual trigger only for now** (Actions → "Build MSIX (manual)" → Run workflow) — it does not run on version tags and the artifact isn't attached to public GitHub Releases, since the Store listing is still private/unlisted. Partner Center submission itself (upload, listing fields, Submit for certification) stays a manual browser step either way. |
 
 **Bottom line for now:** keep the Windows machine in the loop for every
 build/sign/sideload-test cycle. Partner Center's browser-based submission
@@ -220,17 +225,37 @@ right thing. Worth checking these first if a submission gets stuck:
 
 MSIX requires a strict 4-part numeric `Package/Identity/@Version`
 (`Major.Minor.Build.Revision`) — it does **not** accept OpenSAK's
-`-beta.N` suffix. For this prototype, `build_msix_local.ps1` takes an
-explicit `-Version` (default `1.17.2.0`, i.e. the beta suffix dropped and
-`.0` appended). If MSIX moves past the prototype stage, step 3 (CI
-integration) will need a small script to derive this automatically from
-`src/opensak/__init__.py`'s `__version__` — deliberately not built yet
-since it's premature before we know MSIX is viable at all.
+`-beta.N` suffix. `build_msix_local.ps1` takes an explicit `-Version`
+(default `1.17.2.0` for local prototype runs). `scripts/derive_msix_version.py`
+derives this automatically from `src/opensak/__init__.py`'s `__version__`
+and is what `build-msix.yml` uses by default: `1.18.0` → `1.18.0.0`,
+`1.18.0-beta.3` → `1.18.0.3` (the beta number becomes the revision).
 
 ## Runbook: publishing a new version (post-prototype)
 
-Until CI integration (step 3) lands, every new build follows this
-manual sequence on the Windows machine + browser:
+Two ways to get a `.msix` for a new version — pick whichever's convenient:
+
+**Option A — CI (`build-msix.yml`), recommended:**
+
+1. Actions tab → **"Build MSIX (manual)"** → Run workflow. Leave the
+   `version` input blank to derive it automatically from
+   `src/opensak/__init__.py` (via `scripts/derive_msix_version.py`), or
+   type an explicit 4-part version to override it.
+2. Download the `.msix` from the run's artifacts once it finishes.
+3. **Optional but recommended:** sideload-install it on the Windows
+   machine and re-run the checklist from "What to actually check once
+   it's installed" above, especially after any change touching
+   packaging, dependencies, or the Qt/QtWebEngine setup.
+4. **In Partner Center (Linux or Windows browser):** open the OpenSAK
+   product → Packages → remove the old `.msix` → upload the new one →
+   confirm it shows "Validated"/"Complete".
+5. Review the other submission sections in case anything needs
+   updating for this release (e.g. "What's new in this version" release
+   notes) — most sections should carry over unchanged from the last
+   submission.
+6. **Submit for certification.** Wait for the pass/fail email.
+
+**Option B — local (Windows machine), if CI isn't available:**
 
 1. **On Windows:** pull the latest branch/tag, then rebuild with the
    real (not dev-test) identity values:
@@ -247,21 +272,15 @@ manual sequence on the Windows machine + browser:
    (Don't add `-InstallAfterBuild` unless you specifically want to
    sideload-test this build — the file you need for Partner Center is
    the same either way.)
-2. **Optional but recommended:** sideload-install and re-run the
-   checklist from "What to actually check once it's installed" above,
-   especially after any change touching packaging, dependencies, or
-   the Qt/QtWebEngine setup.
-3. **In Partner Center (Linux or Windows browser):** open the OpenSAK
-   product → Packages → remove the old `.msix` → upload the new one →
-   confirm it shows "Validated"/"Complete".
-4. Review the other submission sections in case anything needs
-   updating for this release (e.g. "What's new in this version" release
-   notes) — most sections should carry over unchanged from the last
-   submission.
-5. **Submit for certification.** Wait for the pass/fail email.
-6. Once CI integration (step 3) exists, steps 1–2 become automatic on
-   tag/release; steps 3–5 (Partner Center) stay manual until/unless the
-   Store Submission API is worth adopting — no plan to do that yet.
+2. Then continue from step 3 of Option A above (sideload check →
+   Partner Center upload → submit).
+
+Either way, Partner Center submission itself (upload, listing fields,
+Submit for certification) stays a manual browser step — no plan to
+adopt the Store Submission API for that yet. `build-msix.yml` is
+manual-`workflow_dispatch`-only and doesn't run on version tags, so it
+won't attach a `.msix` to public GitHub Releases; that stays out of
+scope until the Store listing goes public.
 
 ## Files in this directory
 
@@ -271,3 +290,10 @@ manual sequence on the Windows machine + browser:
 | `build_msix_local.ps1` | One-shot local build → package → sign → (optionally) install |
 | `generate_assets.py` | Generates the required tile/logo PNGs from `assets/icons/opensak_512.png` |
 | `assets/` | Generated image output (gitignored — regenerated by `generate_assets.py`) |
+
+Also relevant, outside this directory:
+
+| File | Purpose |
+|---|---|
+| `../../scripts/derive_msix_version.py` | Converts `__version__` to the 4-part numeric MSIX version — used by `build-msix.yml` |
+| `../../.github/workflows/build-msix.yml` | CI job (manual `workflow_dispatch` only) that builds/packages/self-signs the `.msix` and uploads it as a CI artifact |
