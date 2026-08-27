@@ -18,6 +18,15 @@ on:
           __version__ (see scripts/derive_msix_version.py).
         required: false
         default: ""
+  # TEMPORARY — GitHub only shows a workflow_dispatch-only workflow in the
+  # Actions tab's "Run workflow" dropdown once the file exists on the
+  # default branch (main) or has run at least once. This registers it via
+  # a one-off push-triggered run on this branch. Remove this `push:` block
+  # after the first successful run — workflow_dispatch keeps working from
+  # the Actions UI afterwards without it.
+  push:
+    branches:
+      - feature/msix-packaging
 
 env:
   PYTHON_VERSION: "3.11"
