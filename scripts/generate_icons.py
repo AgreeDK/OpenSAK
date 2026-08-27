@@ -138,7 +138,7 @@ def generate_ico(images: dict[int, Image.Image], output_dir: Path):
         else:
             # Resize from nearest larger
             src = min((s for s in images if s >= size), default=256)
-            img = images[src].resize((size, size), Image.LANCZOS)
+            img = images[src].resize((size, size), Image.Resampling.LANCZOS)
         ico_images.append(img)
 
     # Save with all sizes embedded

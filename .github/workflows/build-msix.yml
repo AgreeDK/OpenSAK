@@ -1,0 +1,110 @@
+name: Build MSIX (manual)
+
+# Manual-only for now — issue #786 step 3 (CI integration), prototype stage.
+# Not triggered on version tags: the Store listing (product 9P4NBMM84H2D)
+# is still private/unlisted, and the .msix isn't attached to public GitHub
+# Releases yet (see packaging/msix/README.md "Runbook: publishing a new
+# version"). Run it from Actions → "Build MSIX (manual)" → Run workflow
+# whenever a new .msix is needed for Partner Center's manual submission
+# flow. Nothing here touches the existing Windows .exe build in build.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          4-part numeric MSIX version, e.g. 1.18.0.1. Leave blank to
+          derive it automatically from src/opensak/__init__.py's
+          __version__ (see scripts/derive_msix_version.py).
+        required: false
+        default: ""
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Real Partner Center product identity (packaging/msix/README.md
+  # "Runbook: publishing a new version") — not secret, these are the
+  # public values Partner Center shows on the app's Product identity page.
+  MSIX_IDENTITY_NAME: "AgreeDK.OpenSAK"
+  MSIX_PUBLISHER_CN: "CN=12DE14F4-8896-42D3-BB58-EA4A95758F5C"
+  MSIX_PUBLISHER_DISPLAY_NAME: "AgreeDK"
+
+jobs:
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  build-msix:
+    name: "Build MSIX (private/unlisted testing)"
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller pillow
+
+      - name: Fetch boundary baseline
+        run: python scripts/fetch_boundary_baseline.py
+
+      - name: Build .exe (PyInstaller, same as build.yml)
+        run: pyinstaller opensak.spec --clean --noconfirm
+        env:
+          PYTHONPATH: src
+
+      - name: Determine MSIX version
+        id: msix-version
+        shell: pwsh
+        run: |
+          if ("${{ inputs.version }}" -ne "") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $version = python scripts/derive_msix_version.py
+          }
+          Write-Host "Using MSIX version: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # makeappx.exe / signtool.exe ship with the Windows SDK, which is
+      # preinstalled on windows-latest runners, but their bin folder isn't
+      # on PATH by default — locate the newest installed SDK version and
+      # add its x64 tools folder.
+      - name: Add Windows SDK tools to PATH
+        shell: pwsh
+        run: |
+          $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $sdkVersion = Get-ChildItem $sdkRoot -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+          if (-not $sdkVersion) {
+            throw "No Windows SDK version folder found under $sdkRoot"
+          }
+          $toolsPath = Join-Path $sdkVersion.FullName "x64"
+          Write-Host "Adding to PATH: $toolsPath"
+          Add-Content -Path $env:GITHUB_PATH -Value $toolsPath
+
+      - name: Build and package MSIX
+        shell: pwsh
+        run: |
+          .\packaging\msix\build_msix_local.ps1 `
+            -IdentityName $env:MSIX_IDENTITY_NAME `
+            -PublisherCN $env:MSIX_PUBLISHER_CN `
+            -PublisherDisplayName $env:MSIX_PUBLISHER_DISPLAY_NAME `
+            -Version "${{ steps.msix-version.outputs.version }}" `
+            -SkipBuild
+
+      # Not signed with a Partner Center-associated certificate — this CI
+      # job produces the same self-signed-for-testing package the local
+      # prototype flow does. Partner Center accepts an unsigned/dev-signed
+      # package for submission and re-signs it during certification (see
+      # packaging/msix/README.md step 2).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: OpenSAK-${{ steps.msix-version.outputs.version }}-msix
+          path: dist/OpenSAK-${{ steps.msix-version.outputs.version }}-prototype.msix
+          retention-days: 7
