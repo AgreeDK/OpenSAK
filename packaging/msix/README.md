@@ -25,14 +25,24 @@
 > Decision made 27 Aug 2026: the Store listing will go **fully public**
 > (not a restricted Package Flights audience), with the app's display
 > name automatically switching to **"OpenSAK Beta"** for beta versions
-> — see "Naming beta vs. stable releases" below.
+> — see "Naming beta vs. stable releases" below. Two more things came
+> up wiring this in and are now documented under "Known Partner Center
+> quirks": `DisplayName` values must be pre-reserved under Manage app
+> names before a package using them will validate, and reusing a
+> version number for changed content (even metadata-only) is rejected —
+> outright, even against an already-certified prior submission — and
+> needs a version bump.
 >
 > QtWebEngine/Chromium inside the MSIX sandbox is confirmed not a
 > Store-certification blocker — that was the core #786 risk and it's
-> cleared. Remaining work: public Store listing (not started — still
-> deliberately private/unlisted) and, eventually, wiring `build-msix.yml`
-> to run automatically on version tags instead of manual
-> `workflow_dispatch`. See "Where each step runs" below for what's still
+> cleared. **Remaining work — genuinely not done yet:** the listing is
+> still private/unlisted; going public means finding and flipping the
+> visibility/audience setting under Pricing and availability (not yet
+> located precisely in this account's UI — check there first next
+> time), which may itself need a separate approval pass and can take up
+> to ~24h to propagate through Store search once flipped. Also still
+> pending: wiring `build-msix.yml` to run automatically on version tags
+> instead of manual `workflow_dispatch`. See "Where each step runs"
 > Windows-only.
 
 This directory is the **prototype** work for #786's step 1–2: package
@@ -191,7 +201,7 @@ private test). If you don't have one yet:
   fields, icon requirements) → fix and resubmit; not a signal to
   abandon MSIX.
 
-## Known Partner Center quirks (from the 25 Aug 2026 submission)
+## Known Partner Center quirks (from the 25 Aug and 27 Aug 2026 submissions)
 
 Partner Center's UI has several silent-failure modes — no error shown,
 just a section that won't turn "Complete" until you happen to fix the
@@ -242,6 +252,29 @@ right thing. Worth checking these first if a submission gets stuck:
   ```powershell
   Unblock-File -Path .\packaging\msix\build_msix_local.ps1
   ```
+- **Any manifest `DisplayName` must be pre-reserved, exact string
+  match.** Uploading a package whose `Package/Properties/DisplayName`
+  is e.g. `"OpenSAK Beta"` fails acceptance validation
+  ("...uses a display name that you have not reserved: OpenSAK Beta")
+  unless that exact name has been reserved under **Product management →
+  Manage app names** first. Reserving it is a one-time action per name —
+  once `"OpenSAK Beta"` is reserved, it stays valid for future
+  submissions too.
+- **A version number can only be submitted once, ever — even for a
+  metadata-only change.** Re-uploading a package with the *same* 4-part
+  MSIX version but different manifest content (e.g. only `DisplayName`
+  changed, nothing in the actual app) is rejected: "All .msix and .appx
+  packages... must be uniquely identified by their full names. You have
+  provided two packages with the full name
+  `AgreeDK.OpenSAK_<version>_X64_` which have different contents."
+  This applies even against a package from a *previous, already-
+  certified* submission — Partner Center checks across submission
+  history, not just the current draft. Fix: bump the version (the
+  `build-msix.yml` `version` workflow_dispatch input can override the
+  auto-derived one for exactly this case) and re-upload. If the old
+  version's package still shows an error in the current draft's
+  Packages list after this, delete it explicitly (not "Retry" — that
+  just re-validates the same rejected file).
 
 ## Naming beta vs. stable releases
 
