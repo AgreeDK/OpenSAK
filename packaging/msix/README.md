@@ -1,19 +1,34 @@
 # MSIX packaging prototype (issue #786)
 
-> **Status (27 Aug 2026): prototype validation complete, CI build
-> automation in place.** A private/unlisted Partner Center submission of
-> the OpenSAK MSIX package (product `9P4NBMM84H2D`) **passed Store
-> certification**, and was confirmed installable end-to-end via the
-> Microsoft Store app (not just sideload). This clears the core #786
-> risk: QtWebEngine/Chromium inside the MSIX sandbox is not a
-> Store-certification blocker. `.github/workflows/build-msix.yml` now
-> builds/packages the `.msix` on manual `workflow_dispatch`, so new
-> builds no longer require the Windows machine for that step — see
-> "Runbook: publishing a new version" below. It's manual-trigger-only
-> and not attached to public GitHub Releases; that stays out of scope
-> until the Store listing goes public. Remaining work is public listing
-> and (eventually) automatic tag-triggered builds. See "Where each step
-> runs" below for what's still Windows-only.
+> **Status (27 Aug 2026): CI→Partner Center→Store pipeline fully
+> validated, end to end.** A CI-built package (`build-msix.yml`, no
+> Windows machine involved in the build itself) was submitted to the
+> private/unlisted Partner Center listing for product `9P4NBMM84H2D`,
+> **passed Store certification**, and was confirmed installable via the
+> Microsoft Store app on Windows. This is the second, independent pass —
+> the first (25 Aug) validated the *local* prototype build; this one
+> validates the *CI* build, closing the loop on step 3.
+>
+> Two real bugs were caught and fixed along the way, both worth knowing
+> about if this ever needs touching again:
+> - `generate_assets.py` imports Pillow, which is only in `pyproject.toml`'s
+>   `dev` extra — the CI job's `pip install` now installs it explicitly.
+> - **The Store rejects any package with a non-zero Revision** (4th
+>   version component) — `scripts/derive_msix_version.py` originally put
+>   the beta number there (`1.18.0-beta.1` → `1.18.0.1`) and Partner
+>   Center rejected it outright ("Apps are not allowed to have a Version
+>   with a revision number other than zero"). Fixed by folding patch +
+>   beta number into Build instead, Revision pinned at 0 — see that
+>   script's docstring for the exact scheme. `1.18.0-beta.1` now derives
+>   to `1.18.1.0`.
+>
+> QtWebEngine/Chromium inside the MSIX sandbox is confirmed not a
+> Store-certification blocker — that was the core #786 risk and it's
+> cleared. Remaining work: public Store listing (not started — still
+> deliberately private/unlisted) and, eventually, wiring `build-msix.yml`
+> to run automatically on version tags instead of manual
+> `workflow_dispatch`. See "Where each step runs" below for what's still
+> Windows-only.
 
 This directory is the **prototype** work for #786's step 1–2: package
 OpenSAK as MSIX and confirm Microsoft Store certification doesn't reject
@@ -50,10 +65,12 @@ step can be done from either machine — Linux is fine for that part.
    `signtool.exe`. SDK: https://developer.microsoft.com/windows/downloads/windows-sdk/
 2. Make sure `dist\OpenSAK\opensak.exe` can be built the normal way first
    (i.e. your existing local Windows build setup already works).
-3. Pull this branch:
+3. Pull the branch you're working from (this is now merged into `beta`;
+   use `feature/msix-packaging` only if you're picking up new,
+   not-yet-merged MSIX work):
    ```powershell
-   git fetch origin feature/msix-packaging
-   git checkout feature/msix-packaging
+   git fetch origin beta
+   git checkout beta
    ```
 
 ## Step 1 — local packaging + sideload test
@@ -225,11 +242,23 @@ right thing. Worth checking these first if a submission gets stuck:
 
 MSIX requires a strict 4-part numeric `Package/Identity/@Version`
 (`Major.Minor.Build.Revision`) — it does **not** accept OpenSAK's
-`-beta.N` suffix. `build_msix_local.ps1` takes an explicit `-Version`
-(default `1.17.2.0` for local prototype runs). `scripts/derive_msix_version.py`
-derives this automatically from `src/opensak/__init__.py`'s `__version__`
-and is what `build-msix.yml` uses by default: `1.18.0` → `1.18.0.0`,
-`1.18.0-beta.3` → `1.18.0.3` (the beta number becomes the revision).
+`-beta.N` suffix, and (confirmed by a real Partner Center rejection on
+27 Aug 2026) **Revision must always be 0** — the Store rejects any
+package where it isn't. `build_msix_local.ps1` takes an explicit
+`-Version` (default `1.17.2.0` for local prototype runs).
+`scripts/derive_msix_version.py` derives a Store-valid version
+automatically from `src/opensak/__init__.py`'s `__version__` and is what
+`build-msix.yml` uses by default. It folds the patch number and beta
+number into Build instead of Revision: `Build = patch * 1000 +
+(beta_number, or 999 for a stable/non-beta version)`, so e.g.
+`1.18.0-beta.1` → `1.18.1.0`, `1.18.0-beta.12` → `1.18.12.0`, `1.18.0`
+(stable) → `1.18.999.0`, `1.17.2-beta.3` → `1.17.2003.0`. This keeps
+every beta of a given patch sorting below that patch's eventual stable
+release, and keeps different patches from colliding — see the script's
+docstring for the full reasoning. If you're building manually with
+`build_msix_local.ps1 -Version`, run
+`python scripts/derive_msix_version.py` first rather than guessing a
+4-part number by hand.
 
 ## Runbook: publishing a new version (post-prototype)
 
