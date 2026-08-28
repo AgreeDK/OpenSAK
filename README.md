@@ -107,6 +107,7 @@ A modern, cross-platform geocaching management tool for **Linux**, **Windows** a
 | [CLI --version flag](docs/cli-version-flag.md) | Print version or run a specific release |
 | [CHANGELOG](CHANGELOG.md) | Version history |
 | [CONTRIBUTING](CONTRIBUTING.md) | Development setup, code style, translations, PR workflow |
+| [Contributing with an AI Assistant](docs/CONTRIBUTING-with-AI.md) | Step-by-step guide to contributing code using an AI coding assistant |
 
 ---
 
@@ -166,6 +167,10 @@ Please use [GitHub Issues](https://github.com/OpenSAK-Org/opensak/issues) and in
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+Using an AI coding assistant to help write your contribution? See
+[Contributing with an AI Assistant](docs/CONTRIBUTING-with-AI.md) for a guide
+tailored to that workflow.
 
 ---
 
