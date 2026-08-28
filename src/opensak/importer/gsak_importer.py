@@ -706,7 +706,7 @@ def _upsert_cache_from_gsak(
         for field in (
             "name", "cache_type", "container", "latitude", "longitude",
             "difficulty", "terrain", "placed_by", "owner_name", "owner_id",
-            "hidden_date", "available", "archived",
+            "hidden_date", "last_updated", "available", "archived",
             "country", "state", "county",
             "short_description", "short_desc_html",
             "long_description", "long_desc_html",
