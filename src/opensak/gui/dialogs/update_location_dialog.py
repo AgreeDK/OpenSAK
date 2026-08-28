@@ -387,10 +387,22 @@ class UpdateLocationDialog(QDialog):
         self._log.clear()
         self._progress_label.setText(tr("update_loc_running", total=len(rows)))
 
-        self._worker = ReverseGeocodeWorker(rows)
+        self._worker = ReverseGeocodeWorker(rows, parent=self)
         self._worker.row_done.connect(self._on_row_done)
         self._worker.all_done.connect(self._on_done)
         self._worker.cancelled.connect(self._on_cancelled)
+        # Forget the worker on QThread.finished (emitted after run() has
+        # returned and isRunning() is already false) — NOT from the slots
+        # driven by all_done/cancelled, which are emitted from inside run()
+        # while the thread is still alive. Dropping the last reference there
+        # left run()'s own stack frame holding it, so the QThread was
+        # destroyed from inside its own run() and Qt aborted the process
+        # ("QThread: Destroyed while thread '' is still running"). Same rule
+        # as ImportWorker in import_dialog.py. parent=self additionally keeps
+        # the C++ object owned by the dialog, so Python refcounting can never
+        # delete a running thread on its own. _on_worker_finished is connected
+        # before deleteLater so it runs first; both are queued.
+        self._worker.finished.connect(self._on_worker_finished)
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
@@ -437,8 +449,12 @@ class UpdateLocationDialog(QDialog):
         self._set_controls_enabled(True)
         if not self._from_context_menu:
             self._rb_this.setEnabled(False)
-        # The worker is about to delete itself (finished.connect(deleteLater));
-        # drop our reference now so closeEvent never touches a dangling C++ object.
+
+    def _on_worker_finished(self) -> None:
+        """run() has returned and the thread has stopped — only now is it safe
+        to drop our reference. The worker deletes itself via deleteLater
+        (connected after this slot), so closeEvent never sees a dangling
+        C++ object either."""
         self._worker = None
 
     def closeEvent(self, event) -> None:
