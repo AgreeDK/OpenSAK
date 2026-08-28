@@ -12,6 +12,7 @@
 # creates under a shared module-scoped database.
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -72,15 +73,46 @@ _SCHEMA = [
 ]
 
 _DEFAULT_CACHE = dict(
-    Code="GC1TEST", Name="Test Cache", CacheType="T", Container="Micro",
-    Latitude="55.5802", Longitude="11.175917", Difficulty=1.5, Terrain=2.0,
-    PlacedBy="AB Green", OwnerName="AB Green", OwnerId="1768915",
-    PlacedDate="2023-10-24", Changed="2026-06-23", Status="A", Archived=0,
-    TempDisabled=0, Country="Denmark", State="Region Sjælland", County="",
-    Found=0, FoundByMeDate="", DNF=0, DNFDate="", FTF=0, UserFlag=0,
-    UserSort=0, UserData="", User2="", User3="", User4="",
-    FavPoints=3, GcNote="", Elevation=0.0, Color="", Guid="", Watch=0,
-    CacheId="9284799", Lock=0, FoundCount=30, IsPremium=0,
+    Code="GC1TEST",
+    Name="Test Cache",
+    CacheType="T",
+    Container="Micro",
+    Latitude="55.5802",
+    Longitude="11.175917",
+    Difficulty=1.5,
+    Terrain=2.0,
+    PlacedBy="AB Green",
+    OwnerName="AB Green",
+    OwnerId="1768915",
+    PlacedDate="2023-10-24",
+    Changed="2026-06-23",
+    Status="A",
+    Archived=0,
+    TempDisabled=0,
+    Country="Denmark",
+    State="Region Sjælland",
+    County="",
+    Found=0,
+    FoundByMeDate="",
+    DNF=0,
+    DNFDate="",
+    FTF=0,
+    UserFlag=0,
+    UserSort=0,
+    UserData="",
+    User2="",
+    User3="",
+    User4="",
+    FavPoints=3,
+    GcNote="",
+    Elevation=0.0,
+    Color="",
+    Guid="",
+    Watch=0,
+    CacheId="9284799",
+    Lock=0,
+    FoundCount=30,
+    IsPremium=0,
 )
 
 
@@ -99,43 +131,47 @@ def _make_gsak_db(
     for ddl in _SCHEMA:
         conn.execute(ddl)
 
-    for c in (caches if caches is not None else [_DEFAULT_CACHE]):
+    for c in caches if caches is not None else [_DEFAULT_CACHE]:
         row = {**_DEFAULT_CACHE, **c}
         cols = ", ".join(row.keys())
         qs = ", ".join("?" for _ in row)
         conn.execute(f"INSERT INTO Caches ({cols}) VALUES ({qs})", list(row.values()))
 
-    for m in (memos if memos is not None else [{"Code": "GC1TEST", "Url": "https://coord.info/GC1TEST"}]):
+    for m in (
+        memos
+        if memos is not None
+        else [{"Code": "GC1TEST", "Url": "https://coord.info/GC1TEST"}]
+    ):
         cols = ", ".join(m.keys())
         qs = ", ".join("?" for _ in m)
         conn.execute(f"INSERT INTO CacheMemo ({cols}) VALUES ({qs})", list(m.values()))
 
-    for k in (corrected or []):
+    for k in corrected or []:
         cols = ", ".join(k.keys())
         qs = ", ".join("?" for _ in k)
         conn.execute(f"INSERT INTO Corrected ({cols}) VALUES ({qs})", list(k.values()))
 
-    for w in (waypoints or []):
+    for w in waypoints or []:
         cols = ", ".join(w.keys())
         qs = ", ".join("?" for _ in w)
         conn.execute(f"INSERT INTO Waypoints ({cols}) VALUES ({qs})", list(w.values()))
 
-    for wm in (waymemos or []):
+    for wm in waymemos or []:
         cols = ", ".join(wm.keys())
         qs = ", ".join("?" for _ in wm)
         conn.execute(f"INSERT INTO WayMemo ({cols}) VALUES ({qs})", list(wm.values()))
 
-    for a in (attributes or []):
+    for a in attributes or []:
         cols = ", ".join(a.keys())
         qs = ", ".join("?" for _ in a)
         conn.execute(f"INSERT INTO Attributes ({cols}) VALUES ({qs})", list(a.values()))
 
-    for lg in (logs or []):
+    for lg in logs or []:
         cols = ", ".join(lg.keys())
         qs = ", ".join("?" for _ in lg)
         conn.execute(f"INSERT INTO Logs ({cols}) VALUES ({qs})", list(lg.values()))
 
-    for lm in (logmemos or []):
+    for lm in logmemos or []:
         cols = ", ".join(lm.keys())
         qs = ", ".join("?" for _ in lm)
         conn.execute(f"INSERT INTO LogMemo ({cols}) VALUES ({qs})", list(lm.values()))
@@ -146,6 +182,7 @@ def _make_gsak_db(
 
 
 # ── Basic import ──────────────────────────────────────────────────────────────
+
 
 def test_non_utf8_field_does_not_abort_import(db_session, tmp_path):
     # GSAK databases aren't guaranteed to store text as UTF-8 (issue #529
@@ -201,6 +238,52 @@ def test_import_basic_cache_fields(db_session, tmp_path):
     assert cache.find_count is None
 
 
+def test_last_updated_imported_from_changed(db_session, tmp_path):
+    # Regression: _row_to_cache_data() has always mapped GSAK's Caches.Changed
+    # to last_updated, but the field was missing from the assignment tuple in
+    # _upsert_cache_from_gsak(), so the value was computed and then silently
+    # dropped — every GSAK-imported cache came in with last_updated NULL, and
+    # the grid's "last updated" column (cache_table.py) rendered empty for the
+    # whole database. Verified against a real 150k-cache migration: all
+    # 150k source dates lost.
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Changed": "2026-06-23"}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.last_updated == datetime(2026, 6, 23)
+
+
+def test_last_updated_empty_changed_maps_to_none(db_session, tmp_path):
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Changed": ""}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.last_updated is None
+
+
+def test_last_updated_not_overwritten_on_locked_cache(db_session, tmp_path):
+    # last_updated is GC.com-side listing metadata, so it sits inside the
+    # lock-guarded block alongside hidden_date — a locked cache keeps its own.
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Changed": "2026-06-23"}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    cache.locked = True
+    db_session.commit()
+
+    db2 = _make_gsak_db(tmp_path / "gsak2.db3", caches=[{"Changed": "2026-08-28"}])
+    import_gsak_db(db2, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.last_updated == datetime(2026, 6, 23)
+
+
+def test_reimport_updates_last_updated(db_session, tmp_path):
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Changed": "2026-06-23"}])
+    import_gsak_db(db, db_session)
+
+    db2 = _make_gsak_db(tmp_path / "gsak2.db3", caches=[{"Changed": "2026-08-28"}])
+    import_gsak_db(db2, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.last_updated == datetime(2026, 8, 28)
+
+
 def test_elevation_zero_maps_to_none(db_session, tmp_path):
     # GSAK's default/unset elevation (0.0) must not be mistaken for a real
     # sea-level elevation — see #469 schema PR rationale.
@@ -226,7 +309,9 @@ def test_cache_type_mapping(db_session, tmp_path, gsak_code, expected):
 
 
 @pytest.mark.parametrize("gsak_code", ["D", "Y"])
-def test_cache_type_intentionally_unmapped_codes_fall_back(db_session, tmp_path, gsak_code):
+def test_cache_type_intentionally_unmapped_codes_fall_back(
+    db_session, tmp_path, gsak_code
+):
     # Issue #532: D ("Groundspeak Lost and Found Celebration") and Y
     # (Waymark) are deliberately left out of GSAK_CACHE_TYPE_MAP — D has no
     # unambiguous match to our single "Community Celebration Event" entry
@@ -253,11 +338,14 @@ def test_container_mapping(db_session, tmp_path, gsak_container, expected):
     assert cache.container == expected
 
 
-@pytest.mark.parametrize("status,available,archived", [
-    ("A", True, False),
-    ("T", False, False),
-    ("X", False, True),
-])
+@pytest.mark.parametrize(
+    "status,available,archived",
+    [
+        ("A", True, False),
+        ("T", False, False),
+        ("X", False, True),
+    ],
+)
 def test_status_mapping(db_session, tmp_path, status, available, archived):
     db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Status": status}])
     import_gsak_db(db, db_session)
@@ -268,19 +356,32 @@ def test_status_mapping(db_session, tmp_path, status, available, archived):
 
 # ── Waypoints ──────────────────────────────────────────────────────────────
 
+
 def test_waypoint_mapping(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        waypoints=[{
-            "cParent": "GC1TEST", "cCode": "PK1TEST", "cPrefix": "PK",
-            "cName": "Parking", "cType": "Parking Area",
-            "cLat": "55.58", "cLon": "11.17",
-            "cByuser": 0, "cDate": "2020-01-01", "cFlag": 1,
-        }],
-        waymemos=[{
-            "cParent": "GC1TEST", "cCode": "PK1TEST",
-            "cComment": "Park here", "cUrl": "https://x.test/PK1TEST",
-        }],
+        waypoints=[
+            {
+                "cParent": "GC1TEST",
+                "cCode": "PK1TEST",
+                "cPrefix": "PK",
+                "cName": "Parking",
+                "cType": "Parking Area",
+                "cLat": "55.58",
+                "cLon": "11.17",
+                "cByuser": 0,
+                "cDate": "2020-01-01",
+                "cFlag": 1,
+            }
+        ],
+        waymemos=[
+            {
+                "cParent": "GC1TEST",
+                "cCode": "PK1TEST",
+                "cComment": "Park here",
+                "cUrl": "https://x.test/PK1TEST",
+            }
+        ],
     )
     result = import_gsak_db(db, db_session)
     assert result.waypoints == 1
@@ -304,12 +405,30 @@ def test_waypoint_same_prefix_name_distinct_wp_code_both_imported(db_session, tm
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         waypoints=[
-            {"cParent": "GC1TEST", "cCode": "RP1TEST", "cPrefix": "RP",
-             "cName": "Right turn", "cType": "Reference Point",
-             "cLat": "55.58", "cLon": "11.17", "cByuser": 0, "cDate": "", "cFlag": 0},
-            {"cParent": "GC1TEST", "cCode": "RP1TEST-2", "cPrefix": "RP",
-             "cName": "Right turn", "cType": "Reference Point",
-             "cLat": "55.581", "cLon": "11.171", "cByuser": 0, "cDate": "", "cFlag": 0},
+            {
+                "cParent": "GC1TEST",
+                "cCode": "RP1TEST",
+                "cPrefix": "RP",
+                "cName": "Right turn",
+                "cType": "Reference Point",
+                "cLat": "55.58",
+                "cLon": "11.17",
+                "cByuser": 0,
+                "cDate": "",
+                "cFlag": 0,
+            },
+            {
+                "cParent": "GC1TEST",
+                "cCode": "RP1TEST-2",
+                "cPrefix": "RP",
+                "cName": "Right turn",
+                "cType": "Reference Point",
+                "cLat": "55.581",
+                "cLon": "11.171",
+                "cByuser": 0,
+                "cDate": "",
+                "cFlag": 0,
+            },
         ],
     )
     result = import_gsak_db(db, db_session)
@@ -330,12 +449,30 @@ def test_waypoint_duplicate_wp_code_is_dropped_not_fatal(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         waypoints=[
-            {"cParent": "GC1TEST", "cCode": "PK1TEST", "cPrefix": "PK",
-             "cName": "Parking", "cType": "Parking Area",
-             "cLat": "55.58", "cLon": "11.17", "cByuser": 0, "cDate": "", "cFlag": 0},
-            {"cParent": "GC1TEST", "cCode": "PK1TEST", "cPrefix": "PK",
-             "cName": "Parking (alt)", "cType": "Parking Area",
-             "cLat": "55.582", "cLon": "11.172", "cByuser": 0, "cDate": "", "cFlag": 0},
+            {
+                "cParent": "GC1TEST",
+                "cCode": "PK1TEST",
+                "cPrefix": "PK",
+                "cName": "Parking",
+                "cType": "Parking Area",
+                "cLat": "55.58",
+                "cLon": "11.17",
+                "cByuser": 0,
+                "cDate": "",
+                "cFlag": 0,
+            },
+            {
+                "cParent": "GC1TEST",
+                "cCode": "PK1TEST",
+                "cPrefix": "PK",
+                "cName": "Parking (alt)",
+                "cType": "Parking Area",
+                "cLat": "55.582",
+                "cLon": "11.172",
+                "cByuser": 0,
+                "cDate": "",
+                "cFlag": 0,
+            },
         ],
     )
     result = import_gsak_db(db, db_session)
@@ -355,12 +492,20 @@ def test_waymemo_missing_row_does_not_drop_waypoint(db_session, tmp_path):
     # not silently lose the waypoint itself.
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        waypoints=[{
-            "cParent": "GC1TEST", "cCode": "PK1TEST", "cPrefix": "PK",
-            "cName": "Parking", "cType": "Parking Area",
-            "cLat": "55.58", "cLon": "11.17",
-            "cByuser": 0, "cDate": "", "cFlag": 0,
-        }],
+        waypoints=[
+            {
+                "cParent": "GC1TEST",
+                "cCode": "PK1TEST",
+                "cPrefix": "PK",
+                "cName": "Parking",
+                "cType": "Parking Area",
+                "cLat": "55.58",
+                "cLon": "11.17",
+                "cByuser": 0,
+                "cDate": "",
+                "cFlag": 0,
+            }
+        ],
         waymemos=[],  # deliberately missing
     )
     result = import_gsak_db(db, db_session)
@@ -372,12 +517,17 @@ def test_waymemo_missing_row_does_not_drop_waypoint(db_session, tmp_path):
 
 # ── Attributes ────────────────────────────────────────────────────────────────
 
+
 def test_attribute_mapping_resolves_names(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         attributes=[
-            {"aCode": "GC1TEST", "aId": 1, "aInc": 1},   # Dogs, positive
-            {"aCode": "GC1TEST", "aId": 14, "aInc": 0},  # Recommended at night, negative
+            {"aCode": "GC1TEST", "aId": 1, "aInc": 1},  # Dogs, positive
+            {
+                "aCode": "GC1TEST",
+                "aId": 14,
+                "aInc": 0,
+            },  # Recommended at night, negative
         ],
     )
     result = import_gsak_db(db, db_session)
@@ -392,14 +542,19 @@ def test_attribute_mapping_resolves_names(db_session, tmp_path):
 
 # ── Corrected coordinates ─────────────────────────────────────────────────────
 
+
 def test_corrected_coordinates_populate_user_note(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        corrected=[{
-            "kCode": "GC1TEST",
-            "kBeforeLat": "55.58", "kBeforeLon": "11.17",
-            "kAfterLat": "55.6001", "kAfterLon": "11.2002",
-        }],
+        corrected=[
+            {
+                "kCode": "GC1TEST",
+                "kBeforeLat": "55.58",
+                "kBeforeLon": "11.17",
+                "kAfterLat": "55.6001",
+                "kAfterLon": "11.2002",
+            }
+        ],
     )
     result = import_gsak_db(db, db_session)
     assert result.corrected == 1
@@ -421,28 +576,35 @@ def test_corrected_coordinates_populate_user_note(db_session, tmp_path):
     assert cache.longitude == pytest.approx(11.17)
 
 
-def test_corrected_coordinates_without_kbefore_keeps_gsak_latitude(db_session, tmp_path):
+def test_corrected_coordinates_without_kbefore_keeps_gsak_latitude(
+    db_session, tmp_path
+):
     """If a Corrected row has no usable kBeforeLat/kBeforeLon (e.g. blank,
     matching a real-world GSAK inconsistency we found in testing), fall back
     to whatever GSAK's own Caches.Latitude/Longitude holds rather than
     dropping the coordinate entirely."""
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        corrected=[{
-            "kCode": "GC1TEST",
-            "kBeforeLat": "", "kBeforeLon": "",
-            "kAfterLat": "55.6001", "kAfterLon": "11.2002",
-        }],
+        corrected=[
+            {
+                "kCode": "GC1TEST",
+                "kBeforeLat": "",
+                "kBeforeLon": "",
+                "kAfterLat": "55.6001",
+                "kAfterLon": "11.2002",
+            }
+        ],
     )
     result = import_gsak_db(db, db_session)
     assert result.corrected == 1
 
     cache = db_session.query(Cache).one()
-    assert cache.latitude == pytest.approx(55.5802)   # default fixture Latitude
+    assert cache.latitude == pytest.approx(55.5802)  # default fixture Latitude
     assert cache.longitude == pytest.approx(11.175917)  # default fixture Longitude
 
 
 # ── Idempotency / re-import ───────────────────────────────────────────────────
+
 
 def test_reimport_updates_not_duplicates(db_session, tmp_path):
     db = _make_gsak_db(tmp_path / "gsak.db3")
@@ -454,6 +616,7 @@ def test_reimport_updates_not_duplicates(db_session, tmp_path):
 
 
 # ── Issue #538: trackables ────────────────────────────────────────────────────
+
 
 def test_parse_gsak_trackables_single_line():
     assert _parse_gsak_trackables("Best TB ever (id = 1234567, ref = TBAB12CD)") == [
@@ -495,10 +658,12 @@ def test_parse_gsak_trackables_skips_unmatched_lines_without_crashing():
 def test_trackable_mapping_via_import(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        memos=[{
-            "Code": "GC1TEST",
-            "TravelBugs": "Best TB ever (id = 1234567, ref = TBAB12CD)",
-        }],
+        memos=[
+            {
+                "Code": "GC1TEST",
+                "TravelBugs": "Best TB ever (id = 1234567, ref = TBAB12CD)",
+            }
+        ],
     )
     import_gsak_db(db, db_session)
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
@@ -522,10 +687,12 @@ def test_reimport_rebuilds_trackables_not_duplicates(db_session, tmp_path):
     # importing the same GSAK database twice must not duplicate trackables.
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        memos=[{
-            "Code": "GC1TEST",
-            "TravelBugs": "Best TB ever (id = 1234567, ref = TBAB12CD)",
-        }],
+        memos=[
+            {
+                "Code": "GC1TEST",
+                "TravelBugs": "Best TB ever (id = 1234567, ref = TBAB12CD)",
+            }
+        ],
     )
     import_gsak_db(db, db_session)
     import_gsak_db(db, db_session)
@@ -595,6 +762,7 @@ def test_locked_cache_is_not_overwritten(db_session, tmp_path):
 
 # ── Error handling ─────────────────────────────────────────────────────────────
 
+
 def test_missing_db_file_reports_error(db_session, tmp_path):
     result = import_gsak_db(tmp_path / "does_not_exist.db3", db_session)
     assert result.errors
@@ -602,7 +770,9 @@ def test_missing_db_file_reports_error(db_session, tmp_path):
 
 
 def test_row_with_missing_coordinates_is_skipped(db_session, tmp_path):
-    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Latitude": "", "Longitude": ""}])
+    db = _make_gsak_db(
+        tmp_path / "gsak.db3", caches=[{"Latitude": "", "Longitude": ""}]
+    )
     result = import_gsak_db(db, db_session)
     assert result.skipped == 1
     assert result.created == 0
@@ -610,15 +780,26 @@ def test_row_with_missing_coordinates_is_skipped(db_session, tmp_path):
 
 # ── Logs (session 2) ──────────────────────────────────────────────────────────
 
+
 def test_log_mapping(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        logs=[{
-            "lParent": "GC1TEST", "lLogId": 123456, "lType": "Found it",
-            "lBy": "Someone", "lDate": "2024-03-01", "lTime": "14:30:00",
-            "lLat": "", "lLon": "", "lEncoded": 0,
-            "lownerid": 999, "lHasHtml": 0, "lIsowner": 0,
-        }],
+        logs=[
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 123456,
+                "lType": "Found it",
+                "lBy": "Someone",
+                "lDate": "2024-03-01",
+                "lTime": "14:30:00",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 999,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            }
+        ],
         logmemos=[{"lParent": "GC1TEST", "lLogId": 123456, "lText": "Nice find!"}],
     )
     result = import_gsak_db(db, db_session)
@@ -632,7 +813,11 @@ def test_log_mapping(db_session, tmp_path):
     assert log.text == "Nice find!"
     assert log.text_encoded is False
     assert log.logged_by_owner is False
-    assert log.log_date.year == 2024 and log.log_date.hour == 14 and log.log_date.minute == 30
+    assert (
+        log.log_date.year == 2024
+        and log.log_date.hour == 14
+        and log.log_date.minute == 30
+    )
 
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
     assert cache.log_count == 1
@@ -650,12 +835,34 @@ def test_log_id_uniqueness_across_caches_with_same_gsak_log_id(db_session, tmp_p
         caches=[{"Code": "GC1TEST"}, {"Code": "GC2TEST"}],
         memos=[{"Code": "GC1TEST"}, {"Code": "GC2TEST"}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 42, "lType": "Found it",
-             "lBy": "X", "lDate": "2024-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1, "lHasHtml": 0, "lIsowner": 0},
-            {"lParent": "GC2TEST", "lLogId": 42, "lType": "Found it",
-             "lBy": "X", "lDate": "2024-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 42,
+                "lType": "Found it",
+                "lBy": "X",
+                "lDate": "2024-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
+            {
+                "lParent": "GC2TEST",
+                "lLogId": 42,
+                "lType": "Found it",
+                "lBy": "X",
+                "lDate": "2024-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     result = import_gsak_db(db, db_session)
@@ -668,12 +875,22 @@ def test_log_id_uniqueness_across_caches_with_same_gsak_log_id(db_session, tmp_p
 def test_log_owner_and_coordinates(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        logs=[{
-            "lParent": "GC1TEST", "lLogId": 1, "lType": "Update Coordinates",
-            "lBy": "Owner", "lDate": "2024-01-01", "lTime": "",
-            "lLat": "55.6001", "lLon": "11.2002", "lEncoded": 0,
-            "lownerid": 1, "lHasHtml": 0, "lIsowner": 1,
-        }],
+        logs=[
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Update Coordinates",
+                "lBy": "Owner",
+                "lDate": "2024-01-01",
+                "lTime": "",
+                "lLat": "55.6001",
+                "lLon": "11.2002",
+                "lEncoded": 0,
+                "lownerid": 1,
+                "lHasHtml": 0,
+                "lIsowner": 1,
+            }
+        ],
     )
     import_gsak_db(db, db_session)
     log = db_session.query(Log).one()
@@ -688,11 +905,22 @@ def test_logmemo_missing_row_does_not_drop_log(db_session, tmp_path):
     # a real 12,600-cache DB).
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        logs=[{
-            "lParent": "GC1TEST", "lLogId": 1, "lType": "Write note",
-            "lBy": "X", "lDate": "", "lTime": "", "lLat": "", "lLon": "",
-            "lEncoded": 0, "lownerid": 1, "lHasHtml": 0, "lIsowner": 0,
-        }],
+        logs=[
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Write note",
+                "lBy": "X",
+                "lDate": "",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            }
+        ],
         logmemos=[],  # deliberately missing
     )
     result = import_gsak_db(db, db_session)
@@ -704,11 +932,22 @@ def test_logmemo_missing_row_does_not_drop_log(db_session, tmp_path):
 def test_reimport_rebuilds_logs_not_duplicates(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        logs=[{
-            "lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-            "lBy": "X", "lDate": "2024-01-01", "lTime": "", "lLat": "", "lLon": "",
-            "lEncoded": 0, "lownerid": 1, "lHasHtml": 0, "lIsowner": 0,
-        }],
+        logs=[
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "X",
+                "lDate": "2024-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            }
+        ],
     )
     import_gsak_db(db, db_session)
     result = import_gsak_db(db, db_session)
@@ -718,12 +957,13 @@ def test_reimport_rebuilds_logs_not_duplicates(db_session, tmp_path):
 
 # ── Personal notes / embedded images (session 3, #472) ───────────────────────
 
+
 def test_replace_embedded_images_with_placeholders():
     raw = (
-        '~~GeocacheImages~~\r\n\r\nnull\r\n'
+        "~~GeocacheImages~~\r\n\r\nnull\r\n"
         '<img src="file:///C:\\Users\\Bob\\AppData\\Roaming\\gsak87\\UserImages\\'
         'GeocacheImages\\GC3KMD2-null.jpg" width=600 alt="null" title="null">\r\n'
-        '~~GeocacheImages~~'
+        "~~GeocacheImages~~"
     )
     result, count = _replace_embedded_images_with_placeholders(raw)
     assert count == 1
@@ -736,7 +976,7 @@ def test_replace_embedded_images_with_placeholders():
 def test_replace_embedded_images_multiple_in_one_note():
     raw = (
         '<img src="file:///C:\\a\\one.jpg" width=600 alt="" title="">\r\n'
-        'some caption text\r\n'
+        "some caption text\r\n"
         '<img src="file:///C:\\a\\two.jpg" width=600 alt="" title="">'
     )
     result, count = _replace_embedded_images_with_placeholders(raw)
@@ -756,11 +996,13 @@ def test_replace_embedded_images_no_match_returns_unchanged():
 def test_scan_gsak_notes_for_embedded_images(tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        memos=[{
-            "Code": "GC1TEST",
-            "UserNote": '<img src="file:///C:\\a\\one.jpg" width=600 alt="" title="">'
-                        '<img src="file:///C:\\a\\two.jpg" width=600 alt="" title="">',
-        }],
+        memos=[
+            {
+                "Code": "GC1TEST",
+                "UserNote": '<img src="file:///C:\\a\\one.jpg" width=600 alt="" title="">'
+                '<img src="file:///C:\\a\\two.jpg" width=600 alt="" title="">',
+            }
+        ],
     )
     stats = scan_gsak_notes_for_embedded_images(db)
     assert stats == {"affected_notes": 1, "total_images": 2}
@@ -775,11 +1017,13 @@ def test_scan_gsak_notes_no_images(tmp_path):
 def test_note_text_imported_with_placeholder(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
-        memos=[{
-            "Code": "GC1TEST",
-            "UserNote": 'Great cache!\r\n'
-                        '<img src="file:///C:\\a\\photo.jpg" width=600 alt="" title="">',
-        }],
+        memos=[
+            {
+                "Code": "GC1TEST",
+                "UserNote": "Great cache!\r\n"
+                '<img src="file:///C:\\a\\photo.jpg" width=600 alt="" title="">',
+            }
+        ],
     )
     result = import_gsak_db(db, db_session)
     assert result.notes == 1
@@ -812,11 +1056,15 @@ def test_note_and_corrected_coords_together(db_session, tmp_path):
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         memos=[{"Code": "GC1TEST", "UserNote": "Solved it after a while."}],
-        corrected=[{
-            "kCode": "GC1TEST",
-            "kBeforeLat": "55.58", "kBeforeLon": "11.17",
-            "kAfterLat": "55.6001", "kAfterLon": "11.2002",
-        }],
+        corrected=[
+            {
+                "kCode": "GC1TEST",
+                "kBeforeLat": "55.58",
+                "kBeforeLon": "11.17",
+                "kAfterLat": "55.6001",
+                "kAfterLon": "11.2002",
+            }
+        ],
     )
     result = import_gsak_db(db, db_session)
     assert result.notes == 1
@@ -862,8 +1110,10 @@ def test_reimport_overwrites_note_text(db_session, tmp_path):
 # boolean. GSAK databases hold full log history (unlike a PQ's 5-log window),
 # so this is the most reliable source for the "found N times" count.
 
+
 def test_gsak_import_found_log_count_counts_relocatable_cache(db_session, tmp_path):
     from opensak.gui.settings import get_settings
+
     get_settings().gc_finder_id = "1768915"  # matches _DEFAULT_CACHE's OwnerId,
     # reused here purely as a realistic-looking numeric id for the finder.
 
@@ -871,15 +1121,48 @@ def test_gsak_import_found_log_count_counts_relocatable_cache(db_session, tmp_pa
         tmp_path / "gsak.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
-            {"lParent": "GC1TEST", "lLogId": 2, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2021-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
-            {"lParent": "GC1TEST", "lLogId": 3, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2022-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 2,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2021-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 3,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2022-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db, db_session)
@@ -890,18 +1173,41 @@ def test_gsak_import_found_log_count_counts_relocatable_cache(db_session, tmp_pa
 
 def test_gsak_import_found_log_count_ignores_other_finders_logs(db_session, tmp_path):
     from opensak.gui.settings import get_settings
+
     get_settings().gc_finder_id = "1768915"
 
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
-            {"lParent": "GC1TEST", "lLogId": 2, "lType": "Found it",
-             "lBy": "Some Other Cacher", "lDate": "2020-06-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 99999, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 2,
+                "lType": "Found it",
+                "lBy": "Some Other Cacher",
+                "lDate": "2020-06-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 99999,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db, db_session)
@@ -913,15 +1219,27 @@ def test_gsak_import_found_log_count_matches_by_username_fallback(db_session, tm
     # No gc_finder_id configured — falls back to a normalized username match
     # (same fallback order as found_date/FTF derivation on the GPX path).
     from opensak.gui.settings import get_settings
+
     get_settings().gc_username = "AB Green"
 
     db = _make_gsak_db(
         tmp_path / "gsak.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db, db_session)
@@ -929,7 +1247,9 @@ def test_gsak_import_found_log_count_matches_by_username_fallback(db_session, tm
     assert cache.found_log_count == 1
 
 
-def test_gsak_import_found_log_count_zero_without_username_configured(db_session, tmp_path):
+def test_gsak_import_found_log_count_zero_without_username_configured(
+    db_session, tmp_path
+):
     # No gc_username/gc_finder_id configured at all — found_log_count stays
     # at its default 0. mainwindow.py's footer count falls back to counting
     # the cache itself (found=True) in this case.
@@ -937,9 +1257,20 @@ def test_gsak_import_found_log_count_zero_without_username_configured(db_session
         tmp_path / "gsak.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db, db_session)
@@ -952,31 +1283,69 @@ def test_gsak_reimport_updates_found_log_count(db_session, tmp_path):
     # Re-import must recompute found_log_count, not just accumulate/keep it
     # stale (mirrors log_count/trackable_count re-import behaviour).
     from opensak.gui.settings import get_settings
+
     get_settings().gc_finder_id = "1768915"
 
     db1 = _make_gsak_db(
         tmp_path / "gsak1.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db1, db_session)
-    assert db_session.query(Cache).filter_by(gc_code="GC1TEST").one().found_log_count == 1
+    assert (
+        db_session.query(Cache).filter_by(gc_code="GC1TEST").one().found_log_count == 1
+    )
 
     db2 = _make_gsak_db(
         tmp_path / "gsak2.db3",
         caches=[{"Found": 1}],
         logs=[
-            {"lParent": "GC1TEST", "lLogId": 1, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2020-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
-            {"lParent": "GC1TEST", "lLogId": 2, "lType": "Found it",
-             "lBy": "AB Green", "lDate": "2022-01-01", "lTime": "", "lLat": "", "lLon": "",
-             "lEncoded": 0, "lownerid": 1768915, "lHasHtml": 0, "lIsowner": 0},
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 1,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2020-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
+            {
+                "lParent": "GC1TEST",
+                "lLogId": 2,
+                "lType": "Found it",
+                "lBy": "AB Green",
+                "lDate": "2022-01-01",
+                "lTime": "",
+                "lLat": "",
+                "lLon": "",
+                "lEncoded": 0,
+                "lownerid": 1768915,
+                "lHasHtml": 0,
+                "lIsowner": 0,
+            },
         ],
     )
     import_gsak_db(db2, db_session)
-    assert db_session.query(Cache).filter_by(gc_code="GC1TEST").one().found_log_count == 2
+    assert (
+        db_session.query(Cache).filter_by(gc_code="GC1TEST").one().found_log_count == 2
+    )
