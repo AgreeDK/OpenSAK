@@ -31,9 +31,19 @@ Open a GitHub Issue with the label **enhancement** and describe what you would l
 - Avoid duplicate or overlapping work (check existing issues and milestones first — it might already be planned or in progress)
 - Agree on scope and approach before you invest time in an implementation
 
-If an issue already exists for what you want to work on, leave a comment saying you'd like to pick it up, and wait for a maintainer to confirm before starting. Once confirmed, a maintainer will assign the issue to you on GitHub — this keeps it visible that the issue is actively being worked on.
+If an issue already exists for what you want to work on, leave a comment saying you'd like to pick it up, and wait for a maintainer to confirm before starting.
 
 Pull requests opened without a linked issue may be asked to have one created retroactively before review begins.
+
+---
+
+## Using an AI Assistant?
+
+If you're using an AI coding assistant (Claude, ChatGPT, or similar) to help
+write your contribution, see our companion guide:
+[Contributing with an AI Assistant](docs/CONTRIBUTING-with-AI.md). It walks
+through the same workflow described in this document, plus a reference file you
+can hand to your assistant so it has the right project context from the start.
 
 ---
 
