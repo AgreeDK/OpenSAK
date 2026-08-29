@@ -70,6 +70,12 @@ Extend database field support to cover data available via the Geocaching.com
 Partner API. This depends on API access approval from Geocaching.com — included
 here so the plans are visible while we wait.
 
+### 13. GSAK Macro Support
+Explore support for running GSAK-style macros within OpenSAK. This is a deliberate,
+longer-term item: it depends on both Geocaching.com API access and OpenSAK
+maturing further first, so it's not near-term — but it's on our radar, and we
+wanted it visible here rather than left unspoken.
+
 ---
 
 Have thoughts, questions, or something you think is missing? Join the discussion
