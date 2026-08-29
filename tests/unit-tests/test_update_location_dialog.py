@@ -379,7 +379,7 @@ class TestUpdateLocationDialog:
         started = []
 
         class FakeWorker:
-            def __init__(self, rows):
+            def __init__(self, rows, parent=None):
                 self.row_done = MagicMock()
                 self.all_done = MagicMock()
                 self.cancelled = MagicMock()
@@ -458,7 +458,7 @@ class TestUpdateLocationDialog:
         connected = []
 
         class FakeWorker:
-            def __init__(self, rows):
+            def __init__(self, rows, parent=None):
                 self.row_done = MagicMock()
                 self.all_done = MagicMock()
                 self.cancelled = MagicMock()
@@ -474,9 +474,30 @@ class TestUpdateLocationDialog:
                 pass
 
         fake = FakeWorker([])
-        monkeypatch.setattr(uld, "ReverseGeocodeWorker", lambda rows: fake)
+        monkeypatch.setattr(
+            uld, "ReverseGeocodeWorker", lambda rows, parent=None: fake
+        )
         dlg._start()
         fake.finished.connect.assert_any_call(fake.deleteLater)
+        # The reference must be dropped from a finished-slot, never from
+        # all_done/cancelled (which fire while run() is still on the stack).
+        fake.finished.connect.assert_any_call(dlg._on_worker_finished)
+
+    def test_worker_reference_survives_all_done_and_drops_on_finished(
+        self, qtbot, db
+    ):
+        # Regression: _finalize() used to clear _worker while run() was still
+        # executing, leaving run()'s own stack frame as the last reference —
+        # the QThread was then destroyed from inside its own thread, which Qt
+        # aborts on ("QThread: Destroyed while thread is still running").
+        dlg = UpdateLocationDialog(gc_codes=["GC1"])
+        qtbot.addWidget(dlg)
+        worker = MagicMock()
+        dlg._worker = worker
+        dlg._on_done(UpdateLocationResult(updated=1))
+        assert dlg._worker is worker
+        dlg._on_worker_finished()
+        assert dlg._worker is None
 
     def test_menu_mode_finalize_redisables_this(self, qtbot, db):
         dlg = UpdateLocationDialog()
