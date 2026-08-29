@@ -105,6 +105,7 @@ A modern, cross-platform geocaching management tool for **Linux**, **Windows** a
 | [Keyboard Shortcuts](docs/keyboard-shortcuts.md) | Full shortcut reference |
 | [Feature Flags](docs/feature-flags.md) | Developer feature flag system |
 | [CLI --version flag](docs/cli-version-flag.md) | Print version or run a specific release |
+| [Roadmap](docs/ROADMAP.md) | Planned features and priorities |
 | [CHANGELOG](CHANGELOG.md) | Version history |
 | [CONTRIBUTING](CONTRIBUTING.md) | Development setup, code style, translations, PR workflow |
 | [Contributing with an AI Assistant](docs/CONTRIBUTING-with-AI.md) | Step-by-step guide to contributing code using an AI coding assistant |
