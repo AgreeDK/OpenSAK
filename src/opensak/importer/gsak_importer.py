@@ -177,6 +177,23 @@ GSAK_CONTAINER_MAP: dict[str, str] = {
 _STATUS_ARCHIVED = "X"
 _STATUS_AVAILABLE = "A"
 
+# ── Issue #803: description HTML-flag detection ──────────────────────────────
+# GSAK's own Caches.LongHtm/ShortHtm columns hold geocaching.com's authoritative
+# html=true/false flag for each description — read those directly (see
+# _row_to_cache_data() below) rather than guessing. This regex is only a
+# fallback for older/partial GSAK exports that lack those columns entirely:
+# it's a strictly better guess than the previous "'<' in text" check (which
+# misfired on any plain-text listing containing a literal '<', e.g. "N < 5
+# caches"), matching real opening/closing tags, comments and DOCTYPE — not
+# just any '<' character.
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9]*(?=[\s/>]|$)|<!--|<!\s*DOCTYPE", re.I)
+
+
+def _looks_like_html(text: str) -> bool:
+    """Fallback heuristic used only when GSAK's LongHtm/ShortHtm columns are absent."""
+    return bool(_HTML_TAG_RE.search(text))
+
+
 # ── Issue #472: embedded local image references in UserNote ─────────────────
 # GSAK's own "GrabImages" macro downloads images referenced in a cache's
 # online content and embeds them into CacheMemo.UserNote as HTML <img> tags
@@ -581,6 +598,21 @@ def _row_to_cache_data(row: sqlite3.Row) -> Optional[dict]:
 
     raw_type = _s(row["CacheType"]) or ""
 
+    # Issue #803: prefer GSAK's own authoritative ShortHtm/LongHtm flags
+    # over guessing from the description text. Fall back to the (improved)
+    # tag-detection heuristic only when those columns are entirely absent
+    # (older/partial GSAK export) — see _looks_like_html() above.
+    short_desc = _s(row["ShortDescription"]) or ""
+    long_desc  = _s(row["LongDescription"]) or ""
+    if "ShortHtm" in row.keys():
+        short_desc_html = _b(row["ShortHtm"])
+    else:
+        short_desc_html = _looks_like_html(short_desc)
+    if "LongHtm" in row.keys():
+        long_desc_html = _b(row["LongHtm"])
+    else:
+        long_desc_html = _looks_like_html(long_desc)
+
     # ── Issue #472: personal note text, with embedded-image placeholders ────
     raw_note = _s(row["UserNote"])
     note_text: Optional[str] = None
@@ -611,9 +643,9 @@ def _row_to_cache_data(row: sqlite3.Row) -> Optional[dict]:
         "state":       _s(row["State"]),
         "county":      _s(row["County"]),
         "short_description": _s(row["ShortDescription"]),
-        "short_desc_html":   "<" in (_s(row["ShortDescription"]) or ""),
+        "short_desc_html":   short_desc_html,
         "long_description":  _s(row["LongDescription"]),
-        "long_desc_html":    "<" in (_s(row["LongDescription"]) or ""),
+        "long_desc_html":    long_desc_html,
         # GSAK stores hints already decoded (plain text) — passed straight
         # through. OpenSAK's split_hint() heuristic already auto-detects
         # plain-vs-ROT13 for display, so no re-encoding is needed here.

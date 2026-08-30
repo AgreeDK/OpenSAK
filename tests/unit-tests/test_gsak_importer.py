@@ -43,7 +43,7 @@ _SCHEMA = [
         FavPoints INTEGER, GcNote TEXT, Elevation REAL, Resolution TEXT,
         Color TEXT,
         Guid TEXT, Watch INTEGER, CacheId TEXT, Lock INTEGER, FoundCount INTEGER,
-        IsPremium INTEGER
+        IsPremium INTEGER, ShortHtm INTEGER, LongHtm INTEGER
     )""",
     """CREATE TABLE CacheMemo (
         Code TEXT, LongDescription TEXT, ShortDescription TEXT,
@@ -115,6 +115,8 @@ _DEFAULT_CACHE = dict(
     Lock=0,
     FoundCount=30,
     IsPremium=0,
+    ShortHtm=0,
+    LongHtm=0,
 )
 
 
@@ -358,7 +360,7 @@ def test_elevation_missing_resolution_column_is_defensive(db_session, tmp_path):
     for ddl in _SCHEMA[1:]:  # everything except the Caches table above
         conn.execute(ddl)
 
-    row = {k: v for k, v in _DEFAULT_CACHE.items() if k != "Resolution"}
+    row = {k: v for k, v in _DEFAULT_CACHE.items() if k not in ("Resolution", "ShortHtm", "LongHtm")}
     row["Elevation"] = 123.0
     cols = ", ".join(row.keys())
     qs = ", ".join("?" for _ in row)
@@ -373,6 +375,90 @@ def test_elevation_missing_resolution_column_is_defensive(db_session, tmp_path):
     import_gsak_db(db_path, db_session)
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
     assert cache.elevation == 123.0
+
+
+# ── Description HTML-flag detection (#803) ──────────────────────────────────
+
+
+def test_desc_html_flag_uses_gsak_authoritative_column_not_guess(db_session, tmp_path):
+    # Issue #803: a plain-text description containing a literal '<' must
+    # not be misdetected as HTML just because the old guess ("'<' in
+    # text") fires on it — GSAK's own LongHtm=0/ShortHtm=0 is authoritative
+    # and must win.
+    db = _make_gsak_db(
+        tmp_path / "gsak.db3",
+        caches=[{"ShortHtm": 0, "LongHtm": 0}],
+        memos=[{
+            "Code": "GC1TEST",
+            "LongDescription": "Watch out, N < 5 caches left in this series!",
+            "ShortDescription": "Difficulty < Terrain here",
+        }],
+    )
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.long_desc_html is False
+    assert cache.short_desc_html is False
+
+
+def test_desc_html_flag_true_from_gsak_column(db_session, tmp_path):
+    db = _make_gsak_db(
+        tmp_path / "gsak.db3",
+        caches=[{"ShortHtm": 1, "LongHtm": 1}],
+        memos=[{
+            "Code": "GC1TEST",
+            "LongDescription": "<p>Real HTML content</p>",
+            "ShortDescription": "<b>Bold</b>",
+        }],
+    )
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.long_desc_html is True
+    assert cache.short_desc_html is True
+
+
+def test_desc_html_flag_falls_back_to_tag_detection_when_columns_missing(db_session, tmp_path):
+    # Older/partial GSAK exports may not have ShortHtm/LongHtm at all —
+    # fall back to real-tag detection (not the old naive "'<' in text").
+    caches_ddl_no_htm = """CREATE TABLE Caches (
+        Code TEXT, Name TEXT, CacheType TEXT, Container TEXT,
+        Latitude TEXT, Longitude TEXT, Difficulty REAL, Terrain REAL,
+        PlacedBy TEXT, OwnerName TEXT, OwnerId TEXT,
+        PlacedDate TEXT, Changed TEXT, Status TEXT, Archived INTEGER,
+        TempDisabled INTEGER, Country TEXT, State TEXT, County TEXT,
+        Found INTEGER, FoundByMeDate TEXT, DNF INTEGER, DNFDate TEXT,
+        FTF INTEGER, UserFlag INTEGER, UserSort INTEGER,
+        UserData TEXT, User2 TEXT, User3 TEXT, User4 TEXT,
+        FavPoints INTEGER, GcNote TEXT, Elevation REAL, Resolution TEXT,
+        Color TEXT,
+        Guid TEXT, Watch INTEGER, CacheId TEXT, Lock INTEGER, FoundCount INTEGER,
+        IsPremium INTEGER
+    )"""
+    db_path = tmp_path / "gsak_no_htm.db3"
+    conn = sqlite3.connect(db_path)
+    conn.execute(caches_ddl_no_htm)
+    for ddl in _SCHEMA[1:]:  # everything except the Caches table above
+        conn.execute(ddl)
+
+    row = {k: v for k, v in _DEFAULT_CACHE.items() if k not in ("ShortHtm", "LongHtm")}
+    cols = ", ".join(row.keys())
+    qs = ", ".join("?" for _ in row)
+    conn.execute(f"INSERT INTO Caches ({cols}) VALUES ({qs})", list(row.values()))
+    conn.execute(
+        "INSERT INTO CacheMemo (Code, LongDescription, ShortDescription, Url) VALUES (?, ?, ?, ?)",
+        (
+            "GC1TEST",
+            "Watch out, N < 5 caches left!",   # plain text, no real tag
+            "<p>Real HTML</p>",                 # real tag
+            "https://coord.info/GC1TEST",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    import_gsak_db(db_path, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.long_desc_html is False
+    assert cache.short_desc_html is True
 
 
 @pytest.mark.parametrize("gsak_code,expected", sorted(GSAK_CACHE_TYPE_MAP.items()))

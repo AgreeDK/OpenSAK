@@ -816,3 +816,64 @@ class TestSplitterMinimumSize:
 
         assert splitter.sizes()[1] < 150  # well under the pre-fix ~226-260px floor
         splitter.hide()
+
+
+# ── Issue #803: plain-text descriptions must be HTML-escaped ────────────────
+
+class TestDescriptionEscaping:
+    def _panel_for_description(self, tmp_path, monkeypatch, *, long_description, long_desc_html):
+        monkeypatch.setattr(cd, "get_settings", lambda: _fake_settings())
+        from opensak.db.database import get_session, init_db
+        from opensak.db.models import Cache
+        from sqlalchemy.orm import joinedload
+
+        db_path = tmp_path / "test_803.db"
+        init_db(db_path=db_path)
+        with get_session() as s:
+            s.add(Cache(
+                gc_code="GC80300", name="Escaping Test", cache_type="Traditional Cache",
+                latitude=55.0, longitude=12.0,
+                long_description=long_description, long_desc_html=long_desc_html,
+            ))
+
+        with get_session() as s:
+            cache = s.query(Cache).options(
+                joinedload(Cache.user_note),
+            ).filter_by(gc_code="GC80300").first()
+
+            panel = CacheDetailPanel()
+            panel.show_cache(cache)
+            return panel
+
+    def test_plain_text_stray_angle_bracket_is_escaped(self, qapp, tmp_path, monkeypatch):
+        # The exact scenario from #803: a plain-text (non-HTML) description
+        # containing a literal '<' must render as literal text, not be
+        # interpreted as the start of a tag.
+        panel = self._panel_for_description(
+            tmp_path, monkeypatch,
+            long_description="Watch out, N < 5 caches left in this series!",
+            long_desc_html=False,
+        )
+        html_out = panel._desc_view.toHtml()
+        assert "N &lt; 5 caches" in html_out
+        # The literal text must still be readable as plain text to the user:
+        assert "N < 5 caches" in panel._desc_view.toPlainText()
+
+    def test_plain_text_ampersand_is_escaped(self, qapp, tmp_path, monkeypatch):
+        panel = self._panel_for_description(
+            tmp_path, monkeypatch,
+            long_description="R&D cache, sponsored by Acme & Co.",
+            long_desc_html=False,
+        )
+        assert "R&amp;D cache" in panel._desc_view.toHtml()
+        assert "R&D cache" in panel._desc_view.toPlainText()
+
+    def test_real_html_description_still_renders_as_html(self, qapp, tmp_path, monkeypatch):
+        # Sanity check the fix doesn't over-escape real HTML content.
+        panel = self._panel_for_description(
+            tmp_path, monkeypatch,
+            long_description="<p>Real <b>HTML</b> content</p>",
+            long_desc_html=True,
+        )
+        assert "Real" in panel._desc_view.toPlainText()
+        assert "HTML" in panel._desc_view.toPlainText()

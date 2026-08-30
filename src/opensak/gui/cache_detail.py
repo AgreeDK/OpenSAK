@@ -5,6 +5,7 @@ Supports corrected coordinates (user-solved mystery cache finals).
 """
 
 from __future__ import annotations
+import html
 import re
 import webbrowser
 from datetime import datetime
@@ -668,9 +669,13 @@ class CacheDetailPanel(QWidget):
             if cache.long_desc_html:
                 self._desc_view.setHtml(_wrap_html(cache.long_description))
             else:
+                # Issue #803: plain-text descriptions must be HTML-escaped
+                # before being embedded in <pre> — an unescaped stray '<',
+                # '>' or '&' (e.g. "N < 5 caches", "R&D") is otherwise
+                # misinterpreted as markup instead of being shown literally.
                 self._desc_view.setHtml(_wrap_html(
                     f"<pre style='white-space:pre-wrap;font-family:sans-serif'>"
-                    f"{cache.long_description}</pre>"
+                    f"{html.escape(cache.long_description)}</pre>"
                 ))
         elif cache.short_description:
             if cache.short_desc_html:
@@ -678,7 +683,7 @@ class CacheDetailPanel(QWidget):
             else:
                 self._desc_view.setHtml(_wrap_html(
                     f"<pre style='white-space:pre-wrap;font-family:sans-serif'>"
-                    f"{cache.short_description}</pre>"
+                    f"{html.escape(cache.short_description)}</pre>"
                 ))
         else:
             self._desc_view.setHtml(_wrap_html(
