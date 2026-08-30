@@ -130,7 +130,7 @@ class BoundaryDownloadDialog(QDialog):
             self._status.setText(tr("boundary_dl_none"))
         else:
             self._status.setText(tr("boundary_dl_done", downloaded=downloaded))
-        self._cancel_btn.setText(tr("btn_close"))
+        self._cancel_btn.setText(tr("close"))
         self._worker = None
 
     def _on_cancel(self) -> None:
