@@ -23,6 +23,7 @@ from opensak.coords import format_coords, parse_coords
 from opensak.utils.types import CoordFormat
 from opensak.gui.settings import get_settings
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 from opensak.utils.constants import EARTH_RADIUS_M
 
 
@@ -81,7 +82,7 @@ class ProjectionDialog(QDialog):
         start_layout = QVBoxLayout(start_group)
 
         hint = QLabel(tr("proj_start_hint"))
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         hint.setWordWrap(True)
         start_layout.addWidget(hint)
 

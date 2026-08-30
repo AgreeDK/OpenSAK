@@ -27,6 +27,7 @@ from PySide6.QtGui import QFont
 from opensak.coords import format_coords, parse_coords
 from opensak.utils.types import CoordFormat
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 
 
 def _extract_digits(text: str) -> list[int]:
@@ -78,7 +79,7 @@ class ChecksumDialog(QDialog):
         in_layout = QVBoxLayout(in_group)
 
         hint = QLabel(tr("chk_input_hint"))
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         hint.setWordWrap(True)
         in_layout.addWidget(hint)
 

@@ -23,6 +23,7 @@ from opensak.db.models import Cache
 from opensak.lang import tr
 from opensak.coords import format_coords
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style, hint_text_color
 from opensak.gui.icon_provider import get_cache_type_pixmap_composite, get_corrected_coords_icon
 from opensak.utils.types import DateFormat, TEXT_SIZE_MAP, norm_locale_date_fmt
 from opensak.hint_detect import split_hint, render_hint_breaks
@@ -189,7 +190,7 @@ class CacheDetailPanel(QWidget):
             col = QVBoxLayout()
             col.setSpacing(1)
             cap = QLabel(caption)
-            cap.setStyleSheet("color: gray; font-size: 10px;")
+            cap.setStyleSheet(hint_style())
             col.addWidget(cap)
             col.addWidget(lbl)
             meta_layout.addLayout(col)
@@ -278,7 +279,7 @@ class CacheDetailPanel(QWidget):
 
         # ── Placed by / hidden date ───────────────────────────────────────────
         self._placed_lbl = QLabel("")
-        self._placed_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        self._placed_lbl.setStyleSheet(hint_style(font_size=11))
         layout.addWidget(self._placed_lbl)
 
         # ── Tabs: Description | Hint | Logs ───────────────────────────────────
@@ -681,7 +682,7 @@ class CacheDetailPanel(QWidget):
                 ))
         else:
             self._desc_view.setHtml(_wrap_html(
-                f"<p style='color:gray'>{tr('detail_no_description')}</p>"
+                f"<p style='color:{hint_text_color()}'>{tr('detail_no_description')}</p>"
             ))
 
         # Hint — issue #329: geocaching.com leverer hints i klartekst i
@@ -752,7 +753,7 @@ class CacheDetailPanel(QWidget):
             html.append(
                 f'<p><b style="color:{colour}">{log.log_type}</b> '
                 f'— {log.finder or "?"} '
-                f'<span style="color:gray">({date_str})</span><br>'
+                f'<span style="color:{hint_text_color()}">({date_str})</span><br>'
                 f'{text}</p><hr>'
             )
 
@@ -779,7 +780,7 @@ class CacheDetailPanel(QWidget):
             name_part = f" — {wp.name}" if wp.name else ""
             html.append(
                 f'<p><b>[{wp.prefix}]</b> <b>{wp.wp_type or "?"}</b>{name_part}'
-                f'<br><span style="color:gray">{coords}</span></p>'
+                f'<br><span style="color:{hint_text_color()}">{coords}</span></p>'
             )
             if wp.description:
                 html.append(f'<p style="margin-top:2px">{wp.description}</p>')

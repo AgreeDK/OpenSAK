@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 from opensak.utils.types import GcCode
 
 
@@ -55,7 +56,7 @@ class MarkFoundDialog(QDialog):
 
         hint = QLabel(tr("mark_found_dialog_hint"))
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         layout.addWidget(hint)
 
         form = QFormLayout()

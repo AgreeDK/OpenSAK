@@ -18,6 +18,7 @@ from PySide6.QtGui import QPixmap, QFont
 from opensak.gui.settings import get_settings, HomePoint
 from opensak.gui.dialogs.widgets import DirRow
 from opensak.lang import tr, AVAILABLE_LANGUAGES, current_language
+from opensak.gui.theme import hint_style
 from opensak.coords import FORMATS, format_coords
 from opensak.utils.types import CoordFormat, DateFormat, TextSize
 
@@ -151,7 +152,7 @@ class SettingsDialog(QDialog):
         loc_layout.addLayout(list_btn_row)
 
         self._home_protected_hint = QLabel(tr("settings_hp_home_protected_hint"))
-        self._home_protected_hint.setStyleSheet("color: gray; font-size: 10px;")
+        self._home_protected_hint.setStyleSheet(hint_style())
         self._home_protected_hint.setVisible(False)
         loc_layout.addWidget(self._home_protected_hint)
 
@@ -176,7 +177,7 @@ class SettingsDialog(QDialog):
 
         self._coord_hint = QLabel("")
         self._coord_hint.setStyleSheet(
-            "color: gray; font-size: 10px; padding-left: 2px;"
+            hint_style(extra="padding-left: 2px;")
         )
         add_layout.addWidget(self._coord_hint)
         self._new_coord.textChanged.connect(self._on_coord_changed)
@@ -274,7 +275,7 @@ class SettingsDialog(QDialog):
         appear_layout.addLayout(theme_row)
 
         appear_hint = QLabel(tr("settings_theme_hint"))
-        appear_hint.setStyleSheet("color: gray; font-size: 10px;")
+        appear_hint.setStyleSheet(hint_style())
         appear_layout.addWidget(appear_hint)
 
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
@@ -294,7 +295,7 @@ class SettingsDialog(QDialog):
         lang_layout.addLayout(lang_row)
 
         hint = QLabel(tr("settings_language_hint"))
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         lang_layout.addWidget(hint)
 
         layout.addWidget(lang_group)
@@ -313,7 +314,7 @@ class SettingsDialog(QDialog):
         user_layout.addLayout(user_row)
 
         hint = QLabel(tr("settings_gc_username_hint"))
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         user_layout.addWidget(hint)
 
         # Home Location
@@ -325,7 +326,7 @@ class SettingsDialog(QDialog):
         user_layout.addLayout(home_loc_row)
 
         self._home_loc_hint = QLabel("")
-        self._home_loc_hint.setStyleSheet("color: gray; font-size: 10px; padding-left: 2px;")
+        self._home_loc_hint.setStyleSheet(hint_style(extra="padding-left: 2px;"))
         user_layout.addWidget(self._home_loc_hint)
         self._gc_home_location.textChanged.connect(self._on_home_loc_changed)
 
@@ -369,7 +370,7 @@ class SettingsDialog(QDialog):
 
         map_enabled_note = QLabel(tr("settings_map_enabled_note"))
         map_enabled_note.setWordWrap(True)
-        map_enabled_note.setStyleSheet("color: gray; font-size: 10px;")
+        map_enabled_note.setStyleSheet(hint_style())
         group_layout.addWidget(map_enabled_note)
 
         group_layout.addSpacing(8)
@@ -393,7 +394,7 @@ class SettingsDialog(QDialog):
 
         max_caches_note = QLabel(tr("settings_map_max_caches_note"))
         max_caches_note.setWordWrap(True)
-        max_caches_note.setStyleSheet("color: gray; font-size: 10px;")
+        max_caches_note.setStyleSheet(hint_style())
         group_layout.addWidget(max_caches_note)
 
         group_layout.addSpacing(8)
@@ -426,7 +427,7 @@ class SettingsDialog(QDialog):
 
         nearby_note = QLabel(tr("settings_map_nearby_note"))
         nearby_note.setWordWrap(True)
-        nearby_note.setStyleSheet("color: gray; font-size: 10px;")
+        nearby_note.setStyleSheet(hint_style())
         group_layout.addWidget(nearby_note)
 
         layout.addWidget(group)
@@ -452,7 +453,7 @@ class SettingsDialog(QDialog):
         folders_layout.addWidget(self._install_dir_row)
         install_note = QLabel(tr("settings_install_dir_note"))
         install_note.setWordWrap(True)
-        install_note.setStyleSheet("color: gray; font-size: 10px;")
+        install_note.setStyleSheet(hint_style())
         folders_layout.addWidget(install_note)
 
         # Issue #358: tidligere lovede teksten ovenfor at man kunne "køre
@@ -472,7 +473,7 @@ class SettingsDialog(QDialog):
 
         folders_hint = QLabel(tr("settings_folders_restart_hint"))
         folders_hint.setWordWrap(True)
-        folders_hint.setStyleSheet("color: gray; font-size: 10px;")
+        folders_hint.setStyleSheet(hint_style())
         folders_layout.addWidget(folders_hint)
 
         # Issue #519: custom icons folder — read-only path (not user-browsable,
@@ -491,7 +492,7 @@ class SettingsDialog(QDialog):
         folders_layout.addLayout(icons_dir_row)
         icons_note = QLabel(tr("settings_icons_dir_note"))
         icons_note.setWordWrap(True)
-        icons_note.setStyleSheet("color: gray; font-size: 10px;")
+        icons_note.setStyleSheet(hint_style())
         folders_layout.addWidget(icons_note)
 
         icon_guide_row = QHBoxLayout()
@@ -529,7 +530,7 @@ class SettingsDialog(QDialog):
         search_layout.addLayout(delay_row)
 
         search_hint = QLabel(tr("settings_search_hint"))
-        search_hint.setStyleSheet("color: gray; font-size: 10px;")
+        search_hint.setStyleSheet(hint_style())
         search_hint.setWordWrap(True)
         search_layout.addWidget(search_hint)
 
@@ -546,7 +547,7 @@ class SettingsDialog(QDialog):
 
             nominatim_hint = QLabel(tr("settings_nominatim_hint"))
             nominatim_hint.setWordWrap(True)
-            nominatim_hint.setStyleSheet("color: gray; font-size: 10px;")
+            nominatim_hint.setStyleSheet(hint_style())
             loc_ref_layout.addWidget(nominatim_hint)
 
             layout.addWidget(loc_ref_group)
@@ -584,13 +585,23 @@ class SettingsDialog(QDialog):
 
         dist_hint = QLabel(tr("settings_distance_hint"))
         dist_hint.setWordWrap(True)
-        dist_hint.setStyleSheet("color: gray; font-size: 10px;")
+        dist_hint.setStyleSheet(hint_style())
         dist_layout.addWidget(dist_hint)
 
         layout.addWidget(dist_group)
 
         layout.addStretch()
-        return tab
+
+        # Issue #805: Advanced has the most stacked group boxes of any tab
+        # (Folders, Search, Location refinement, Updates, Distance), and was
+        # the only tab besides General not wrapped in a QScrollArea — on
+        # small/high-DPI screens the dialog can't grow to fit everything, and
+        # Qt squashes the controls instead of letting the user scroll.
+        scroll = QScrollArea()
+        scroll.setWidget(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        return scroll
 
     def _on_open_icon_guide(self) -> None:
         """Åbn den bundlede icon-navngivnings-guide i systemets standard browser (issue #519 follow-up)."""
@@ -677,7 +688,7 @@ class SettingsDialog(QDialog):
         name_col.addWidget(self._gc_username_label)
 
         self._gc_status_label = QLabel(tr("gc_status_offline"))
-        self._gc_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._gc_status_label.setStyleSheet(hint_style())
         name_col.addWidget(self._gc_status_label)
         name_col.addStretch()
 
@@ -687,7 +698,7 @@ class SettingsDialog(QDialog):
 
         # Fund-tæller
         self._gc_finds_label = QLabel("")
-        self._gc_finds_label.setStyleSheet("color: gray; font-size: 10px; padding-left: 40px;")
+        self._gc_finds_label.setStyleSheet(hint_style(extra="padding-left: 40px;"))
         status_layout.addWidget(self._gc_finds_label)
 
         layout.addWidget(status_frame)
@@ -833,7 +844,7 @@ class SettingsDialog(QDialog):
         self._gc_username_label.setText(tr("gc_not_logged_in"))
         self._gc_finds_label.setText("")
         self._gc_status_label.setText(tr("gc_status_offline"))
-        self._gc_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        self._gc_status_label.setStyleSheet(hint_style())
         self._gc_login_btn.setEnabled(True)
         self._gc_logout_btn.setEnabled(False)
         self._gc_refresh_btn.setEnabled(False)

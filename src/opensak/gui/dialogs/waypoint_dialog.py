@@ -24,6 +24,7 @@ from opensak.db.models import Cache
 from opensak.lang import tr
 from opensak.coords import format_coords, parse_coords
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style
 
 from opensak.utils.constants import CACHE_TYPES, CONTAINER_SIZES, VALID_DT, CUSTOM_WP_TYPES
 
@@ -133,14 +134,14 @@ class WaypointDialog(QDialog):
         self._gc_code.setPlaceholderText(tr("wp_ph_gc_code"))
         if self._is_edit:
             self._gc_code.setReadOnly(True)
-            self._gc_code.setStyleSheet("color: gray;")
+            self._gc_code.setStyleSheet(hint_style(font_size=None))
         self._lbl_gc_code = QLabel(tr("wp_label_gc_code"))
         form.addRow(self._lbl_gc_code, self._gc_code)
 
         # ── CW id (custom mode) ───────────────────────────────────────────────
         self._cw_id = QLineEdit()
         self._cw_id.setReadOnly(True)
-        self._cw_id.setStyleSheet("color: gray;")
+        self._cw_id.setStyleSheet(hint_style(font_size=None))
         self._cw_id.setText(self._next_cw_id)
         self._lbl_cw_id = QLabel(tr("wp_label_cw_id"))
         form.addRow(self._lbl_cw_id, self._cw_id)

@@ -19,6 +19,7 @@ from PySide6.QtGui import QFont, QFontMetrics
 from opensak.coords import parse_coords, format_coords
 from opensak.utils.types import CoordFormat
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 
 # Widest string any format can produce (DMS at extreme lat/lon values).
 # Used to compute a consistent minimum width for all coordinate fields.
@@ -57,7 +58,7 @@ class CoordConverterDialog(QDialog):
         in_layout = QVBoxLayout(in_group)
 
         hint = QLabel(tr("coord_conv_input_hint"))
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint.setStyleSheet(hint_style())
         hint.setWordWrap(True)
         in_layout.addWidget(hint)
 

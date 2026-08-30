@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from opensak.gui.settings import get_settings
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 
 
 class GsakImportWorker(QThread):
@@ -107,7 +108,7 @@ class GsakImportDialog(QDialog):
 
         file_row = QHBoxLayout()
         self._file_label = QLabel("")
-        self._file_label.setStyleSheet("color: gray;")
+        self._file_label.setStyleSheet(hint_style(font_size=None))
         file_row.addWidget(self._file_label, stretch=1)
         self._browse_btn = QPushButton(tr("import_browse"))
         self._browse_btn.clicked.connect(self._browse)

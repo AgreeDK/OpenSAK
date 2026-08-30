@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from opensak.db.manager import get_db_manager
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 
 
 class UpdateWorker(QThread):
@@ -97,7 +98,7 @@ class FoundUpdaterDialog(QDialog):
 
         file_row = QHBoxLayout()
         self._file_lbl = QLabel(tr("found_no_file"))
-        self._file_lbl.setStyleSheet("color: gray;")
+        self._file_lbl.setStyleSheet(hint_style(font_size=None))
         file_row.addWidget(self._file_lbl, stretch=1)
         browse_btn = QPushButton(tr("gps_browse"))
         browse_btn.clicked.connect(self._browse_file)

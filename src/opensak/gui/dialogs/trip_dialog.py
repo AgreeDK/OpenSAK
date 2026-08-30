@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.lang import tr
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style
 from opensak.filters.engine import _haversine_km
 
 
@@ -436,7 +437,7 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
         count_row.addWidget(self._spin_count)
         count_row.addSpacing(16)
         src_lbl = QLabel(tr("trip_source_label", count=len(self._all_caches)))
-        src_lbl.setStyleSheet("color: gray; font-style: italic;")
+        src_lbl.setStyleSheet(hint_style(font_size=None, extra="font-style: italic;"))
         count_row.addWidget(src_lbl)
         count_row.addStretch()
         fl.addLayout(count_row)
@@ -603,7 +604,7 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
 
         self._pt_hint = QLabel("")
         self._pt_hint.setStyleSheet(
-            "color: gray; font-size: 10px; padding-left: 2px;"
+            hint_style(extra="padding-left: 2px;")
         )
         add_layout.addWidget(self._pt_hint)
 
@@ -893,7 +894,7 @@ class TripMapPreviewDialog(QWidget):
 
         # Info-linje
         self._info_lbl = QLabel(tr("trip_map_preview_info", count=len(self._caches)))
-        self._info_lbl.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        self._info_lbl.setStyleSheet(hint_style(extra="font-style: italic;"))
         layout.addWidget(self._info_lbl)
 
         # Kort

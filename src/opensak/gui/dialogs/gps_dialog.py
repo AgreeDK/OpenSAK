@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 from opensak.gui.dialogs import make_progress_cb
 from opensak.settings_store import get_store
 from PySide6.QtWidgets import (
@@ -168,7 +169,7 @@ class GpsExportDialog(QDialog):
 
         self._device_info = QLabel("")
         self._device_info.setWordWrap(True)
-        self._device_info.setStyleSheet("color: gray; font-size: 10px;")
+        self._device_info.setStyleSheet(hint_style())
         dest_layout.addWidget(self._device_info)
 
         # Gem som fil

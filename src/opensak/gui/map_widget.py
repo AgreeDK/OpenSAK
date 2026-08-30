@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 
 from opensak.db.models import Cache
 from opensak.lang import tr
+from opensak.gui.theme import hint_text_color
 from opensak.utils.types import GcCode
 
 
@@ -329,7 +330,7 @@ function loadCaches(cachesJson) {
         marker.bindPopup(
             '<b>' + c.gc_code + '</b><br>' +
             c.name + '<br>' +
-            '<span style="color:gray">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
+            '<span style="color:' + hint_text_color() + '">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
             coordNote
         );
 
@@ -573,7 +574,7 @@ function updateCacheMarker(cacheJson) {
     marker.bindPopup(
         '<b>' + c.gc_code + '</b><br>' +
         c.name + '<br>' +
-        '<span style="color:gray">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
+        '<span style="color:' + hint_text_color() + '">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
         coordNote
     );
 
