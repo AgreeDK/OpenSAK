@@ -40,7 +40,8 @@ _SCHEMA = [
         Found INTEGER, FoundByMeDate TEXT, DNF INTEGER, DNFDate TEXT,
         FTF INTEGER, UserFlag INTEGER, UserSort INTEGER,
         UserData TEXT, User2 TEXT, User3 TEXT, User4 TEXT,
-        FavPoints INTEGER, GcNote TEXT, Elevation REAL, Color TEXT,
+        FavPoints INTEGER, GcNote TEXT, Elevation REAL, Resolution TEXT,
+        Color TEXT,
         Guid TEXT, Watch INTEGER, CacheId TEXT, Lock INTEGER, FoundCount INTEGER,
         IsPremium INTEGER
     )""",
@@ -106,6 +107,7 @@ _DEFAULT_CACHE = dict(
     FavPoints=3,
     GcNote="",
     Elevation=0.0,
+    Resolution="",
     Color="",
     Guid="",
     Watch=0,
@@ -284,20 +286,93 @@ def test_reimport_updates_last_updated(db_session, tmp_path):
     assert cache.last_updated == datetime(2026, 8, 28)
 
 
-def test_elevation_zero_maps_to_none(db_session, tmp_path):
-    # GSAK's default/unset elevation (0.0) must not be mistaken for a real
-    # sea-level elevation — see #469 schema PR rationale.
-    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 0.0}])
+def test_elevation_zero_with_blank_resolution_maps_to_none(db_session, tmp_path):
+    # GSAK's default/unset elevation (0.0 + blank Resolution) must not be
+    # mistaken for a real sea-level elevation — see #469 schema PR
+    # rationale, refined by #794 (Resolution, not the raw value, is the
+    # actual "unset" signal).
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 0.0, "Resolution": ""}])
     import_gsak_db(db, db_session)
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
     assert cache.elevation is None
 
 
 def test_elevation_real_value_preserved(db_session, tmp_path):
-    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 216.0}])
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 216.0, "Resolution": "5"}])
     import_gsak_db(db, db_session)
     cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
     assert cache.elevation == 216.0
+
+
+def test_elevation_zero_with_resolution_preserved(db_session, tmp_path):
+    # Issue #794: a genuine 0.0m/sea-level elevation, correctly computed
+    # (non-blank Resolution), must be kept — not wiped to None just
+    # because the numeric value happens to be zero.
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 0.0, "Resolution": "5"}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.elevation == 0.0
+
+
+def test_elevation_with_user_entered_resolution_preserved(db_session, tmp_path):
+    # GSAK uses the literal text "USER" (not a numeric metres value) in
+    # Resolution for a manually entered elevation — still non-blank, so
+    # the elevation must be kept.
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 42.0, "Resolution": "USER"}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.elevation == 42.0
+
+
+def test_elevation_nonzero_with_blank_resolution_maps_to_none(db_session, tmp_path):
+    # Per Mike Wood (lignumaqua, GSAK's maintainer) in #794: a blank
+    # Resolution always means "no elevation assigned" in GSAK, regardless
+    # of whatever numeric value happens to be sitting in Elevation.
+    db = _make_gsak_db(tmp_path / "gsak.db3", caches=[{"Elevation": 99.0, "Resolution": ""}])
+    import_gsak_db(db, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.elevation is None
+
+
+def test_elevation_missing_resolution_column_is_defensive(db_session, tmp_path):
+    # Older/partial GSAK exports may not have a Resolution column at all.
+    # _row_to_cache_data() must not crash, and — with no signal available
+    # to distinguish "unset" from a genuine value — should pass the raw
+    # Elevation through unchanged rather than guessing (see #794 fix).
+    caches_ddl_no_resolution = """CREATE TABLE Caches (
+        Code TEXT, Name TEXT, CacheType TEXT, Container TEXT,
+        Latitude TEXT, Longitude TEXT, Difficulty REAL, Terrain REAL,
+        PlacedBy TEXT, OwnerName TEXT, OwnerId TEXT,
+        PlacedDate TEXT, Changed TEXT, Status TEXT, Archived INTEGER,
+        TempDisabled INTEGER, Country TEXT, State TEXT, County TEXT,
+        Found INTEGER, FoundByMeDate TEXT, DNF INTEGER, DNFDate TEXT,
+        FTF INTEGER, UserFlag INTEGER, UserSort INTEGER,
+        UserData TEXT, User2 TEXT, User3 TEXT, User4 TEXT,
+        FavPoints INTEGER, GcNote TEXT, Elevation REAL, Color TEXT,
+        Guid TEXT, Watch INTEGER, CacheId TEXT, Lock INTEGER, FoundCount INTEGER,
+        IsPremium INTEGER
+    )"""
+    db_path = tmp_path / "gsak_no_resolution.db3"
+    conn = sqlite3.connect(db_path)
+    conn.execute(caches_ddl_no_resolution)
+    for ddl in _SCHEMA[1:]:  # everything except the Caches table above
+        conn.execute(ddl)
+
+    row = {k: v for k, v in _DEFAULT_CACHE.items() if k != "Resolution"}
+    row["Elevation"] = 123.0
+    cols = ", ".join(row.keys())
+    qs = ", ".join("?" for _ in row)
+    conn.execute(f"INSERT INTO Caches ({cols}) VALUES ({qs})", list(row.values()))
+    conn.execute(
+        "INSERT INTO CacheMemo (Code, Url) VALUES (?, ?)",
+        ("GC1TEST", "https://coord.info/GC1TEST"),
+    )
+    conn.commit()
+    conn.close()
+
+    import_gsak_db(db_path, db_session)
+    cache = db_session.query(Cache).filter_by(gc_code="GC1TEST").one()
+    assert cache.elevation == 123.0
 
 
 @pytest.mark.parametrize("gsak_code,expected", sorted(GSAK_CACHE_TYPE_MAP.items()))

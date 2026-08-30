@@ -560,13 +560,24 @@ def _row_to_cache_data(row: sqlite3.Row) -> Optional[dict]:
     container = GSAK_CONTAINER_MAP.get(container, container)
 
     elevation = _f(row["Elevation"])
-    # 0.0 is GSAK's default/placeholder before an elevation macro has run —
-    # treat it the same as "not yet computed" (None), consistent with our
-    # own convention (see #469 schema PR). A real 0m (sea-level) cache is
-    # rare enough that this is the safer default; flag to Allan if this
-    # needs revisiting once Fabio's elevation pass runs on imported caches.
-    if elevation == 0.0:
-        elevation = None
+    # Issue #794: GSAK's Elevation column is a REAL field that's always
+    # numeric (0.0 before an elevation macro has run, or for a genuine
+    # sea-level cache) — the two cases were indistinguishable from the
+    # value alone, so we were blindly nulling every 0.0 elevation,
+    # including real ones. GSAK actually signals "no elevation assigned"
+    # via a blank (not NULL) Resolution column instead: Resolution holds
+    # either the elevation source's spatial resolution in metres, or the
+    # literal text "USER" for a manually entered value, and is left blank
+    # when no elevation has been computed. Confirmed against real GSAK
+    # data by Mike Wood (lignumaqua), GSAK's own maintainer, in #794.
+    if "Resolution" in row.keys():
+        resolution = _s(row["Resolution"])
+        if elevation is not None and resolution is None:
+            elevation = None
+    # else: an older/partial GSAK export without a Resolution column at
+    # all — we have no signal to distinguish "unset" from a genuine 0.0m
+    # elevation, so pass the raw value through unchanged rather than
+    # guessing (same don't-guess philosophy as #803).
 
     raw_type = _s(row["CacheType"]) or ""
 
