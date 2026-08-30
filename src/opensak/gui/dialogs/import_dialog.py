@@ -188,7 +188,7 @@ class ImportDialog(QDialog):
         btn_row.addWidget(self._import_btn)
 
         self._close_btn = QPushButton(tr("close"))
-        self._close_btn.clicked.connect(self.accept)
+        self._close_btn.clicked.connect(self._on_close_clicked)
         btn_row.addWidget(self._close_btn)
 
         layout.addLayout(btn_row)
@@ -297,6 +297,12 @@ class ImportDialog(QDialog):
         self._import_btn.setEnabled(False)
         self._browse_btn.setEnabled(False)
         self._remove_btn.setEnabled(False)
+        # Issue #802: the import step itself has no cancellation support
+        # (ImportWorker.run() has no cancel flag to check between files),
+        # so simply disable Close rather than pretending it can respond —
+        # clicking it while enabled used to block the GUI thread on
+        # closeEvent()'s synchronous worker.wait().
+        self._close_btn.setEnabled(False)
         self._progress.setVisible(True)
         self._any_success = False
         self._log.clear()
@@ -322,6 +328,13 @@ class ImportDialog(QDialog):
         # runs first; both are queued, and by the time they run isRunning() is
         # false, so deleting the worker can never abort the process.
         self._worker.finished.connect(self._on_all_done)
+        # Issue #802 follow-up: without this, self._worker kept pointing at
+        # a QThread whose C++ object deleteLater() (connected right below)
+        # had already destroyed — a later Close click's isRunning() check
+        # then hit "RuntimeError: Internal C++ object already deleted."
+        # _on_worker_finished only runs once run() has returned and
+        # isRunning() is already false, so it's always safe here.
+        self._worker.finished.connect(self._on_worker_finished)
         self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
@@ -394,6 +407,7 @@ class ImportDialog(QDialog):
             self._browse_btn.setEnabled(True)
             self._import_btn.setText(tr("import_again"))
             self._import_btn.setEnabled(True)
+            self._close_btn.setEnabled(True)
 
     def _start_geocoding(self) -> None:
         from opensak.gui.dialogs.update_location_dialog import (
@@ -432,9 +446,21 @@ class ImportDialog(QDialog):
         self._progress.setVisible(True)
         self._geocode_rows = rows
 
-        self._geo_worker = ReverseGeocodeWorker(rows)
+        # Issue #802: the geocode step *can* be cancelled responsively
+        # (ReverseGeocodeWorker checks a flag between rows), so relabel
+        # Close to Cancel and keep it enabled/clickable — _on_close_clicked()
+        # routes the click to request_cancel() instead of closing.
+        self._close_btn.setText(tr("cancel"))
+        self._close_btn.setEnabled(True)
+
+        # parent=self (issue #802, matching #801's fix in
+        # update_location_dialog.py): keeps the C++ object owned by the
+        # dialog, so Python refcounting can never delete a running thread
+        # on its own.
+        self._geo_worker = ReverseGeocodeWorker(rows, parent=self)
         self._geo_worker.all_done.connect(self._on_geocode_done)
         self._geo_worker.cancelled.connect(self._on_geocode_done)
+        self._geo_worker.finished.connect(self._on_geo_worker_finished)
         self._geo_worker.finished.connect(self._geo_worker.deleteLater)
         self._geo_worker.start()
 
@@ -454,6 +480,61 @@ class ImportDialog(QDialog):
         self._browse_btn.setEnabled(True)
         self._import_btn.setText(tr("import_again"))
         self._import_btn.setEnabled(True)
+        # Issue #802: revert Close back from its "Cancel" state.
+        self._close_btn.setText(tr("close"))
+        self._close_btn.setEnabled(True)
+
+    def _on_worker_finished(self) -> None:
+        """run() has returned and the thread has stopped — only now is it
+        safe to drop our reference. Mirrors update_location_dialog.py's
+        ReverseGeocodeWorker handling (#801/#802)."""
+        self._worker = None
+
+    def _on_geo_worker_finished(self) -> None:
+        """See _on_worker_finished() above — same reasoning, for the
+        reverse-geocode step's worker."""
+        self._geo_worker = None
+
+    def _on_close_clicked(self) -> None:
+        """
+        Issue #802: the Close button used to stay enabled throughout an
+        import (and the follow-up "Looking up missing location data" step),
+        and clicking it mid-operation blocked the GUI thread on
+        closeEvent()'s synchronous worker.wait() — a freeze that looked and
+        felt like a hang or crash on a large import.
+
+        The import step itself has no cancellation support, so the button
+        is simply disabled while it runs (see _start_import()) and this
+        branch shouldn't normally be reachable then — guarded defensively
+        regardless. The geocode step *can* be cancelled responsively
+        (ReverseGeocodeWorker checks a flag between rows), so while it's
+        running the button is relabelled "Cancel" and routed here instead
+        of closing: request_cancel() just sets that flag and returns
+        immediately, the actual stop is reported asynchronously via the
+        cancelled signal → _on_geocode_done() → _finish_geocoding().
+        """
+        cancelled_geocode = False
+        try:
+            if self._geo_worker is not None and self._geo_worker.isRunning():
+                self._geo_worker.request_cancel()
+                cancelled_geocode = True
+        except RuntimeError:
+            # Belt-and-suspenders alongside the _on_*_finished nulling
+            # above (#802 follow-up): the C++ QThread object can in theory
+            # already be gone by the time this runs. Treat that the same
+            # as "not running" rather than crashing.
+            self._geo_worker = None
+        if cancelled_geocode:
+            self._close_btn.setEnabled(False)
+            return
+
+        try:
+            if self._worker is not None and self._worker.isRunning():
+                return
+        except RuntimeError:
+            self._worker = None
+
+        self.accept()
 
     def closeEvent(self, event) -> None:
         try:

@@ -11,6 +11,7 @@ pytest.importorskip("pytestqt")
 
 from opensak.gui.dialogs import import_dialog as idlg
 from opensak.gui.dialogs.import_dialog import ImportWorker, ImportDialog
+from opensak.lang import tr
 
 
 def _result(created=1, updated=0, waypoints=0, skipped=0, errors=None):
@@ -302,7 +303,7 @@ class TestImportDialog:
         started = []
 
         class FakeGeo:
-            def __init__(self, rows):
+            def __init__(self, rows, parent=None):
                 self.all_done = MagicMock()
                 self.cancelled = MagicMock()
                 self.finished = MagicMock()
@@ -333,6 +334,166 @@ class TestImportDialog:
         dlg.close()
         assert dlg._worker is None
         assert dlg._geo_worker is None
+
+    # ── Issue #802: Close button responsiveness ─────────────────────────────
+
+    def test_start_import_disables_close_button(self, dlg, monkeypatch):
+        dlg.add_files([Path("/a.gpx")])
+
+        class FakeWorker:
+            def __init__(self, paths, target_db_path=None):
+                self.file_started = MagicMock()
+                self.file_finished = MagicMock()
+                self.file_error = MagicMock()
+                self.progress = MagicMock()
+                self.total = MagicMock()
+                self.finished = MagicMock()
+                self.deleteLater = MagicMock()
+                self.isRunning = MagicMock(return_value=False)
+                self.wait = MagicMock()
+            def start(self):
+                pass
+        monkeypatch.setattr(idlg, "ImportWorker", FakeWorker)
+        dlg._start_import()
+        assert dlg._close_btn.isEnabled() is False
+
+    def test_on_all_done_reenables_close_when_no_geocoding(self, dlg, monkeypatch):
+        from opensak.utils import flags
+        monkeypatch.setattr(flags, "reverse_geocoding", False, raising=False)
+        dlg.add_files([Path("/a.gpx")])
+        dlg._close_btn.setEnabled(False)  # simulate mid-import state
+        dlg._any_success = True
+        dlg._on_all_done()
+        assert dlg._close_btn.isEnabled() is True
+        assert dlg._close_btn.text() == tr("close")
+
+    def test_start_geocoding_relabels_close_to_cancel(self, dlg, db_session, make_cache, monkeypatch):
+        c = make_cache(gc_code="GCGEO2", country=None, latitude=55.0, longitude=12.0)
+        db_session.add(c)
+        db_session.commit()
+        dlg._close_btn.setEnabled(False)
+
+        class FakeGeo:
+            def __init__(self, rows, parent=None):
+                self.all_done = MagicMock()
+                self.cancelled = MagicMock()
+                self.finished = MagicMock()
+                self.deleteLater = MagicMock()
+                self.isRunning = MagicMock(return_value=True)
+                self.wait = MagicMock()
+                self.request_cancel = MagicMock()
+            def start(self):
+                pass
+        monkeypatch.setattr(
+            "opensak.gui.dialogs.update_location_dialog.ReverseGeocodeWorker", FakeGeo
+        )
+        dlg._start_geocoding()
+        # Responsive, clickable "Cancel" — not disabled/frozen.
+        assert dlg._close_btn.isEnabled() is True
+        assert dlg._close_btn.text() == tr("cancel")
+
+    def test_finish_geocoding_reverts_close_button(self, dlg):
+        dlg._close_btn.setText(tr("cancel"))
+        dlg._close_btn.setEnabled(False)
+        dlg._finish_geocoding()
+        assert dlg._close_btn.text() == tr("close")
+        assert dlg._close_btn.isEnabled() is True
+
+    def test_close_clicked_while_geocoding_cancels_without_blocking(self, dlg):
+        # The core of #802: clicking Close/Cancel while the geocode step is
+        # running must call the non-blocking request_cancel(), never wait().
+        geo = SimpleNamespace(
+            isRunning=lambda: True, request_cancel=MagicMock(), wait=MagicMock(),
+        )
+        dlg._geo_worker = geo
+        dlg._worker = None
+        dlg._on_close_clicked()
+        geo.request_cancel.assert_called_once()
+        geo.wait.assert_not_called()
+        assert dlg._close_btn.isEnabled() is False
+        assert dlg.result() == 0  # dialog not closed/accepted
+        # Teardown closes the dialog automatically — make isRunning() report
+        # False afterwards so closeEvent()'s cleanup path doesn't choke on
+        # this minimal fake (which has no other QThread methods).
+        geo.isRunning = lambda: False
+
+    def test_close_clicked_while_importing_does_not_close(self, dlg):
+        # Defensive guard: the import step has no cancel support, so a
+        # click while it's (somehow) still enabled must not close the
+        # dialog or block — it's a no-op.
+        worker = SimpleNamespace(isRunning=lambda: True)
+        dlg._worker = worker
+        dlg._geo_worker = None
+        dlg._on_close_clicked()
+        assert dlg.result() == 0  # dialog not closed/accepted
+        # See comment in the geocoding test above re: teardown.
+        worker.isRunning = lambda: False
+
+    def test_close_clicked_when_idle_accepts(self, dlg, monkeypatch):
+        dlg._worker = None
+        dlg._geo_worker = None
+        accepted = []
+        monkeypatch.setattr(dlg, "accept", lambda: accepted.append(True))
+        dlg._on_close_clicked()
+        assert accepted == [True]
+
+    # ── Issue #802 follow-up: stale worker reference after completion ───────
+    # Reported by Allan: Close crashed with "RuntimeError: libshiboken:
+    # Internal C++ object (ReverseGeocodeWorker) already deleted." after a
+    # completed import/geocode, because self._geo_worker (and self._worker)
+    # were only ever nulled in closeEvent() — never on normal completion —
+    # so they kept pointing at an object deleteLater() had since destroyed.
+
+    def test_on_worker_finished_clears_reference(self, dlg):
+        dlg._worker = SimpleNamespace(isRunning=lambda: False)
+        dlg._on_worker_finished()
+        assert dlg._worker is None
+
+    def test_on_geo_worker_finished_clears_reference(self, dlg):
+        dlg._geo_worker = SimpleNamespace(isRunning=lambda: False)
+        dlg._on_geo_worker_finished()
+        assert dlg._geo_worker is None
+
+    def test_close_clicked_after_normal_completion_does_not_crash(self, dlg, monkeypatch):
+        # End-to-end version of the two tests above: simulate the real
+        # finished-signal wiring (_on_geo_worker_finished nulls the
+        # reference) then click Close — must accept cleanly, not raise.
+        dlg._geo_worker = SimpleNamespace(isRunning=lambda: False)
+        dlg._on_geo_worker_finished()  # what QThread.finished now triggers
+        dlg._worker = None
+        accepted = []
+        monkeypatch.setattr(dlg, "accept", lambda: accepted.append(True))
+        dlg._on_close_clicked()
+        assert accepted == [True]
+
+    def test_close_clicked_handles_deleted_geo_worker_defensively(self, dlg, monkeypatch):
+        # Belt-and-suspenders layer: even if a reference somehow survives
+        # to a deleted C++ object, isRunning() raising RuntimeError must
+        # not propagate — treat it as "not running" and recover.
+        class DeletedCppObject:
+            def isRunning(self):
+                raise RuntimeError(
+                    "libshiboken: Internal C++ object (ReverseGeocodeWorker) already deleted."
+                )
+        dlg._geo_worker = DeletedCppObject()
+        dlg._worker = None
+        accepted = []
+        monkeypatch.setattr(dlg, "accept", lambda: accepted.append(True))
+        dlg._on_close_clicked()
+        assert accepted == [True]
+        assert dlg._geo_worker is None
+
+    def test_close_clicked_handles_deleted_worker_defensively(self, dlg, monkeypatch):
+        class DeletedCppObject:
+            def isRunning(self):
+                raise RuntimeError("libshiboken: Internal C++ object already deleted.")
+        dlg._geo_worker = None
+        dlg._worker = DeletedCppObject()
+        accepted = []
+        monkeypatch.setattr(dlg, "accept", lambda: accepted.append(True))
+        dlg._on_close_clicked()
+        assert accepted == [True]
+        assert dlg._worker is None
 
     def test_log_helpers(self, dlg):
         dlg._append_log("first")
