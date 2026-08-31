@@ -4,6 +4,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.18.0-beta.3] — 2026-08-31
+
+### Fixed
+
+- **Settings and 5 other dialogs could exceed screen height at high DPI
+  scaling (#811)** — caught by Microsoft Store certification
+  (10.1.2.10 Functionality) on a 2560x1600 display at 200% scaling: the
+  Settings dialog's "Geocaching profile" group was rendered off-screen
+  with no way to reach it. Root cause: dialogs had no maximum-height
+  constraint, so Qt grew them to fit all content unscrolled — DPI
+  scaling shrinks the effective usable screen area, so on a small
+  enough one that can exceed the available height. Added a shared
+  `clamp_dialog_height_to_screen()` helper (`widgets.py`) and applied
+  it, with `QScrollArea` wrapping where needed, to the 5 highest-content
+  dialogs: Settings, Trip planner, Column chooser, Welcome wizard,
+  Import, and GPS export. A new `test_dialog_height_policy.py` tracks
+  the remaining 17 dialogs as explicit follow-up work rather than a
+  silent gap — a new dialog (or a stripped protection call) without it
+  now fails CI.
+
+---
+
 ## [1.18.0-beta.2] — 2026-08-30
 
 ### Fixed
