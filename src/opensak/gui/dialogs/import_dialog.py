@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from opensak.gui.settings import get_settings
 from opensak.lang import tr
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 
 class ImportWorker(QThread):
@@ -117,6 +118,11 @@ class ImportDialog(QDialog):
         self.setWindowTitle(tr("import_dialog_title"))
         self.setMinimumWidth(540)
         self.setMinimumHeight(420)
+        # Issue #811: defensive cap, consistent with the other dialogs
+        # audited for the same certification finding. The file list is
+        # already height-capped and the log is a QTextEdit (own internal
+        # scrollbar), so no additional QScrollArea needed here.
+        clamp_dialog_height_to_screen(self, parent)
         self._worker: ImportWorker | None = None
         self._geo_worker = None
         self._selected_paths: list[Path] = []

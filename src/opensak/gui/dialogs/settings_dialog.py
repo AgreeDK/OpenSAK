@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from PySide6.QtGui import QPixmap, QFont
 from opensak.gui.settings import get_settings, HomePoint
-from opensak.gui.dialogs.widgets import DirRow
+from opensak.gui.dialogs.widgets import DirRow, clamp_dialog_height_to_screen
 from opensak.lang import tr, AVAILABLE_LANGUAGES, current_language
 from opensak.gui.theme import hint_style
 from opensak.coords import FORMATS, format_coords
@@ -66,6 +66,16 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("settings_dialog_title"))
         self.setMinimumWidth(520)
+        # Microsoft Store certification (10.1.2.10 Functionality, 31 Aug
+        # 2026, issue #811): on a 2560x1600 display at 200% scaling, this
+        # dialog's natural sizeHint (all four tabs' content combined)
+        # exceeded the screen's available height, cutting off the bottom
+        # of the General tab (the "Geocaching profile" group) with no way
+        # to reach it. See clamp_dialog_height_to_screen()'s docstring for
+        # the full reasoning — every tab below is now wrapped in a
+        # QScrollArea specifically so this cap has somewhere to send the
+        # overflow instead of just clipping it.
+        clamp_dialog_height_to_screen(self, parent)
         self._oauth_worker        = None
         self._profile_worker      = None
         self._editing_original_name: str | None = None   # Issue #157
@@ -432,7 +442,17 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(group)
         layout.addStretch()
-        return tab
+
+        # Same fix as General/Advanced (see #811 comment on __init__ for
+        # the full reasoning): certification only caught the General tab
+        # specifically, but every tab shares the same dialog-height cap
+        # now, so every tab needs a way to scroll if its content doesn't
+        # fit — not just the one tab that happened to get tested.
+        scroll = QScrollArea()
+        scroll.setWidget(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        return scroll
 
     # ── Fane: Avanceret ───────────────────────────────────────────────────────
 
@@ -762,7 +782,17 @@ class SettingsDialog(QDialog):
         layout.addWidget(self._gc_api_note)
 
         layout.addStretch()
-        return tab
+
+        # Same fix as General/Advanced (see #811 comment on __init__ for
+        # the full reasoning): certification only caught the General tab
+        # specifically, but every tab shares the same dialog-height cap
+        # now, so every tab needs a way to scroll if its content doesn't
+        # fit — not just the one tab that happened to get tested.
+        scroll = QScrollArea()
+        scroll.setWidget(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        return scroll
 
     # ── GC login/logout ───────────────────────────────────────────────────────
 
