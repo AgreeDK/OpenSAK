@@ -1,6 +1,7 @@
-# tests/unit-tests/test_dialog_widgets.py — delte dialog-widgets (DirRow).
+# tests/unit-tests/test_dialog_widgets.py — delte dialog-widgets (DirRow, clamp_dialog_height_to_screen).
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -54,3 +55,75 @@ class TestDirRowBrowse:
         other = tmp_path / "elsewhere"
         row.set_path(other)
         assert row._edit.text() == str(other)
+
+
+class TestClampDialogHeightToScreen:
+    """
+    Issue #811: Settings dialog exceeded the screen's available height at
+    200% DPI scaling on a high-resolution display, cutting off content
+    with no way to reach it. clamp_dialog_height_to_screen() is the
+    shared fix — these tests cover its own logic in isolation (mocked
+    screen/dialog, no real Qt window needed), separate from the
+    per-dialog integration covered in each dialog's own test file.
+    """
+
+    def _mock_screen(self, available_height: int) -> MagicMock:
+        rect = MagicMock()
+        rect.height.return_value = available_height
+        screen = MagicMock()
+        screen.availableGeometry.return_value = rect
+        return screen
+
+    def test_caps_to_fraction_of_parents_screen(self):
+        parent = MagicMock()
+        parent.screen.return_value = self._mock_screen(800)
+        dialog = MagicMock()
+
+        w.clamp_dialog_height_to_screen(dialog, parent, max_fraction=0.9)
+
+        dialog.setMaximumHeight.assert_called_once_with(720)
+
+    def test_default_fraction_is_90_percent(self):
+        parent = MagicMock()
+        parent.screen.return_value = self._mock_screen(1000)
+        dialog = MagicMock()
+
+        w.clamp_dialog_height_to_screen(dialog, parent)
+
+        dialog.setMaximumHeight.assert_called_once_with(900)
+
+    def test_falls_back_to_primary_screen_when_parent_screen_is_none(self, monkeypatch):
+        parent = MagicMock()
+        parent.screen.return_value = None
+        dialog = MagicMock()
+
+        primary = self._mock_screen(800)
+        monkeypatch.setattr(w.QApplication, "primaryScreen", staticmethod(lambda: primary))
+
+        w.clamp_dialog_height_to_screen(dialog, parent)
+
+        dialog.setMaximumHeight.assert_called_once_with(720)
+
+    def test_falls_back_to_primary_screen_when_no_parent(self, monkeypatch):
+        dialog = MagicMock()
+
+        primary = self._mock_screen(800)
+        monkeypatch.setattr(w.QApplication, "primaryScreen", staticmethod(lambda: primary))
+
+        w.clamp_dialog_height_to_screen(dialog, parent=None)
+
+        dialog.setMaximumHeight.assert_called_once_with(720)
+
+    def test_does_nothing_if_no_screen_available_anywhere(self, monkeypatch):
+        # Extremely unlikely in practice, but must not crash — a dialog
+        # with no cap is no worse than before this fix existed.
+        parent = MagicMock()
+        parent.screen.return_value = None
+        dialog = MagicMock()
+
+        monkeypatch.setattr(w.QApplication, "primaryScreen", staticmethod(lambda: None))
+
+        w.clamp_dialog_height_to_screen(dialog, parent)
+
+        dialog.setMaximumHeight.assert_not_called()
+

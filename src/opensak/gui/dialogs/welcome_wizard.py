@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.lang import tr, AVAILABLE_LANGUAGES, current_language
 from opensak.gui.dialogs.widgets import DirRow as _DirRow
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,11 @@ class WelcomeWizard(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("wizard_window_title"))
         self.setMinimumSize(520, 380)
+        # Issue #811: defensive cap, consistent with the other dialogs
+        # audited for the same certification finding. Each page here is
+        # short (1-2 fields), so this is low-risk in practice — no
+        # QScrollArea added since there's nothing substantial to scroll.
+        clamp_dialog_height_to_screen(self, parent)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )

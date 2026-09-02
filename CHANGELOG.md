@@ -4,6 +4,200 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.18.0] — 2026-09-02
+
+> First stable release of the 1.18.0 cycle, and the **first stable release
+> distributed via the Microsoft Store** (product `9P4NBMM84H2D`) alongside
+> the existing Windows `.exe`/ZIP, Linux AppImage, and macOS DMG builds.
+> Replaces the `1.18.0-beta.1` … `1.18.0-beta.3` builds — see git history
+> for the detailed beta-by-beta log if needed. Headline of this cycle: MSIX
+> packaging for the Microsoft Store, plus a round of dialog high-DPI
+> scaling fixes surfaced by Store certification.
+
+### Added
+
+- **MSIX / Microsoft Store packaging (#786)** — OpenSAK can now be
+  packaged as an MSIX for Microsoft Store distribution (product
+  `9P4NBMM84H2D`). Nothing about the existing Windows `.exe`/ZIP build
+  changed — this is a side channel wrapping the same PyInstaller output.
+- **MSIX CI build job** — a manual-trigger-only GitHub Actions workflow
+  (`build-msix.yml`) builds and packages the `.msix` on `workflow_dispatch`.
+- `scripts/derive_msix_version.py` — converts OpenSAK's version string
+  (including any `-beta.N` suffix) into the strict 4-part numeric version
+  MSIX/the Store requires.
+
+### Fixed
+
+- **Settings and 7 other dialogs could exceed screen height at high DPI
+  scaling (#811, #815)** — caught by Microsoft Store certification
+  (10.1.2.10 Functionality) on a 2560x1600 display at 200% scaling. Added
+  a shared `clamp_dialog_height_to_screen()` helper (`widgets.py`) and
+  applied it, with `QScrollArea` wrapping where needed, to: Settings, Trip
+  planner, Column chooser, Welcome wizard, Import, GPS export (#811), and
+  Waypoint/Custom WP, Update Location, and Database Manager (#815). A new
+  `test_dialog_height_policy.py` tracks the remaining 14 lower-risk
+  dialogs as explicit follow-up work (#816) rather than a silent gap.
+- **"Close" button in the Download Boundary Packs dialog showed the raw
+  translation key `btn_close` instead of "Close" (#804)**.
+- **Advanced settings tab controls squashed on small/high-DPI screens
+  (#805)** — the Advanced tab now scrolls like the General tab instead of
+  squashing its controls together.
+- **Hint/note text too low-contrast to read, especially in dark mode
+  (#806)** — replaced a hardcoded low-contrast grey (duplicated across 42
+  call sites) with a new theme-aware `hint_text_color()`/`hint_style()`
+  helper.
+- **GSAK `.db3` import: a genuine 0.0m/sea-level elevation displayed as
+  blank (#794)** — the importer now reads GSAK's `Resolution` column to
+  distinguish "no elevation assigned" from a real sea-level reading.
+- **GSAK `.db3` import: plain-text descriptions containing a literal `<`
+  were misdetected as HTML and lost all line breaks (#803)** — the
+  importer now reads GSAK's own `ShortHtm`/`LongHtm` columns instead of
+  guessing from a raw `<` check; plain-text descriptions are also now
+  HTML-escaped before display.
+- **Import dialog's Close button froze the UI mid-import or mid-geocode,
+  and could crash after either finished (#802)**.
+
+---
+
+## [1.18.0-beta.3] — 2026-08-31
+
+### Fixed
+
+- **Settings and 5 other dialogs could exceed screen height at high DPI
+  scaling (#811)** — caught by Microsoft Store certification
+  (10.1.2.10 Functionality) on a 2560x1600 display at 200% scaling: the
+  Settings dialog's "Geocaching profile" group was rendered off-screen
+  with no way to reach it. Root cause: dialogs had no maximum-height
+  constraint, so Qt grew them to fit all content unscrolled — DPI
+  scaling shrinks the effective usable screen area, so on a small
+  enough one that can exceed the available height. Added a shared
+  `clamp_dialog_height_to_screen()` helper (`widgets.py`) and applied
+  it, with `QScrollArea` wrapping where needed, to the 5 highest-content
+  dialogs: Settings, Trip planner, Column chooser, Welcome wizard,
+  Import, and GPS export. A new `test_dialog_height_policy.py` tracks
+  the remaining 17 dialogs as explicit follow-up work rather than a
+  silent gap — a new dialog (or a stripped protection call) without it
+  now fails CI.
+
+---
+
+## [1.18.0-beta.2] — 2026-08-30
+
+### Fixed
+
+- **"Close" button in the Download Boundary Packs dialog showed the raw
+  translation key `btn_close` instead of "Close" (#804)** — reported by
+  Giles Percival on Facebook after a boundary-pack download completed.
+  `BoundaryDownloadDialog._on_done()` called `tr("btn_close")`, a key that
+  didn't exist in any of the 8 language files — `tr()` falls back to the
+  raw key when a translation is missing. Fixed to reuse the existing
+  `"close"` key (already used elsewhere, e.g. `file_export_dialog.py`); no
+  language file changes needed.
+
+- **Advanced settings tab controls squashed on small/high-DPI screens
+  (#805)** — reported by Sean Flook on Facebook (v1.18.0-beta.1). The
+  General tab wraps its content in a `QScrollArea` to stay usable on small
+  screens/high DPI, but the Advanced tab — which has the most stacked
+  group boxes of any tab (Folders, Search, Location refinement, Updates,
+  Distance) — didn't, so Qt squashed the controls together instead of
+  letting the user scroll when the dialog couldn't grow to fit everything.
+  `_build_advanced_tab()` now wraps its content in a `QScrollArea` the
+  same way `_build_general_tab()` does.
+
+- **Hint/note text too low-contrast to read, especially in dark mode
+  (#806)** — reported by Sean Flook (dark mode) and Robert Long (also hard
+  to read in light mode for older eyes) on Facebook. A hardcoded
+  `"color: gray; font-size: 10px;"` was duplicated across 42 call sites in
+  16 files for secondary/hint text — a fixed, theme-independent colour
+  with insufficient contrast in both themes. Replaced with a new
+  theme-aware `hint_text_color()`/`hint_style()` helper in
+  `src/opensak/gui/theme.py`: dark green (`#2e7d32`, ~4.7:1 contrast) in
+  light mode, light green (`#66bb6a`, ~6:1 contrast) in dark mode.
+  Centralised in one place so a future user-configurable hint colour only
+  needs to change this one function. (One follow-up fix included: the map
+  popup's cache-type/D/T line is built as a raw JavaScript template
+  embedded in Python and resolved via string-token substitution, not an
+  f-string — the initial colour-substitution accidentally called the
+  Python helper *inside* the JS source itself, throwing `hint_text_color
+  is not defined` in the browser console at runtime. Fixed by resolving a
+  `HINT_TEXT_COLOR` template token in Python before the HTML reaches
+  QtWebEngine, matching the existing `INIT_LAT`/`MAP_TIP_MAXIMIZE`-style
+  tokens.)
+
+- **GSAK `.db3` import: a genuine 0.0m/sea-level elevation displayed as
+  blank (#794)** — reported by ianwok, root-caused with GSAK maintainer
+  Mike Wood (lignumaqua). GSAK's `Elevation` column is always numeric
+  (0.0 both before an elevation macro has run *and* for a real sea-level
+  cache), so the two cases were indistinguishable from the value alone —
+  every 0.0 elevation was nulled on import, including real ones. GSAK
+  actually signals "no elevation assigned" via a blank (not `NULL`)
+  `Resolution` column instead — metres of source resolution, or the
+  literal text `"USER"` for a manually entered value, left blank only
+  when unset. The importer now reads `Resolution` to make that
+  distinction; when the column is absent entirely (older/partial GSAK
+  exports), it trusts the raw `Elevation` value rather than guessing.
+
+- **GSAK `.db3` import: plain-text descriptions containing a literal `<`
+  were misdetected as HTML and lost all line breaks (#803)** — reported
+  by nagisml, e.g. GC5K1DY. The importer guessed `short_desc_html`/
+  `long_desc_html` by testing for any `<` character in the description
+  text, instead of reading GSAK's own authoritative `ShortHtm`/`LongHtm`
+  columns (which mirror geocaching.com's real `html=true/false` flag, the
+  same source the GPX importer already reads). Now reads those columns
+  directly; falls back to a real-tag-matching regex (not the old naive
+  `<` check) only when they're entirely absent. Also fixed a related
+  issue nagisml flagged in the same report: plain-text descriptions were
+  written into the description view's `<pre>` block unescaped, so a
+  stray `<`, `>` or `&` in genuinely plain text (e.g. "N < 5 caches",
+  "R&D") could still be misinterpreted as markup — `cache_detail.py` now
+  HTML-escapes plain-text descriptions before wrapping them.
+
+- **Import dialog's Close button froze the UI mid-import or mid-geocode,
+  and could crash after either finished (#802)** — found by Allan while
+  reviewing the #800/#801 fix. `closeEvent()` blocked the GUI thread with
+  a synchronous `worker.wait()`, so clicking Close while an import or the
+  follow-up "Looking up missing location data" step was running froze the
+  window until the background thread stopped — indistinguishable from a
+  hang or crash on a large import. The import step has no cancellation
+  support, so Close is now simply disabled while it runs; the geocode
+  step *can* cancel responsively (`ReverseGeocodeWorker` checks a flag
+  between rows), so Close relabels to "Cancel" there and routes to the
+  non-blocking `request_cancel()` instead of closing. Also added
+  `parent=self` to the `ReverseGeocodeWorker` construction, matching
+  #801's fix in `update_location_dialog.py`. A related crash surfaced
+  during manual testing: `self._worker`/`self._geo_worker` were only ever
+  cleared in `closeEvent()`, never on normal completion, so a finished
+  worker's already-`deleteLater()`'d C++ object could still be referenced
+  by a later Close click ("RuntimeError: libshiboken: Internal C++ object
+  already deleted"). Fixed by clearing both references on `QThread.finished`
+  (mirroring `update_location_dialog.py`'s existing pattern), with a
+  defensive `try`/`except RuntimeError` as a second safety net.
+
+---
+
+## [1.18.0-beta.1] — 2026-08-27
+
+### Added
+
+- **MSIX / Microsoft Store packaging prototype (#786)** — OpenSAK can now
+  be packaged as an MSIX for a private, unlisted Microsoft Store listing
+  (product `9P4NBMM84H2D`). A submission passed Store certification and
+  was confirmed installable end-to-end via the Store app itself, clearing
+  the risk that the bundled QtWebEngine/Chromium runtime would be
+  rejected. Nothing about the existing Windows `.exe`/ZIP build changed —
+  this is a side channel wrapping the same PyInstaller output.
+- **MSIX CI build job** — a new manual-trigger-only GitHub Actions
+  workflow (`build-msix.yml`) builds and packages the `.msix` on
+  `workflow_dispatch`, so producing a new build for Partner Center no
+  longer requires the Windows machine for that step. Not tag-triggered
+  and not attached to public GitHub Releases yet, since the Store listing
+  is still private/unlisted.
+- `scripts/derive_msix_version.py` — converts OpenSAK's version string
+  (including the `-beta.N` suffix) into the strict 4-part numeric version
+  MSIX requires.
+
+---
+
 ## [1.17.2] — 2026-08-26
 
 ### Fixed

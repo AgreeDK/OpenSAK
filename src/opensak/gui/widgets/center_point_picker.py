@@ -34,6 +34,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QLineEdit, QLabel
 
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 
 # Combo item data is a tuple whose first element identifies the kind:
 #   ("home",)
@@ -75,7 +76,7 @@ class CenterPointPicker(QWidget):
         self._custom_row.setVisible(False)
 
         self._hint = QLabel("")
-        self._hint.setStyleSheet("color: gray; font-size: 10px;")
+        self._hint.setStyleSheet(hint_style())
         layout.addWidget(self._hint)
 
         self._rebuild_combo()

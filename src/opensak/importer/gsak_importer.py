@@ -177,6 +177,23 @@ GSAK_CONTAINER_MAP: dict[str, str] = {
 _STATUS_ARCHIVED = "X"
 _STATUS_AVAILABLE = "A"
 
+# ── Issue #803: description HTML-flag detection ──────────────────────────────
+# GSAK's own Caches.LongHtm/ShortHtm columns hold geocaching.com's authoritative
+# html=true/false flag for each description — read those directly (see
+# _row_to_cache_data() below) rather than guessing. This regex is only a
+# fallback for older/partial GSAK exports that lack those columns entirely:
+# it's a strictly better guess than the previous "'<' in text" check (which
+# misfired on any plain-text listing containing a literal '<', e.g. "N < 5
+# caches"), matching real opening/closing tags, comments and DOCTYPE — not
+# just any '<' character.
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9]*(?=[\s/>]|$)|<!--|<!\s*DOCTYPE", re.I)
+
+
+def _looks_like_html(text: str) -> bool:
+    """Fallback heuristic used only when GSAK's LongHtm/ShortHtm columns are absent."""
+    return bool(_HTML_TAG_RE.search(text))
+
+
 # ── Issue #472: embedded local image references in UserNote ─────────────────
 # GSAK's own "GrabImages" macro downloads images referenced in a cache's
 # online content and embeds them into CacheMemo.UserNote as HTML <img> tags
@@ -560,15 +577,41 @@ def _row_to_cache_data(row: sqlite3.Row) -> Optional[dict]:
     container = GSAK_CONTAINER_MAP.get(container, container)
 
     elevation = _f(row["Elevation"])
-    # 0.0 is GSAK's default/placeholder before an elevation macro has run —
-    # treat it the same as "not yet computed" (None), consistent with our
-    # own convention (see #469 schema PR). A real 0m (sea-level) cache is
-    # rare enough that this is the safer default; flag to Allan if this
-    # needs revisiting once Fabio's elevation pass runs on imported caches.
-    if elevation == 0.0:
-        elevation = None
+    # Issue #794: GSAK's Elevation column is a REAL field that's always
+    # numeric (0.0 before an elevation macro has run, or for a genuine
+    # sea-level cache) — the two cases were indistinguishable from the
+    # value alone, so we were blindly nulling every 0.0 elevation,
+    # including real ones. GSAK actually signals "no elevation assigned"
+    # via a blank (not NULL) Resolution column instead: Resolution holds
+    # either the elevation source's spatial resolution in metres, or the
+    # literal text "USER" for a manually entered value, and is left blank
+    # when no elevation has been computed. Confirmed against real GSAK
+    # data by Mike Wood (lignumaqua), GSAK's own maintainer, in #794.
+    if "Resolution" in row.keys():
+        resolution = _s(row["Resolution"])
+        if elevation is not None and resolution is None:
+            elevation = None
+    # else: an older/partial GSAK export without a Resolution column at
+    # all — we have no signal to distinguish "unset" from a genuine 0.0m
+    # elevation, so pass the raw value through unchanged rather than
+    # guessing (same don't-guess philosophy as #803).
 
     raw_type = _s(row["CacheType"]) or ""
+
+    # Issue #803: prefer GSAK's own authoritative ShortHtm/LongHtm flags
+    # over guessing from the description text. Fall back to the (improved)
+    # tag-detection heuristic only when those columns are entirely absent
+    # (older/partial GSAK export) — see _looks_like_html() above.
+    short_desc = _s(row["ShortDescription"]) or ""
+    long_desc  = _s(row["LongDescription"]) or ""
+    if "ShortHtm" in row.keys():
+        short_desc_html = _b(row["ShortHtm"])
+    else:
+        short_desc_html = _looks_like_html(short_desc)
+    if "LongHtm" in row.keys():
+        long_desc_html = _b(row["LongHtm"])
+    else:
+        long_desc_html = _looks_like_html(long_desc)
 
     # ── Issue #472: personal note text, with embedded-image placeholders ────
     raw_note = _s(row["UserNote"])
@@ -600,9 +643,9 @@ def _row_to_cache_data(row: sqlite3.Row) -> Optional[dict]:
         "state":       _s(row["State"]),
         "county":      _s(row["County"]),
         "short_description": _s(row["ShortDescription"]),
-        "short_desc_html":   "<" in (_s(row["ShortDescription"]) or ""),
+        "short_desc_html":   short_desc_html,
         "long_description":  _s(row["LongDescription"]),
-        "long_desc_html":    "<" in (_s(row["LongDescription"]) or ""),
+        "long_desc_html":    long_desc_html,
         # GSAK stores hints already decoded (plain text) — passed straight
         # through. OpenSAK's split_hint() heuristic already auto-detects
         # plain-vs-ROT13 for display, so no re-encoding is needed here.
@@ -706,7 +749,7 @@ def _upsert_cache_from_gsak(
         for field in (
             "name", "cache_type", "container", "latitude", "longitude",
             "difficulty", "terrain", "placed_by", "owner_name", "owner_id",
-            "hidden_date", "available", "archived",
+            "hidden_date", "last_updated", "available", "archived",
             "country", "state", "county",
             "short_description", "short_desc_html",
             "long_description", "long_desc_html",

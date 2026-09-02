@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 
 from opensak.db.models import Cache
 from opensak.lang import tr
+from opensak.gui.theme import hint_text_color
 from opensak.utils.types import GcCode
 
 
@@ -329,7 +330,7 @@ function loadCaches(cachesJson) {
         marker.bindPopup(
             '<b>' + c.gc_code + '</b><br>' +
             c.name + '<br>' +
-            '<span style="color:gray">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
+            '<span style="color:HINT_TEXT_COLOR">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
             coordNote
         );
 
@@ -573,7 +574,7 @@ function updateCacheMarker(cacheJson) {
     marker.bindPopup(
         '<b>' + c.gc_code + '</b><br>' +
         c.name + '<br>' +
-        '<span style="color:gray">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
+        '<span style="color:HINT_TEXT_COLOR">' + c.cache_type + ' D' + c.difficulty + '/T' + c.terrain + '</span>' +
         coordNote
     );
 
@@ -728,6 +729,13 @@ class MapWidget(QWidget):
         html = html.replace("MAP_TIP_MAXIMIZE", tr("toolbar_maximize_map_tooltip"))
         html = html.replace("MAP_TIP_POPOUT", tr("toolbar_popout_map_tooltip"))
         html = html.replace("MAP_POPOUT_ENABLED", "true" if flags.map_popout else "false")
+        # Issue #806: HINT_TEXT_COLOR is a template token, not a JS symbol —
+        # it must be resolved to a literal hex value here in Python before
+        # the HTML is handed to QtWebEngine, same as the other INIT_/MAP_
+        # tokens above. Calling hint_text_color() directly inside the JS
+        # source (as opposed to here) throws "hint_text_color is not
+        # defined", since that function only exists on the Python side.
+        html = html.replace("HINT_TEXT_COLOR", hint_text_color())
         return html
 
     def _run_js(self, js: str) -> None:

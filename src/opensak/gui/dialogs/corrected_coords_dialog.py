@@ -21,6 +21,7 @@ from PySide6.QtGui import QFont
 from opensak.lang import tr
 from opensak.coords import format_coords, parse_coords
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style
 from opensak.utils.types import GcCode, CoordFormat
 
 
@@ -117,7 +118,7 @@ class CorrectedCoordsDialog(QDialog):
         # ── Originale koordinater ─────────────────────────────────────────────
         if self._orig_lat is not None and self._orig_lon is not None:
             orig_lbl = QLabel(tr("corrected_dialog_original"))
-            orig_lbl.setStyleSheet("font-weight: bold; font-size: 10px; color: gray;")
+            orig_lbl.setStyleSheet(f"font-weight: bold; {hint_style()}")
             layout.addWidget(orig_lbl)
             layout.addWidget(self._make_coords_panel(self._orig_lat, self._orig_lon))
             layout.addWidget(self._make_separator())
@@ -150,7 +151,7 @@ class CorrectedCoordsDialog(QDialog):
 
         # ── Korrigerede koordinater (vises når input er gyldigt) ──────────────
         self._corrected_lbl = QLabel(tr("corrected_dialog_corrected"))
-        self._corrected_lbl.setStyleSheet("font-weight: bold; font-size: 10px; color: gray;")
+        self._corrected_lbl.setStyleSheet(f"font-weight: bold; {hint_style()}")
         self._corrected_lbl.setVisible(False)
         layout.addWidget(self._corrected_lbl)
 

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QCheckBox,
     QPushButton, QDialogButtonBox, QTabWidget,
     QWidget, QGroupBox, QMessageBox, QButtonGroup, QRadioButton,
-    QFrame,
+    QFrame, QScrollArea,
 )
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
@@ -24,6 +24,8 @@ from opensak.db.models import Cache
 from opensak.lang import tr
 from opensak.coords import format_coords, parse_coords
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 from opensak.utils.constants import CACHE_TYPES, CONTAINER_SIZES, VALID_DT, CUSTOM_WP_TYPES
 
@@ -60,6 +62,14 @@ class WaypointDialog(QDialog):
         title = tr("wp_dialog_title_edit") if self._is_edit else tr("wp_dialog_title_add")
         self.setWindowTitle(title)
         self.setMinimumSize(540, 620)
+        # Issue #815 (follow-up to #811): the tallest of this dialog's three
+        # tabs (Basic, with two coordinate/D-T groups plus the mode/parent
+        # rows) can exceed available screen height at high DPI scaling, same
+        # failure mode as Settings in #811. Each tab is wrapped in its own
+        # QScrollArea below so the cap has somewhere to send the overflow
+        # instead of clipping it — see clamp_dialog_height_to_screen()'s
+        # docstring for the full reasoning.
+        clamp_dialog_height_to_screen(self, parent)
         self._setup_ui()
         if cache is not None:
             self._populate(cache)
@@ -106,9 +116,9 @@ class WaypointDialog(QDialog):
         # ── Tabs ──────────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
 
-        self._tabs.addTab(self._build_basic_tab(),   tr("wp_tab_basic"))
-        self._tabs.addTab(self._build_details_tab(), tr("db_details_group"))
-        self._tabs.addTab(self._build_status_tab(),  tr("wp_tab_status"))
+        self._tabs.addTab(self._wrap_in_scroll(self._build_basic_tab()),   tr("wp_tab_basic"))
+        self._tabs.addTab(self._wrap_in_scroll(self._build_details_tab()), tr("db_details_group"))
+        self._tabs.addTab(self._wrap_in_scroll(self._build_status_tab()),  tr("wp_tab_status"))
 
         layout.addWidget(self._tabs)
 
@@ -123,6 +133,17 @@ class WaypointDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    @staticmethod
+    def _wrap_in_scroll(tab: QWidget) -> QScrollArea:
+        # Issue #815: lets the height cap from clamp_dialog_height_to_screen()
+        # in __init__ actually be reachable via scrolling instead of just
+        # clipping the tab's content — same pattern as settings_dialog.py.
+        scroll = QScrollArea()
+        scroll.setWidget(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        return scroll
+
     def _build_basic_tab(self) -> QWidget:
         basic = QWidget()
         form = QFormLayout(basic)
@@ -133,14 +154,14 @@ class WaypointDialog(QDialog):
         self._gc_code.setPlaceholderText(tr("wp_ph_gc_code"))
         if self._is_edit:
             self._gc_code.setReadOnly(True)
-            self._gc_code.setStyleSheet("color: gray;")
+            self._gc_code.setStyleSheet(hint_style(font_size=None))
         self._lbl_gc_code = QLabel(tr("wp_label_gc_code"))
         form.addRow(self._lbl_gc_code, self._gc_code)
 
         # ── CW id (custom mode) ───────────────────────────────────────────────
         self._cw_id = QLineEdit()
         self._cw_id.setReadOnly(True)
-        self._cw_id.setStyleSheet("color: gray;")
+        self._cw_id.setStyleSheet(hint_style(font_size=None))
         self._cw_id.setText(self._next_cw_id)
         self._lbl_cw_id = QLabel(tr("wp_label_cw_id"))
         form.addRow(self._lbl_cw_id, self._cw_id)

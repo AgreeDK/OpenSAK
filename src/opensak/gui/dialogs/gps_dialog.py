@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 from opensak.gui.dialogs import make_progress_cb
 from opensak.settings_store import get_store
 from PySide6.QtWidgets import (
@@ -17,11 +18,13 @@ from PySide6.QtWidgets import (
     QPushButton, QComboBox, QLineEdit, QTextEdit,
     QProgressBar, QGroupBox, QRadioButton,
     QFileDialog, QButtonGroup, QSpinBox,
-    QCheckBox, QMessageBox, QInputDialog
+    QCheckBox, QMessageBox, QInputDialog,
+    QScrollArea, QWidget
 )
 
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 # Issue #656 (CheminerWill's follow-up suggestion): remember the "use
 # database name as filename" checkbox state across exports/sessions.
@@ -131,6 +134,11 @@ class GpsExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("gps_dialog_title"))
         self.setMinimumWidth(520)
+        # Issue #811: cap so this can't exceed the screen at high DPI
+        # scaling — paired with wrapping dest_group + opt_group in a
+        # QScrollArea in _setup_ui below, since neither group has any
+        # scrolling of its own.
+        clamp_dialog_height_to_screen(self, parent)
         self._caches        = caches or []
         self._worker        = None
         self._delete_worker = None
@@ -145,6 +153,17 @@ class GpsExportDialog(QDialog):
         # ── Info ──────────────────────────────────────────────────────────────
         count_lbl = QLabel(tr("gps_caches_ready", count=len(self._caches)))
         layout.addWidget(count_lbl)
+
+        # Issue #811: dest_group + opt_group go inside a scrollable
+        # content widget below, so they can be reached even if the
+        # dialog's screen-height cap (see __init__) leaves less room than
+        # their combined sizeHint needs. Progress/log/buttons stay
+        # outside the scroll area, in the dialog's own layout, so
+        # they're always visible regardless of scroll position.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
 
         # ── Destination ───────────────────────────────────────────────────────
         dest_group = QGroupBox(tr("gps_dest_group"))
@@ -168,7 +187,7 @@ class GpsExportDialog(QDialog):
 
         self._device_info = QLabel("")
         self._device_info.setWordWrap(True)
-        self._device_info.setStyleSheet("color: gray; font-size: 10px;")
+        self._device_info.setStyleSheet(hint_style())
         dest_layout.addWidget(self._device_info)
 
         # Gem som fil
@@ -192,7 +211,7 @@ class GpsExportDialog(QDialog):
         self._btn_group.addButton(self._rb_file, 1)
         self._rb_device.toggled.connect(self._on_mode_changed)
 
-        layout.addWidget(dest_group)
+        content_layout.addWidget(dest_group)
 
         # ── Indstillinger ─────────────────────────────────────────────────────
         opt_group = QGroupBox(tr("gps_opt_group"))
@@ -261,7 +280,13 @@ class GpsExportDialog(QDialog):
         )
         opt_layout.addWidget(self._cb_delete_gpx)
 
-        layout.addWidget(opt_group)
+        content_layout.addWidget(opt_group)
+
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        layout.addWidget(scroll)
 
         # ── Progress og resultat ──────────────────────────────────────────────
         self._progress = QProgressBar()

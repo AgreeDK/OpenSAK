@@ -25,6 +25,7 @@ dev = [
     "pytest-cov",
     "pytest-qt>=4.0",
     "mypy>=1.8",
+    "pillow>=10.0",
 ]
 
 [tool.setuptools.packages.find]

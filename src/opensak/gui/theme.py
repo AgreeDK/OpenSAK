@@ -235,3 +235,57 @@ def effective_theme(theme: str) -> str:
     if theme == THEME_AUTO:
         return "dark" if _system_is_dark() else "light"
     return theme if theme in (THEME_LIGHT, THEME_DARK) else "light"
+
+
+# ── Hint / secondary text colour ──────────────────────────────────────────────
+#
+# Issue #806: hint/note text across the app used a hardcoded "gray", which is
+# low-contrast in dark mode and, per community feedback, not great even in
+# light mode for users with lower-contrast vision. These two shades are dark
+# green / light green tuned for roughly WCAG-AA contrast against each theme's
+# Window colour (light: ~4.7:1, dark: ~6:1).
+#
+# Deliberately centralised here — every call site should go through
+# hint_text_color()/hint_style() rather than hardcoding a colour, so a future
+# user-configurable hint colour only needs to change this function.
+
+HINT_COLOR_LIGHT = "#2e7d32"
+HINT_COLOR_DARK  = "#66bb6a"
+
+
+def hint_text_color(theme: str | None = None) -> str:
+    """
+    Return the hex colour to use for secondary/hint text in the resolved theme.
+
+    Parameters
+    ----------
+    theme:
+        One of ``"auto"``, ``"light"``, ``"dark"``. When *None*, the user's
+        saved preference is read from AppSettings (falls back to ``"auto"``
+        if settings aren't available, e.g. in unit tests).
+    """
+    if theme is None:
+        try:
+            from opensak.gui.settings import get_settings
+            theme = get_settings().theme
+        except Exception:
+            theme = THEME_AUTO
+    return HINT_COLOR_DARK if effective_theme(theme) == THEME_DARK else HINT_COLOR_LIGHT
+
+
+def hint_style(*, font_size: int | None = 10, extra: str = "") -> str:
+    """
+    Return a ready-to-use Qt stylesheet fragment for hint/note text.
+
+    Usage:
+        label.setStyleSheet(hint_style())
+        label.setStyleSheet(hint_style(font_size=13))
+        label.setStyleSheet(hint_style(extra="padding-left: 2px;"))
+        label.setStyleSheet(f"font-weight: bold; {hint_style()}")
+    """
+    parts = [f"color: {hint_text_color()};"]
+    if font_size is not None:
+        parts.append(f"font-size: {font_size}px;")
+    if extra:
+        parts.append(extra)
+    return " ".join(parts)

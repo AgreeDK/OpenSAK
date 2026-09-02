@@ -18,13 +18,15 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QMessageBox,
     QTabWidget, QWidget, QLineEdit, QListWidget,
-    QListWidgetItem, QFrame
+    QListWidgetItem, QFrame, QScrollArea
 )
 
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.lang import tr
 from opensak.gui.settings import get_settings
+from opensak.gui.theme import hint_style
 from opensak.filters.engine import _haversine_km
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 
 # ── Geometri-hjælper ──────────────────────────────────────────────────────────
@@ -409,6 +411,12 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
         self.setWindowTitle(tr("trip_dialog_title"))
         self.setMinimumWidth(720)
         self.setMinimumHeight(620)
+        # Issue #811: cap so this can't exceed the screen at high DPI
+        # scaling — paired with wrapping the scrollable content below in
+        # a QScrollArea in _setup_ui, since setMinimumHeight(620) alone
+        # doesn't stop the dialog growing taller than that on a small
+        # screen once the tabs + preview are all populated.
+        clamp_dialog_height_to_screen(self, parent)
         self._all_caches = caches or []
         self._selected_caches: list = []
         self._route_points: list[tuple[str, float, float]] = []  # (label, lat, lon)
@@ -420,6 +428,17 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
+
+        # Issue #811: filter_group + tabs + preview all go inside a
+        # scrollable content widget, so they can be reached even if the
+        # dialog's screen-height cap (see __init__) leaves less room than
+        # their combined sizeHint needs. The close button stays outside
+        # the scroll area, in the dialog's own layout, so it's always
+        # visible regardless of scroll position.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
 
         # Criteria-gruppe: antal + kilde-label på én linje
         filter_group = QGroupBox(tr("trip_criteria_group"))
@@ -436,25 +455,31 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
         count_row.addWidget(self._spin_count)
         count_row.addSpacing(16)
         src_lbl = QLabel(tr("trip_source_label", count=len(self._all_caches)))
-        src_lbl.setStyleSheet("color: gray; font-style: italic;")
+        src_lbl.setStyleSheet(hint_style(font_size=None, extra="font-style: italic;"))
         count_row.addWidget(src_lbl)
         count_row.addStretch()
         fl.addLayout(count_row)
 
-        layout.addWidget(filter_group)
+        content_layout.addWidget(filter_group)
 
         # ── Faner ─────────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_radius_tab(), tr("trip_tab_radius"))
         self._tabs.addTab(self._build_route_tab(),  tr("trip_tab_route"))
         self._tabs.currentChanged.connect(self._update_preview)
-        layout.addWidget(self._tabs)
+        content_layout.addWidget(self._tabs)
 
         # ── Forhåndsvisning ───────────────────────────────────────────────────
         prev_group = QGroupBox(tr("trip_preview_group"))
         prev_layout = QVBoxLayout(prev_group)
         prev_layout.addWidget(self._build_preview_widget())
-        layout.addWidget(prev_group)
+        content_layout.addWidget(prev_group)
+
+        scroll = QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        layout.addWidget(scroll)
 
         # Luk-knap
         close_row = QHBoxLayout()
@@ -603,7 +628,7 @@ class TripPlannerDialog(_PreviewMixin, QDialog):
 
         self._pt_hint = QLabel("")
         self._pt_hint.setStyleSheet(
-            "color: gray; font-size: 10px; padding-left: 2px;"
+            hint_style(extra="padding-left: 2px;")
         )
         add_layout.addWidget(self._pt_hint)
 
@@ -893,7 +918,7 @@ class TripMapPreviewDialog(QWidget):
 
         # Info-linje
         self._info_lbl = QLabel(tr("trip_map_preview_info", count=len(self._caches)))
-        self._info_lbl.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        self._info_lbl.setStyleSheet(hint_style(extra="font-style: italic;"))
         layout.addWidget(self._info_lbl)
 
         # Kort

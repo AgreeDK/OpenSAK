@@ -24,6 +24,11 @@ dist/
 build/
 *.egg-info/
 
+# Generated MSIX tile/logo images (packaging/msix/generate_assets.py) —
+# regenerated on demand from assets/icons/opensak_512.png, same pattern
+# as the boundary baseline data under data/.
+packaging/msix/assets/*.png
+
 # IDE
 .vscode/
 .idea/

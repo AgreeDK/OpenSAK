@@ -29,6 +29,7 @@ from opensak.gui.cache_detail import CacheDetailPanel
 from opensak.coords import format_coords
 from opensak.gui.settings import get_settings
 from opensak.lang import tr
+from opensak.gui.theme import hint_style
 from opensak.utils.types import GcCode
 from opensak.utils.utils import normalize_geocacher_name
 from opensak.updater import UpdateCheckWorker, RELEASES_PAGE
@@ -315,7 +316,7 @@ class MainWindow(QMainWindow):
         self._map_disabled_placeholder = QLabel(tr("map_disabled_placeholder"))
         self._map_disabled_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._map_disabled_placeholder.setWordWrap(True)
-        self._map_disabled_placeholder.setStyleSheet("color: gray; font-size: 13px;")
+        self._map_disabled_placeholder.setStyleSheet(hint_style(font_size=13))
         self._map_disabled_placeholder.setMinimumWidth(300)
 
         self._map_stack = QStackedWidget()

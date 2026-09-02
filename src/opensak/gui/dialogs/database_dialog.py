@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.db.manager import DatabaseManager, DatabaseInfo, get_db_manager
 from opensak.lang import tr
+from opensak.gui.theme import hint_text_color
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 
 class NewDatabaseDialog(QDialog):
@@ -39,7 +41,7 @@ class NewDatabaseDialog(QDialog):
 
         layout.addLayout(form)
         info_text = tr("db_new_info").replace("\n", "<br>")
-        layout.addWidget(QLabel(f"<small style='color:gray'>{info_text}</small>"))
+        layout.addWidget(QLabel(f"<small style='color:{hint_text_color()}'>{info_text}</small>"))
 
         path_row = QHBoxLayout()
         self._path_edit = QLineEdit()
@@ -132,6 +134,13 @@ class DatabaseManagerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("db_dialog_title"))
         self.setMinimumSize(560, 400)
+        # Issue #815 (follow-up to #811): defensive cap, consistent with the
+        # other dialogs audited for the same certification finding. The
+        # database list is a QListWidget (own internal scrollbar) and the
+        # button column ends in addStretch(), so both sides simply shrink to
+        # fit the cap — no additional QScrollArea needed here, same
+        # reasoning as import_dialog.py.
+        clamp_dialog_height_to_screen(self, parent)
         self._manager = get_db_manager()
         self._setup_ui()
         self._refresh_list()

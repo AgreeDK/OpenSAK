@@ -23,6 +23,7 @@ from opensak.gui.icon import OpenSAKMessageBox as QMessageBox
 from opensak.lang import tr
 from opensak.settings_store import get_store
 from opensak.gui.icon_provider import get_corrected_coords_icon
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 # Alle tilgængelige kolonner: (felt_id, visningsnavn, bredde, standard_synlig)
 # Kolonnestruktur: (felt_id, tr_nøgle, bredde, standard_synlig)
@@ -363,6 +364,12 @@ class ColumnChooserDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("column_dialog_title"))
         self.setMinimumSize(360, 520)
+        # Issue #811: the ~40-entry column list has its own scrollbar
+        # (QListWidget/QAbstractItemView always does) but only actually
+        # uses it once something constrains the *dialog's* height —
+        # without a cap, Qt just grows the window to show all items
+        # unscrolled, same failure mode as the Settings dialog.
+        clamp_dialog_height_to_screen(self, parent)
         self._visible = set(get_visible_columns())
         self._setup_ui()
 
