@@ -4,6 +4,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.18.0] — 2026-09-02
+
+> First stable release of the 1.18.0 cycle, and the **first stable release
+> distributed via the Microsoft Store** (product `9P4NBMM84H2D`) alongside
+> the existing Windows `.exe`/ZIP, Linux AppImage, and macOS DMG builds.
+> Replaces the `1.18.0-beta.1` … `1.18.0-beta.3` builds — see git history
+> for the detailed beta-by-beta log if needed. Headline of this cycle: MSIX
+> packaging for the Microsoft Store, plus a round of dialog high-DPI
+> scaling fixes surfaced by Store certification.
+
+### Added
+
+- **MSIX / Microsoft Store packaging (#786)** — OpenSAK can now be
+  packaged as an MSIX for Microsoft Store distribution (product
+  `9P4NBMM84H2D`). Nothing about the existing Windows `.exe`/ZIP build
+  changed — this is a side channel wrapping the same PyInstaller output.
+- **MSIX CI build job** — a manual-trigger-only GitHub Actions workflow
+  (`build-msix.yml`) builds and packages the `.msix` on `workflow_dispatch`.
+- `scripts/derive_msix_version.py` — converts OpenSAK's version string
+  (including any `-beta.N` suffix) into the strict 4-part numeric version
+  MSIX/the Store requires.
+
+### Fixed
+
+- **Settings and 7 other dialogs could exceed screen height at high DPI
+  scaling (#811, #815)** — caught by Microsoft Store certification
+  (10.1.2.10 Functionality) on a 2560x1600 display at 200% scaling. Added
+  a shared `clamp_dialog_height_to_screen()` helper (`widgets.py`) and
+  applied it, with `QScrollArea` wrapping where needed, to: Settings, Trip
+  planner, Column chooser, Welcome wizard, Import, GPS export (#811), and
+  Waypoint/Custom WP, Update Location, and Database Manager (#815). A new
+  `test_dialog_height_policy.py` tracks the remaining 14 lower-risk
+  dialogs as explicit follow-up work (#816) rather than a silent gap.
+- **"Close" button in the Download Boundary Packs dialog showed the raw
+  translation key `btn_close` instead of "Close" (#804)**.
+- **Advanced settings tab controls squashed on small/high-DPI screens
+  (#805)** — the Advanced tab now scrolls like the General tab instead of
+  squashing its controls together.
+- **Hint/note text too low-contrast to read, especially in dark mode
+  (#806)** — replaced a hardcoded low-contrast grey (duplicated across 42
+  call sites) with a new theme-aware `hint_text_color()`/`hint_style()`
+  helper.
+- **GSAK `.db3` import: a genuine 0.0m/sea-level elevation displayed as
+  blank (#794)** — the importer now reads GSAK's `Resolution` column to
+  distinguish "no elevation assigned" from a real sea-level reading.
+- **GSAK `.db3` import: plain-text descriptions containing a literal `<`
+  were misdetected as HTML and lost all line breaks (#803)** — the
+  importer now reads GSAK's own `ShortHtm`/`LongHtm` columns instead of
+  guessing from a raw `<` check; plain-text descriptions are also now
+  HTML-escaped before display.
+- **Import dialog's Close button froze the UI mid-import or mid-geocode,
+  and could crash after either finished (#802)**.
+
+---
+
 ## [1.18.0-beta.3] — 2026-08-31
 
 ### Fixed
