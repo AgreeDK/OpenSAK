@@ -53,23 +53,20 @@ _PROTECTION_MARKERS = (
 # welcome_wizard.py, import_dialog.py, gps_dialog.py) were fixed directly
 # alongside settings_dialog.py rather than listed here — see #811.
 KNOWN_UNPROTECTED: dict[str, str] = {
-    "boundary_packs_dialog.py": "#811 follow-up — not yet triaged",
-    "checksum_dialog.py": "#811 follow-up — not yet triaged",
-    "coord_converter_dialog.py": "#811 follow-up — not yet triaged",
-    "corrected_coords_dialog.py": "#811 follow-up — not yet triaged",
-    "database_dialog.py": "#811 follow-up — not yet triaged",
-    "distance_bearing_dialog.py": "#811 follow-up — not yet triaged",
-    "file_export_dialog.py": "#811 follow-up — not yet triaged",
-    "found_dialog.py": "#811 follow-up — not yet triaged",
-    "gsak_import_dialog.py": "#811 follow-up — not yet triaged",
-    "kml_export_dialog.py": "#811 follow-up — not yet triaged",
-    "mark_found_dialog.py": "#811 follow-up — not yet triaged",
-    "midpoint_dialog.py": "#811 follow-up — not yet triaged",
-    "move_caches_dialog.py": "#811 follow-up — not yet triaged",
-    "projection_dialog.py": "#811 follow-up — not yet triaged",
-    "shortcuts_dialog.py": "#811 follow-up — not yet triaged",
-    "update_location_dialog.py": "#811 follow-up — not yet triaged",
-    "waypoint_dialog.py": "#811 follow-up — not yet triaged",
+    "boundary_packs_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "checksum_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "coord_converter_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "corrected_coords_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "distance_bearing_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "file_export_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "found_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "gsak_import_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "kml_export_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "mark_found_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "midpoint_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "move_caches_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "projection_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
+    "shortcuts_dialog.py": "#811 follow-up — not yet triaged, tracked in #816",
 }
 
 
@@ -166,9 +163,9 @@ class TestDialogHeightPolicy:
         catches a *new* dialog silently added straight into the allowlist
         instead of being protected from the start).
         """
-        assert len(KNOWN_UNPROTECTED) == 17, (
+        assert len(KNOWN_UNPROTECTED) == 14, (
             f"KNOWN_UNPROTECTED has {len(KNOWN_UNPROTECTED)} entries, "
-            "expected 17. If you just fixed one, remove its entry "
+            "expected 14. If you just fixed one, remove its entry "
             "(caught above too) and update this count. If you just added "
             "a new dialog straight into the allowlist instead of "
             "protecting it, please protect it instead."

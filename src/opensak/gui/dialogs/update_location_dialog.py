@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from opensak.lang import tr
 from opensak.logger import get_logger
+from opensak.gui.dialogs.widgets import clamp_dialog_height_to_screen
 
 log = get_logger("gui.update_location_dialog")
 
@@ -249,6 +250,13 @@ class UpdateLocationDialog(QDialog):
         self.setWindowTitle(tr("update_loc_title"))
         self.setMinimumWidth(460)
         self.setMinimumHeight(420)
+        # Issue #815 (follow-up to #811): defensive cap, consistent with the
+        # other dialogs audited for the same certification finding. The log
+        # is a QTextEdit (own internal scrollbar) and has no stretch factor
+        # forcing it taller than its content, so it simply shrinks to fit
+        # the cap — no additional QScrollArea needed here, same reasoning as
+        # import_dialog.py.
+        clamp_dialog_height_to_screen(self, parent)
         self._worker: ReverseGeocodeWorker | None = None
         self._setup_ui()
 
