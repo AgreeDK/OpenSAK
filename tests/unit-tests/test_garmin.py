@@ -1233,9 +1233,9 @@ class TestDeviceScan:
         garmin = tmp_path / "GARMIN_DEV"
         (garmin / "Garmin").mkdir(parents=True)
         (garmin / "Garmin" / "GarminDevice.xml").write_text("<device/>")
-        garmin.chmod(0o555)
         monkeypatch.setattr("opensak.gps.garmin._get_mount_points", lambda: [garmin])
         monkeypatch.setattr("opensak.gps.garmin._linux_mtp_mounts", lambda: [])
+        monkeypatch.setattr("opensak.gps.garmin._is_writable_directory", lambda p: False)
         assert find_garmin_devices() == []
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="MTP paths contain colons, illegal on Windows")
