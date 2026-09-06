@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import platform
 import pytest
 
 from opensak.gps.garmin import (
@@ -1237,6 +1238,7 @@ class TestDeviceScan:
         monkeypatch.setattr("opensak.gps.garmin._linux_mtp_mounts", lambda: [])
         assert find_garmin_devices() == []
 
+    @pytest.mark.skipif(platform.system() == "Windows", reason="MTP paths contain colons, illegal on Windows")
     def test_find_garmin_devices_includes_mtp_mounts(self, tmp_path, monkeypatch):
         mtp_root = tmp_path / "gvfs" / "mtp:host=091e_506a_0000"
         mtp_root.mkdir(parents=True)
@@ -1317,6 +1319,7 @@ class TestErrorPaths:
 
 # ── MTP support ───────────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(platform.system() == "Windows", reason="MTP paths contain colons, illegal on Windows")
 class TestMtp:
     """Tests for MTP detection, folder lookup, gio copy/remove, and MTP export."""
 
